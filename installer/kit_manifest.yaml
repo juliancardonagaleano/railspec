@@ -1,0 +1,151 @@
+# Manifiesto de la carga del kit. Cada entrada declara un par
+# (origen en este repositorio, destino relativo al repositorio de instalación).
+# Editado a mano — no lo escribe ningún materializador.
+#
+# Cobertura: todo archivo marcado `viaja` en `docs/inventario-extraccion.yaml`
+# (CA-03) figura aquí; ningún `no-viaja` figura — verificado mecánicamente por
+# `installer/tests/test_manifest_matches_inventory.py` (CA-17), no a mano.
+# Las entradas que van más allá del inventario (`.agents/`, `.spec/perfiles.yaml`,
+# `.spec/_plantillas/`, `.spec/_fixtures/`, `scripts/`, la prosa normativa) no
+# están restringidas por esa comparación — el inventario solo cubre
+# `.spec/scripts/*.py`/`*.sh` de nivel superior — y son necesarias para que el
+# destino reciba un protocolo funcional completo, no solo esos scripts.
+#
+# `.spec/protocolo-datos.yaml` NO figura aquí a propósito: es configuración
+# propia de cada destino (modelos/perfiles permitidos, subárboles de test),
+# nunca parte de la carga que el kit sobrescribe.
+updated_at: "2026-09-28T00:00:00Z"
+entries:
+  # --- .spec/scripts/ — motor genérico (39 del inventario + unit_state.py, ---
+  # --- promovido fuera de usage/ en la misma tarea que lo excluyó, T3/T4) ---
+  - source: .spec/scripts/_common.py
+    dest: .spec/scripts/_common.py
+  - source: .spec/scripts/_common.sh
+    dest: .spec/scripts/_common.sh
+  - source: .spec/scripts/agent_tool_discipline_telemetry.py
+    dest: .spec/scripts/agent_tool_discipline_telemetry.py
+  - source: .spec/scripts/append_changelog_line.py
+    dest: .spec/scripts/append_changelog_line.py
+  - source: .spec/scripts/check_diff_isolation.sh
+    dest: .spec/scripts/check_diff_isolation.sh
+  - source: .spec/scripts/classify_change.py
+    dest: .spec/scripts/classify_change.py
+  - source: .spec/scripts/derive_tasks.py
+    dest: .spec/scripts/derive_tasks.py
+  - source: .spec/scripts/effort_profile.py
+    dest: .spec/scripts/effort_profile.py
+  - source: .spec/scripts/gate_coverage.py
+    dest: .spec/scripts/gate_coverage.py
+  - source: .spec/scripts/gate_delta.py
+    dest: .spec/scripts/gate_delta.py
+  - source: .spec/scripts/gate_size_benchmark.py
+    dest: .spec/scripts/gate_size_benchmark.py
+  - source: .spec/scripts/generate_minor_changes_index.py
+    dest: .spec/scripts/generate_minor_changes_index.py
+  - source: .spec/scripts/governance_cache.py
+    dest: .spec/scripts/governance_cache.py
+  - source: .spec/scripts/guard_bash_spec_writes.py
+    dest: .spec/scripts/guard_bash_spec_writes.py
+  - source: .spec/scripts/guard_generated_paths.py
+    dest: .spec/scripts/guard_generated_paths.py
+  - source: .spec/scripts/guard_written_state_shape.py
+    dest: .spec/scripts/guard_written_state_shape.py
+  - source: .spec/scripts/instance_lock.py
+    dest: .spec/scripts/instance_lock.py
+  - source: .spec/scripts/mandate_anchor.py
+    dest: .spec/scripts/mandate_anchor.py
+  - source: .spec/scripts/pre-commit-gate.sh
+    dest: .spec/scripts/pre-commit-gate.sh
+  - source: .spec/scripts/pre-push-gate.sh
+    dest: .spec/scripts/pre-push-gate.sh
+  - source: .spec/scripts/preflight.py
+    dest: .spec/scripts/preflight.py
+  - source: .spec/scripts/record_mandate_validation.py
+    dest: .spec/scripts/record_mandate_validation.py
+  - source: .spec/scripts/report_git_sync.py
+    dest: .spec/scripts/report_git_sync.py
+  - source: .spec/scripts/sdd_retomar.py
+    dest: .spec/scripts/sdd_retomar.py
+  - source: .spec/scripts/sdd_safe_write.py
+    dest: .spec/scripts/sdd_safe_write.py
+  - source: .spec/scripts/sdd_safe_write_canonical.py
+    dest: .spec/scripts/sdd_safe_write_canonical.py
+  - source: .spec/scripts/snapshot_evidence.sh
+    dest: .spec/scripts/snapshot_evidence.sh
+  - source: .spec/scripts/supervised-test.sh
+    dest: .spec/scripts/supervised-test.sh
+  - source: .spec/scripts/supervised_conductor.py
+    dest: .spec/scripts/supervised_conductor.py
+  - source: .spec/scripts/supervised_parallel.py
+    dest: .spec/scripts/supervised_parallel.py
+  - source: .spec/scripts/test_subset.py
+    dest: .spec/scripts/test_subset.py
+  - source: .spec/scripts/unit_state.py
+    dest: .spec/scripts/unit_state.py
+  - source: .spec/scripts/validate-supervised.sh
+    dest: .spec/scripts/validate-supervised.sh
+  - source: .spec/scripts/validate_artifact_size.py
+    dest: .spec/scripts/validate_artifact_size.py
+  - source: .spec/scripts/validate_bitacora_format.py
+    dest: .spec/scripts/validate_bitacora_format.py
+  - source: .spec/scripts/validate_gate_budget.py
+    dest: .spec/scripts/validate_gate_budget.py
+  - source: .spec/scripts/validate_mandate.py
+    dest: .spec/scripts/validate_mandate.py
+  - source: .spec/scripts/validate_model_catalog.py
+    dest: .spec/scripts/validate_model_catalog.py
+  - source: .spec/scripts/validate_protocol_drift.py
+    dest: .spec/scripts/validate_protocol_drift.py
+  - source: .spec/scripts/worktree_registry.py
+    dest: .spec/scripts/worktree_registry.py
+
+  # --- Tests del andamiaje (CA-04) --------------------------------------
+  - source: .spec/scripts/tests
+    dest: .spec/scripts/tests
+
+  # --- Huérfanos del manifiesto de origen (CA-06) -----------------------
+  # `validate_mandate.py` y `test_subset.py` ya están arriba (viven bajo
+  # `.spec/scripts/`); `kit_doctor.py` vive bajo `scripts/`, ver más abajo.
+
+  # --- Fixtures que el andamiaje lee en tiempo de ejecución (no solo tests) --
+  - source: .spec/_fixtures
+    dest: .spec/_fixtures
+
+  # --- Prosa normativa genérica (CA-05) ----------------------------------
+  - source: .spec/README.md
+    dest: .spec/README.md
+  - source: .spec/SUPERVISADO.md
+    dest: .spec/SUPERVISADO.md
+  - source: .spec/PARADAS-SUPERVISADO.md
+    dest: .spec/PARADAS-SUPERVISADO.md
+
+  # --- Plantillas de unidad SDD -------------------------------------------
+  - source: .spec/_plantillas
+    dest: .spec/_plantillas
+
+  # --- Perfiles de esfuerzo por rol de subagente --------------------------
+  - source: .spec/perfiles.yaml
+    dest: .spec/perfiles.yaml
+
+  # --- Fuentes canónicas de agentes, comandos y skills (espejos --------
+  # --- .claude/* regenerados por los 3 materializadores de scripts/, no --
+  # --- parte de la carga) ------------------------------------------------
+  - source: .agents/agents
+    dest: .agents/agents
+  - source: .agents/commands
+    dest: .agents/commands
+  - source: .agents/skills
+    dest: .agents/skills
+
+  # --- scripts/ de nivel superior (materializadores, huérfano kit_doctor.py, --
+  # --- instalador del gancho de pre-push) --------------------------------
+  - source: scripts/kit_doctor.py
+    dest: scripts/kit_doctor.py
+  - source: scripts/materialize_claude_agents.py
+    dest: scripts/materialize_claude_agents.py
+  - source: scripts/materialize_claude_commands.py
+    dest: scripts/materialize_claude_commands.py
+  - source: scripts/materialize_claude_skills.py
+    dest: scripts/materialize_claude_skills.py
+  - source: scripts/install_pre_push_hook.sh
+    dest: scripts/install_pre_push_hook.sh

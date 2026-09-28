@@ -1,0 +1,34 @@
+# Estado machine-readable de la unidad de trabajo. Fuente de verdad para la retoma.
+id: 0001-versionado-y-actualizacion-del-kit
+titulo: "Versionado y actualización del kit"
+
+dueño: ""
+carril: sdd
+
+fase: spec            # research | spec | plan | tasks | aprobacion | implement | done
+estado: completado     # completado el alcance de ESTA unidad (sembrar research+spec);
+                       # el diseño/implementación de las tres capacidades es una unidad
+                       # futura separada, todavía sin crear — ver spec.md § Alcance.
+creado: "2026-09-28T00:00:00Z"
+actualizado: "2026-09-28T00:00:00Z"
+governance_refs: [ninguna-aplicable]
+comando_validacion: "" # esta unidad no produce código; nada que validar con un comando
+
+modo: interactivo
+riesgo: bajo
+perfil: estandar
+modo_conversion: []
+aprobacion_paquete: {}
+modelo_ejecucion: {}
+gates: {}
+
+# --- Gestión bootstrap (CA-16 de la unidad de origen que trajo el kit) ---
+# Esta unidad se gestiona editando directamente la carga de este mismo
+# repositorio (el kit), sin pasar por su propio instalador — no hay
+# dependencia circular: el kit es la fuente, no un destino de sí mismo.
+# `research.md`/`spec.md` de esta unidad se escribieron a mano, en el mismo
+# commit que fija `installer/kit_manifest.yaml`.
+bootstrap: true
+
+mandato: ""
+validaciones_mandato: []
