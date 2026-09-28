@@ -84,9 +84,9 @@ class GuardRepoMixin:
             "tool_input": {"command": command},
         }
         env = dict(os.environ)
-        env.pop("IARK_GUARD_EXEMPT_TREE", None)
+        env.pop("SDD_GUARD_EXEMPT_TREE", None)
         if exempt_tree is not None:
-            env["IARK_GUARD_EXEMPT_TREE"] = exempt_tree
+            env["SDD_GUARD_EXEMPT_TREE"] = exempt_tree
         return subprocess.run(
             [sys.executable, str(self.hook)],
             input=json.dumps(payload),
@@ -318,7 +318,7 @@ class FailOpenTests(GuardRepoMixin, unittest.TestCase):
 
     def test_a_payload_that_is_not_json_does_not_deny(self) -> None:
         env = dict(os.environ)
-        env.pop("IARK_GUARD_EXEMPT_TREE", None)
+        env.pop("SDD_GUARD_EXEMPT_TREE", None)
         result = subprocess.run(
             [sys.executable, str(self.hook)],
             input="esto no es JSON",

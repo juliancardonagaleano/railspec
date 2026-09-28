@@ -1,8 +1,8 @@
 ---
 name: sdd-supervisado
 description: "Use when: conducir un mandato supervisado ya aprobado — un plan maestro por objetivo (`.spec/planes/<id>/`) o una unidad aislada ya en `modo: supervisado` — fase a fase, con gates, decisiones delegadas, paradas tipificadas y cierre, sin checkpoints humanos intermedios. Does NOT aplicar a unidades `interactivo` ni `semi-autonomo` (esas van por `sdd-orquestar`), ni aprobar un mandato, ni redactar el mandato. Keywords: supervisado, mandato, plan maestro, delegaciones, punto de retoma, overnight."
-compatibility: "IArk — Claude-first (subagentes en paralelo, worktrees)"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (subagentes en paralelo, worktrees)"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

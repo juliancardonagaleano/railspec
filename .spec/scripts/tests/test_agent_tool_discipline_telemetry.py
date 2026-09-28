@@ -1,6 +1,6 @@
 """Tests for `agent_tool_discipline_telemetry.py` (unit 0154, G1 -- CA-22, CA-23).
 
-The script is opt-in: `IARK_TOOL_DISCIPLINE_LOG=1` must be set, otherwise it
+The script is opt-in: `SDD_TOOL_DISCIPLINE_LOG=1` must be set, otherwise it
 exits 0 without writing. All tests set the env via `monkeypatch.setenv`.
 
 The CA-23a/b/d cases drive `process()` directly with a fake payload and
@@ -47,7 +47,7 @@ def _read_log(root: Path) -> str:
 def test_cat_command_writes_one_line_with_pattern_cat(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("IARK_TOOL_DISCIPLINE_LOG", "1")
+    monkeypatch.setenv("SDD_TOOL_DISCIPLINE_LOG", "1")
     rc = atd.process(_payload("cat foo.py", cwd=str(tmp_path)),
                      log_root=tmp_path, now=FIXED_TS)
     assert rc == atd.EXIT_OK
@@ -69,7 +69,7 @@ def test_cat_command_writes_one_line_with_pattern_cat(
 def test_pytest_command_writes_no_line(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("IARK_TOOL_DISCIPLINE_LOG", "1")
+    monkeypatch.setenv("SDD_TOOL_DISCIPLINE_LOG", "1")
     rc = atd.process(_payload("pytest", cwd=str(tmp_path)),
                      log_root=tmp_path, now=FIXED_TS)
     assert rc == atd.EXIT_OK
@@ -83,7 +83,7 @@ def test_pytest_command_writes_no_line(
 def test_subprocess_with_closed_stdin_exits_zero(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("IARK_TOOL_DISCIPLINE_LOG", "1")
+    monkeypatch.setenv("SDD_TOOL_DISCIPLINE_LOG", "1")
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)],
         input="", capture_output=True, text=True, check=False,
@@ -98,7 +98,7 @@ def test_subprocess_with_closed_stdin_exits_zero(
 def test_subprocess_with_malformed_payload_exits_zero(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("IARK_TOOL_DISCIPLINE_LOG", "1")
+    monkeypatch.setenv("SDD_TOOL_DISCIPLINE_LOG", "1")
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)],
         input="esto no es json", capture_output=True, text=True, check=False,
@@ -115,7 +115,7 @@ def test_subprocess_with_malformed_payload_exits_zero(
 def test_recreates_log_dir_when_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("IARK_TOOL_DISCIPLINE_LOG", "1")
+    monkeypatch.setenv("SDD_TOOL_DISCIPLINE_LOG", "1")
     atd.process(_payload("cat a.py", cwd=str(tmp_path)),
                 log_root=tmp_path, now=FIXED_TS)
     assert len(_read_log(tmp_path).splitlines()) == 1
@@ -129,13 +129,13 @@ def test_recreates_log_dir_when_missing(
 
 
 # --- extra: opt-in -------------------------------------------------------
-# Sin `IARK_TOOL_DISCIPLINE_LOG=1`, no se escribe nada aunque el comando
+# Sin `SDD_TOOL_DISCIPLINE_LOG=1`, no se escribe nada aunque el comando
 # matchee (P1 resuelto en `plan.md`).
 
 def test_no_env_var_means_no_write(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("IARK_TOOL_DISCIPLINE_LOG", raising=False)
+    monkeypatch.delenv("SDD_TOOL_DISCIPLINE_LOG", raising=False)
     rc = atd.process(_payload("cat foo.py", cwd=str(tmp_path)),
                      log_root=tmp_path, now=FIXED_TS)
     assert rc == atd.EXIT_OK
@@ -149,7 +149,7 @@ def test_no_env_var_means_no_write(
 def test_repeated_match_appends_two_lines(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("IARK_TOOL_DISCIPLINE_LOG", "1")
+    monkeypatch.setenv("SDD_TOOL_DISCIPLINE_LOG", "1")
     atd.process(_payload("cat a.py", cwd=str(tmp_path)),
                 log_root=tmp_path, now="2026-09-23T13:44:00Z")
     atd.process(_payload("ls -la", cwd=str(tmp_path)),

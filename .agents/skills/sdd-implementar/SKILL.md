@@ -1,8 +1,8 @@
 ---
 name: sdd-implementar
 description: "Use when: ejecutar las tareas pendientes de un tasks.md — escribir el código (con fan-out por grupos si el plan lo permite), marcar checkboxes, verificar contra los criterios y cerrar la unidad. Keywords: implementar, ejecutar tareas, codear, materializar el plan."
-compatibility: "IArk — Claude-first (fan-out por grupos). Ver `.agents/skills/COMPATIBILIDAD.md`"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (fan-out por grupos). Ver `.agents/skills/COMPATIBILIDAD.md`"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

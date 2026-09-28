@@ -1,8 +1,8 @@
 ---
 name: sdd-retomar
 description: "Use when: retomar una unidad de trabajo SDD existente (posiblemente de otra sesión) — leer su estado en disco y reportar exactamente dónde continuar. Keywords: retomar, continuar, handoff, dónde quedó, resume."
-compatibility: "IArk — Claude-first (lee estado en disco). Ver `.agents/skills/COMPATIBILIDAD.md`"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (lee estado en disco). Ver `.agents/skills/COMPATIBILIDAD.md`"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

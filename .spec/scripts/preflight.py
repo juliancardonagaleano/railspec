@@ -28,7 +28,7 @@ isolated unit) and `unidades-en-curso` of the entry in force of `## Punto de ret
 when there is one. The row prints which units it received.
 
 MCP configuration, in this order of precedence: `--mcp-config` > the environment
-variable `IARK_PREFLIGHT_MCP_CONFIG` > `.mcp.json` of the repository root. The row
+variable `SDD_PREFLIGHT_MCP_CONFIG` > `.mcp.json` of the repository root. The row
 prints the resolved path **and its origin** (`flag` / `env` / `default`). Only origin
 `default` checks what the interactive session really uses: with `flag` or `env` the
 row is **not representative of the session**, and reading it as if it were is exactly
@@ -380,10 +380,10 @@ def row_lock(mandate: Path, *, self_heal: bool = False,
 # --- Row: MCP -------------------------------------------------------------------------
 
 def resolve_mcp_config(flag: str | None) -> tuple[Path, str]:
-    """`--mcp-config` > `IARK_PREFLIGHT_MCP_CONFIG` > `.mcp.json` of the repo root."""
+    """`--mcp-config` > `SDD_PREFLIGHT_MCP_CONFIG` > `.mcp.json` of the repo root."""
     if flag:
         return Path(flag), "flag"
-    from_env = os.environ.get("IARK_PREFLIGHT_MCP_CONFIG", "").strip()
+    from_env = os.environ.get("SDD_PREFLIGHT_MCP_CONFIG", "").strip()
     if from_env:
         return Path(from_env), "env"
     return REPO_ROOT / ".mcp.json", "default"

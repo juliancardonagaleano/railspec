@@ -1,13 +1,13 @@
 # GENERADO por scripts/materialize_claude_skills.py — no editar a mano.
-materialized_at: 2026-09-28T22:21:03Z
+materialized_at: 2026-09-28T22:58:35Z
 source: .agents/skills
 files:
   - path: "sdd-desatendido/SKILL.md"
-    sha256: 167d92fb9cc450e69ea1fdfd84c3d748464edbf74a72621a3a9a41a9b64a2614
+    sha256: 439a049e85c979d02eae2ed229b84fc092fa951a7a22fe0e6e7f7117431ac01b
   - path: "sdd-especificar/SKILL.md"
-    sha256: c1da182565eba15d13601a454ba57124374a1f37c202cbc44db64a7485381171
+    sha256: 376b23421a7bd5770336ae06d47885a59cb7de3979e447db0840dfae78345764
   - path: "sdd-gate/SKILL.md"
-    sha256: b22a91eac7c7b4703d5445b3cbf7474f5ddf6752852e2d08fd264a27ad3bdfd5
+    sha256: 13d9d885979ac1dbc5cad26f5568a04c706912b0744081c967dabce39d8534ba
   - path: "sdd-gate/references/delta-critique.md"
     sha256: f3cfcb9a515012491b5ea6ba8621bf97e5bd2d1612d2d9dfee9ab2eacd46cf19
   - path: "sdd-gate/references/deterministic-layer.md"
@@ -25,18 +25,20 @@ files:
   - path: "sdd-gate/references/test-subset-codigo.md"
     sha256: fbf5798ee39a0dcb78294b8071542f816586e94a21fb1f093dc2d6611f753d16
   - path: "sdd-implementar/SKILL.md"
-    sha256: 8f30566444bff1468be2ec7b8c9394b311d56d10fab1bebf69d6ca807269f767
+    sha256: caa6797cbfd5d8de9571ade17ed463c337995820dd77e51f4c3d92cd372f64b0
   - path: "sdd-orquestar/SKILL.md"
-    sha256: 242f71fa714f97359316b3ff1da032a4456f15c2c0d0386304f576d0d1b944ed
+    sha256: 856934c0193a1b1464d78f07cff79c8553bf41f60bb35bb8e3f068a31b8a0deb
   - path: "sdd-perfil/SKILL.md"
-    sha256: b3de8b82b8c9357a6900f5dc959339771c916a6d7c451e3950e9084813d0c2a5
+    sha256: e661c929112b4f6ae45e0179da43ba5fc9ed6e9bc78e5f8bbc68118b12395b85
   - path: "sdd-planificar/SKILL.md"
-    sha256: 9bef2f27f26f32543ec4861b0542cccb97dda0fa2e35c218b9a865fdcdb00875
+    sha256: e49ca72279119b50428f1bc093530ecd5bda917cc4b7113e0e8202831c6fc504
   - path: "sdd-preflight/SKILL.md"
-    sha256: 461b88fe3ce5c921622546b04fc225ae138b18f05326d933d2cf9d13543b72fc
+    sha256: 288cb7cf449abc3bb43d50bf2bb3c1e786551d8534eda615d8e1557d236d7f11
   - path: "sdd-retomar/SKILL.md"
-    sha256: 4beb49c4c627535d03522797597c11f4d0efba004c6196eeb4020afc1e49c31d
+    sha256: 297b4f060bd8dc79868f0c461045aecb64981d6310006ad2eccac7d325cb9950
   - path: "sdd-supervisado/SKILL.md"
-    sha256: 10df6776ab5c19bf97d6b11762339924001151f8a20d9ae35662c3200a46e8fe
+    sha256: 6f8b2bb1cdd7d6d7a323a9a25ca1b4d83938d11a170e2216b23fe2a4c029e7c4
   - path: "sdd-tareas/SKILL.md"
-    sha256: 9cd55f429369c608016af85bc439138c4b30fb98fcb320014e4978f98778a278
+    sha256: b33a4ade453ab6556c42c4430983732f25a71c2de36867c65dd4271282098ff7
+  - path: "kit-doctor/SKILL.md"
+    sha256: ae8f664bf2638473a27b41625e1928e589790436d44ee22e532d5264115aac79

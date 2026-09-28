@@ -45,7 +45,7 @@ BRANCH = "fixture"
 def clean_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    env.pop("IARK_PREFLIGHT_MCP_CONFIG", None)
+    env.pop("SDD_PREFLIGHT_MCP_CONFIG", None)
     if extra:
         env.update(extra)
     return env
@@ -430,7 +430,7 @@ class McpRowTests(PreflightCase):
             self.repo,
             ["--mandate", str(self.mandate), "--unit", str(self.unit),
              "--mcp-timeout", SHORT_TIMEOUT],
-            clean_env({"IARK_PREFLIGHT_MCP_CONFIG": str(ok_config)}))
+            clean_env({"SDD_PREFLIGHT_MCP_CONFIG": str(ok_config)}))
         self.assertIn(f"(config: {ok_config}, origen: env)",
                       row_of(env_run.stdout, "mcp"))
 
@@ -439,21 +439,21 @@ class McpRowTests(PreflightCase):
         no arrancando el servidor real de `.mcp.json`."""
         ok_config = mcp_config(self._mcp_dir, "ok")
         config_401 = mcp_config(self._mcp_dir, "unauthorized")
-        previous = os.environ.pop("IARK_PREFLIGHT_MCP_CONFIG", None)
+        previous = os.environ.pop("SDD_PREFLIGHT_MCP_CONFIG", None)
         self.addCleanup(lambda: os.environ.__setitem__(
-            "IARK_PREFLIGHT_MCP_CONFIG", previous) if previous else None)
+            "SDD_PREFLIGHT_MCP_CONFIG", previous) if previous else None)
         self.assertEqual(preflight.resolve_mcp_config(None),
                          (REPO_ROOT / ".mcp.json", "default"))
-        os.environ["IARK_PREFLIGHT_MCP_CONFIG"] = str(ok_config)
+        os.environ["SDD_PREFLIGHT_MCP_CONFIG"] = str(ok_config)
         self.assertEqual(preflight.resolve_mcp_config(None), (ok_config, "env"))
         self.assertEqual(preflight.resolve_mcp_config(str(config_401)),
                          (Path(config_401), "flag"))
-        os.environ.pop("IARK_PREFLIGHT_MCP_CONFIG", None)
+        os.environ.pop("SDD_PREFLIGHT_MCP_CONFIG", None)
 
     def test_la_cabecera_documenta_el_tiempo_maximo_y_el_origen(self) -> None:
         header = preflight.__doc__ or ""
         self.assertIn("20 s", header)
-        self.assertIn("IARK_PREFLIGHT_MCP_CONFIG", header)
+        self.assertIn("SDD_PREFLIGHT_MCP_CONFIG", header)
         self.assertIn("not representative of the session", header)
         self.assertEqual(preflight.DEFAULT_MCP_TIMEOUT, 20.0)
 

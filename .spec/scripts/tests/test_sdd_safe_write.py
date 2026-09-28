@@ -363,7 +363,7 @@ class SafeWriteRepoMixin:
         if extra_payload:
             payload.update(extra_payload)
         env = dict(os.environ)
-        env.pop("IARK_GUARD_EXEMPT_TREE", None)
+        env.pop("SDD_GUARD_EXEMPT_TREE", None)
         env.pop("SDD_SAFE_WRITE_MAX_RETRIES", None)
         return subprocess.run(
             [sys.executable, str(self.loop)],
@@ -757,7 +757,7 @@ class LoopBehaviorTests(SafeWriteRepoMixin, unittest.TestCase):
 
     def test_invalid_json_is_noop(self) -> None:
         env = dict(os.environ)
-        env.pop("IARK_GUARD_EXEMPT_TREE", None)
+        env.pop("SDD_GUARD_EXEMPT_TREE", None)
         env.pop("SDD_SAFE_WRITE_MAX_RETRIES", None)
         result = subprocess.run(
             [sys.executable, str(self.loop)],

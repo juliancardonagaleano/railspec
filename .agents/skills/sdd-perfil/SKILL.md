@@ -1,8 +1,8 @@
 ---
 name: sdd-perfil
 description: "Use when: fijar o consultar el perfil de esfuerzo (`ligero`|`estandar`|`profundo`) de la unidad SDD activa, o fijar/mostrar/limpiar el archivo de perfiles local activo por clon (`set-file`/`show`/`clear-file`) — cuánto se gasta en modelo/effort por rol, presupuesto del gate y exploradores, sin tocar `riesgo`. Does NOT elegir el modo ni el tier de riesgo (eso lo fija el triaje de `sdd-orquestar`), ni invocar subagentes. Keywords: perfil, esfuerzo, /sdd-perfil, ligero, estandar, profundo, modelo, effort, archivo activo, set-file, clear-file."
-compatibility: "IArk — Claude-first (lee/escribe `_estado.yaml`). Ver `.agents/skills/COMPATIBILIDAD.md`"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (lee/escribe `_estado.yaml`). Ver `.agents/skills/COMPATIBILIDAD.md`"
+license: "Proprietary"
 model: haiku
 metadata:
   user-invocable: "true"

@@ -30,7 +30,7 @@ VALIDATOR_CODES = list_validator_codes()
 
 def _run_validator(tmp_dir: Path) -> subprocess.CompletedProcess:
     env = dict(__import__("os").environ)
-    env.pop("IARK_GUARD_EXEMPT_TREE", None)
+    env.pop("SDD_GUARD_EXEMPT_TREE", None)
     return subprocess.run(
         [sys.executable, str(VALIDATOR), "--unidad", str(tmp_dir)],
         capture_output=True,

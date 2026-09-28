@@ -1,15 +1,15 @@
 ---
 name: sdd-especificar
 description: "Use when: arrancar una unidad de trabajo Spec-Driven para evolucionar este repo — capturar QUÉ y POR QUÉ en spec.md antes de tocar código. Does NOT design the technical approach (eso es sdd-planificar). Keywords: especificación, spec, nueva tarea, plan de trabajo, dejar de vibe coding."
-compatibility: "IArk — Claude-first (subagentes en paralelo)"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (subagentes en paralelo)"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---
 
 # Skill: SDD — Especificar
 
-Fase 1 del desarrollo Spec-Driven. Captura el **QUÉ** y el **POR QUÉ** de un cambio al framework en un `spec.md`, antes de diseñar el cómo o tocar código. Independiente del pipeline IArk (`.artefactos-iark/`).
+Fase 1 del desarrollo Spec-Driven. Captura el **QUÉ** y el **POR QUÉ** de un cambio al framework en un `spec.md`, antes de diseñar el cómo o tocar código. Independiente de cualquier pipeline de producto propio del destino.
 
 **NO diseña el enfoque técnico (eso es `sdd-planificar`). NO implementa.**
 
@@ -19,7 +19,7 @@ Fase 1 del desarrollo Spec-Driven. Captura el **QUÉ** y el **POR QUÉ** de un c
 |------|---------|
 | Iniciar un cambio no trivial al repo | Diseñar archivos/enfoque → `sdd-planificar` |
 | Formalizar una idea antes de codear | Fix trivial de 1 línea (no requiere ceremonia) |
-| Registrar criterios de aceptación | Generar apps de usuario final → pipeline IArk |
+| Registrar criterios de aceptación | Generar artefactos de producto final → pipeline propio del destino |
 
 ## Flujo
 

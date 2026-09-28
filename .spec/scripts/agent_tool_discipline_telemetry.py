@@ -2,7 +2,7 @@
 """Telemetría de disciplina de herramientas runtime (CA-22, CA-23, unit 0154 G1).
 
 Hook que lee el payload JSON del harness por stdin y, si el opt-in
-`IARK_TOOL_DISCIPLINE_LOG=1` está activo y el comando abre con uno de los
+`SDD_TOOL_DISCIPLINE_LOG=1` está activo y el comando abre con uno de los
 patrones triviales de inspección (`cat`, `ls`, `find`, `tree`, `git status`,
 `git diff`), escribe una línea append-only atómica en
 `<cwd>/.spec/.usage/tool-discipline.log`. Sin la variable, exit 0 sin
@@ -25,7 +25,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 
 EXIT_OK = 0
-OPT_IN_ENV = "IARK_TOOL_DISCIPLINE_LOG"
+OPT_IN_ENV = "SDD_TOOL_DISCIPLINE_LOG"
 MATCH = re.compile(r"^(?P<pattern>cat|ls|find|tree|git\s+status|git\s+diff)\b")
 LOG_REL = Path(".spec") / ".usage" / "tool-discipline.log"
 ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"

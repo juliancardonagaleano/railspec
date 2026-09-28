@@ -1,8 +1,8 @@
 ---
 name: sdd-gate
 description: "Use when: validar un artefacto SDD recién producido (spec.md, plan.md, tasks.md o el diff de implementación) antes de avanzar de fase — corre el gate determinista y el bucle de crítica-refinamiento con panel de agentes. Does NOT redactar el artefacto desde cero (eso es la skill de la fase). Keywords: gate, validación, crítica, refinar, self-improvement, revisar spec, revisar plan."
-compatibility: "IArk — Claude-first (subagentes en paralelo)"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (subagentes en paralelo)"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

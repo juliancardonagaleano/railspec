@@ -1,8 +1,8 @@
 ---
 name: sdd-preflight
 description: "Use when: correr el chequeo previo sin efectos laterales de un mandato supervisado, antes de que `sdd-supervisado` tome el lock — lock, MCP de gobernanza, árbol git y validador de mandatos, cada uno con su causa literal de BLOCK. Does NOT tomar el lock ni escribir estado: cero efectos laterales por defecto es su contrato; ver § Self-heal para la excepción opt-in. Keywords: preflight, mandato supervisado, MCP, lock de instancia, validador, chequeo previo."
-compatibility: "IArk — Claude-first (read-only, cero escrituras). Ver `.agents/skills/COMPATIBILIDAD.md`"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (read-only, cero escrituras). Ver `.agents/skills/COMPATIBILIDAD.md`"
+license: "Proprietary"
 context: fork
 model: haiku
 metadata:
@@ -42,7 +42,7 @@ Quien invoca (siempre `sdd-supervisado`, en lanzamiento o retoma) da:
   la invocación (única fuente en lanzamiento y en unidad aislada) más
   `unidades-en-curso` de la entrada vigente de `## Punto de retoma` cuando la hay
   (retoma con `## Punto de retoma` no vacío).
-- Opcional: `IARK_PREFLIGHT_MCP_CONFIG` del entorno, si la sesión (o el runner del
+- Opcional: `SDD_PREFLIGHT_MCP_CONFIG` del entorno, si la sesión (o el runner del
   piloto) la exportó — la pasa como `--mcp-config` para que el preflight compruebe
   **la misma** configuración MCP que la sesión, nunca una distinta (D-3 de `plan.md`
   de `0114`: un origen que no sea `default` deja la fila del MCP no representativa
@@ -57,7 +57,7 @@ Quien invoca (siempre `sdd-supervisado`, en lanzamiento o retoma) da:
      --mandate <ruta-del-mandato> \
      --unit <dir-unidad-1> [--unit <dir-unidad-2> …] \
      --mode launch|resume \
-     [--mcp-config "$IARK_PREFLIGHT_MCP_CONFIG"]
+     [--mcp-config "$SDD_PREFLIGHT_MCP_CONFIG"]
    ```
 
    Sin `--unit` el script sale con `preflight-error` (nunca infiere el alcance de la

@@ -24,7 +24,7 @@ VALIDATOR = REPO / ".spec" / "scripts" / "validate_mandate.py"
 
 def _run_validator(unit_dir: Path) -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env.pop("IARK_GUARD_EXEMPT_TREE", None)
+    env.pop("SDD_GUARD_EXEMPT_TREE", None)
     return subprocess.run(
         [sys.executable, str(VALIDATOR), "--unidad", str(unit_dir)],
         capture_output=True,

@@ -1,8 +1,8 @@
 ---
 name: sdd-orquestar
 description: "Use when: el usuario pide un cambio NO trivial a este repo en lenguaje natural (sin invocar una fase concreta) — conduce el flujo Spec-Driven completo, en modo interactivo o semi-autonomo, con gates entre fases. Does NOT aplicar a análisis, explicaciones ni tareas simples (esas van directas). Keywords: nueva feature, refactor, implementar cambio, plan de trabajo, dejar de vibe coding, modo semi-autonomo."
-compatibility: "IArk — Claude-first (conduce fases con gates). Ver `.agents/skills/COMPATIBILIDAD.md`"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (conduce fases con gates). Ver `.agents/skills/COMPATIBILIDAD.md`"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

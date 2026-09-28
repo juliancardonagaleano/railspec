@@ -159,7 +159,7 @@ EXCLUDED_TREES = (
 #: Byte-identical with `guard_written_state_shape.py` by decision of
 #: plan.md § Decisiones de diseño.
 PILOT_UNIT_TREE = ".spec/units/9109-"
-EXEMPT_TREE_ENV = "IARK_GUARD_EXEMPT_TREE"
+EXEMPT_TREE_ENV = "SDD_GUARD_EXEMPT_TREE"
 EXEMPT_TREE_ROOT = ".spec/units/"
 
 #: Splitter of the validator's `códigos: ...` line, used to recover the codes
@@ -188,11 +188,11 @@ def _log_failure(message: str) -> None:
 def _exempt_roots() -> list[str]:
     """Repo-relative prefixes exempt under D-16.
 
-    `$IARK_GUARD_EXEMPT_TREE` is honoured **only** when it is non-empty and its
+    `$SDD_GUARD_EXEMPT_TREE` is honoured **only** when it is non-empty and its
     normalized value falls under `.spec/units/`; any other value -- empty, `.`,
     a path outside that tree -- is ignored and leaves an `exempt-tree-ignored`
     line in `.spec/.usage/sdd-safe-write.log`. Without that cap an
-    `export IARK_GUARD_EXEMPT_TREE=` would make the prefix match every path and
+    `export SDD_GUARD_EXEMPT_TREE=` would make the prefix match every path and
     silently disable the loop over the whole repo; with it, a badly exported
     exemption is visible in the log and never widens past one unit.
 

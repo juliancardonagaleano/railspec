@@ -1,8 +1,8 @@
 ---
 name: sdd-desatendido
 description: "Use when: conducir las unidades de un plan maestro bajo `modo: desatendido` — 1 aprobación del mandato (sección `## Aprobación` del plan), sin checkpoints intermedios, con gates que escalan como `auto-deferred` (la unidad queda diferida, las demás del plan siguen) y las paradas tipificadas de `.spec/PARADAS-SUPERVISADO.md`. Does NOT aplicar a unidades `interactivo` ni `semi-autonomo` (esas van por `sdd-orquestar`), ni a `supervisado` (`sdd-supervisado`, que congela el mandato entero ante un gate escalado en vez de diferir solo la unidad), ni aprobar el mandato. Keywords: desatendido, plan maestro, mandato, aprobación upfront, auto-deferred, limpieza masiva, reseeding, catch-up."
-compatibility: "IArk — Claude-first (unidades de un plan maestro, 1 aprobación upfront)"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (unidades de un plan maestro, 1 aprobación upfront)"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

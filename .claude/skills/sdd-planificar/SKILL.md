@@ -1,8 +1,8 @@
 ---
 name: sdd-planificar
 description: "Use when: traducir un spec.md aprobado en un plan técnico (plan.md) — enfoque, archivos a tocar, reutilización, grupos paralelizables, riesgos, comando de validación. Does NOT write code ni descompone en checklist (eso es sdd-tareas). Keywords: plan técnico, diseño, cómo implementar."
-compatibility: "IArk — Claude-first (subagentes en paralelo)"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (subagentes en paralelo)"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

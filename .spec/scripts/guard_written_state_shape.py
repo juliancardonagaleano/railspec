@@ -108,7 +108,7 @@ PILOT_UNIT_TREE = ".spec/units/9109-"
 
 #: Condition (d), D-16: the runner exports this as `$TEST_UNIT` so a test unit
 #: named otherwise stays exempt too.
-EXEMPT_TREE_ENV = "IARK_GUARD_EXEMPT_TREE"
+EXEMPT_TREE_ENV = "SDD_GUARD_EXEMPT_TREE"
 
 #: Cap on that variable: an exemption never widens past one unit directory.
 EXEMPT_TREE_ROOT = ".spec/units/"
@@ -136,11 +136,11 @@ def _log_failure(message: str) -> None:
 def _exempt_roots() -> list[str]:
     """Repo-relative prefixes exempt under D-16.
 
-    `$IARK_GUARD_EXEMPT_TREE` is honoured **only** when it is non-empty and its
+    `$SDD_GUARD_EXEMPT_TREE` is honoured **only** when it is non-empty and its
     normalized value falls under `.spec/units/`; any other value -- empty, `.`,
     a path outside that tree -- is ignored and leaves an `exempt-tree-ignored`
     line in `guard-failures.log`. Without that cap an
-    `export IARK_GUARD_EXEMPT_TREE=` would make the prefix match every path and
+    `export SDD_GUARD_EXEMPT_TREE=` would make the prefix match every path and
     silently disable the guard over the whole repo; with it, a badly exported
     exemption is visible in the failures log and never widens past one unit.
 

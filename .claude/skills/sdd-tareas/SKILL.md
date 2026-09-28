@@ -1,8 +1,8 @@
 ---
 name: sdd-tareas
 description: "Use when: descomponer un plan.md aprobado en un tasks.md — checklist atómico con dependencias y cobertura de criterios, que sirve de fuente de verdad resumible. Does NOT implement. Keywords: tareas, checklist, descomposición, todo."
-compatibility: "IArk — Claude-first (subagentes en paralelo)"
-license: "Proprietary - IArk"
+compatibility: "Claude-first (subagentes en paralelo)"
+license: "Proprietary"
 metadata:
   user-invocable: "true"
 ---

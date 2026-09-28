@@ -74,7 +74,7 @@ EXIT_OK = 0
 
 #: D-16: reserved prefix of the pilot's test unit (`supervised-test.sh`).
 PILOT_UNIT_TREE = ".spec/units/9109-"
-EXEMPT_TREE_ENV = "IARK_GUARD_EXEMPT_TREE"
+EXEMPT_TREE_ENV = "SDD_GUARD_EXEMPT_TREE"
 EXEMPT_TREE_ROOT = ".spec/units/"
 
 #: Shell operators that separate one command from the next. Each segment is
