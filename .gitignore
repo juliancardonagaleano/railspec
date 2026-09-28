@@ -49,3 +49,15 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+
+# Estado local efímero que el andamiaje escribe en tiempo de ejecución en
+# cualquier destino (incluido este propio repositorio, al correr su suite):
+# rejection-logs de los guard hooks, tablero de paralelismo por worktrees,
+# caché de recorte por delta de gate, y demás marcadores de corrida — nunca
+# artefactos versionados de una unidad.
+.spec/.usage/
+.spec/.supervised-runtime/
+.spec/units/*/.gate-delta/
+.spec/.pilot-verde
+.spec/.kit-install/
+.spec/scripts/**/__pycache__/
