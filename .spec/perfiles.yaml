@@ -1,0 +1,48 @@
+default: estandar
+
+perfiles:
+  estandar:
+    roles:
+      sdd-critico-cumplimiento: {modelo: sonnet, effort: low}
+      sdd-critico-estructural: {modelo: haiku}
+      sdd-critico-profundo: {modelo: sonnet, effort: high}
+      sdd-especificar-redactor: {modelo: sonnet, effort: high}
+      sdd-explorador: {modelo: sonnet, effort: low}
+      sdd-implementador: {modelo: sonnet, effort: medium}
+      sdd-planificar-redactor: {modelo: sonnet, effort: medium}
+      sdd-refutador: {modelo: sonnet, effort: low}
+      sdd-tareas-redactor: {modelo: haiku}
+    gate:
+      bajo: {criticos: 1, iteraciones: 1, adversarial: false}
+      medio: {criticos: 1, iteraciones: 1, adversarial: false}
+      alto: {criticos: 2, iteraciones: 2, adversarial: true}
+    exploradores:
+      bajo: 1
+      medio: 1
+      alto: 2
+    implementador_complejo: {modelo: sonnet, effort: high}
+
+  ligero:
+    roles:
+      sdd-critico-cumplimiento: {modelo: haiku}
+      sdd-critico-profundo: {modelo: sonnet, effort: low}
+      sdd-especificar-redactor: {modelo: sonnet, effort: medium}
+      sdd-explorador: {modelo: haiku}
+      sdd-implementador: {modelo: sonnet, effort: low}
+      sdd-planificar-redactor: {modelo: haiku}
+      sdd-refutador: {modelo: haiku}
+    gate:
+      alto: {criticos: 1, adversarial: false}
+    exploradores:
+      alto: 1
+    implementador_complejo: {modelo: sonnet, effort: medium}
+
+  profundo:
+    roles:
+      sdd-especificar-redactor: {modelo: sonnet, effort: xhigh}
+      sdd-critico-profundo: {modelo: sonnet, effort: max}
+      sdd-implementador: {modelo: sonnet, effort: xhigh}
+      sdd-refutador: {modelo: sonnet, effort: max}
+    gate:
+      medio: {adversarial: true}
+    implementador_complejo: {modelo: sonnet, effort: max}

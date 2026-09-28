@@ -1,0 +1,45 @@
+# Fixture versionado de patrones. Una sola fuente para dos consumidores que de
+# otro modo tendrían dos listas distintas (`pri-gob-fuente-verdad-unica`):
+#
+#   * CA-15 — la suite aplica las líneas `ritual|` sobre las cinco skills que
+#     tocan el ritual descrito abajo (`sdd-supervisado`, `sdd-preflight`,
+#     `sdd-implementar`, `sdd-gate`, `sdd-retomar`): una skill que todavía
+#     describe el ritual a mano en vez de citar su script lo delata casando
+#     uno de estos patrones.
+#   * CA-21 — `guard_bash_spec_writes.py` lee las líneas `interprete|` como su lista
+#     **cerrada** de intérpretes. Ampliarla es editar este archivo, nunca el hook.
+#
+# Formato, una entrada por línea: `<clase>|<valor>`. Las líneas vacías y las que
+# empiezan por `#` se ignoran. `<valor>` de una línea `ritual|` es una expresión
+# regular de Python; el de una línea `interprete|` es un nombre de ejecutable
+# (se compara contra el basename del primer token del comando).
+
+# --- ritual| : el ritual descrito a mano en vez de delegado en su script -------------
+
+# La invocación literal del validador de mandatos. Tras esta unidad la hacen
+# `record_mandate_validation.py` (que además anexa la entrada a `validaciones_mandato`)
+# y `preflight.py`; una skill no vuelve a escribirla.
+ritual|validate_mandate\.py .*--(plan|unidad|hash|resumen)
+
+# Los tres bullets del lock de § 1.1 transcritos a mano. Los escribe y los borra
+# `instance_lock.py acquire` / `release`.
+ritual|^\s*-\s*(sesion|lanzador|inicio):
+
+# El anexo manual de § 12 al changelog del índice. Lo hace `append_changelog_line.py`,
+# que además es idempotente.
+ritual|anexar al changelog de
+
+# El marcador de la captura de evidencia. Su único escritor es `supervised-test.sh`
+# (CA-14): ni las skills ni `snapshot_evidence.sh` lo nombran.
+ritual|capturado-en\.txt
+
+# --- interprete| : lista cerrada de CA-21 --------------------------------------------
+# Un intérprete fuera de esta lista (p. ej. `awk`) **no** se bloquea: es el resultado
+# esperado y documentado del criterio, no un hueco.
+interprete|python3
+interprete|python
+interprete|bash
+interprete|sh
+interprete|zsh
+interprete|node
+interprete|perl

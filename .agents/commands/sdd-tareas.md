@@ -1,0 +1,8 @@
+---
+description: "SDD fase 3 — descomponer plan.md en tasks.md"
+argument-hint: "[id/slug de la unidad]"
+---
+
+Ejecuta la skill canónica `sdd-tareas` (`.agents/skills/sdd-tareas/SKILL.md`) siguiendo el protocolo de Desarrollo Spec-Driven definido en `AGENTS.md`.
+
+Unidad: $ARGUMENTS
