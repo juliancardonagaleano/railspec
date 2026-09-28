@@ -1,89 +1,108 @@
 #!/usr/bin/env python3
-"""Drift detector for the SDD protocol — executable from bash / `pre-push-gate.sh`.
+"""Drift detector for the SDD protocol — motor genérico del kit, ejecutable
+desde bash / `pre-push-gate.sh`.
 
-Cobertura (13 chequeos, todos verificables sin invocar el MCP):
-  1. README ## Gates de validación coincide con golden (`test_gate_tier_budget_unchanged.py`).
-  2. Los agents declarados en `.claude/agents/` (los 9 roles base más toda
+Cobertura (5 chequeos invariantes del protocolo SDD, válidos para cualquier
+destino, verificables sin invocar el MCP):
+  1. README ## Gates de validación coincide con el presupuesto golden por
+     tier (bajo/medio/alto) — estructura del propio protocolo, no dato de
+     ningún destino.
+  2. Los agents declarados en `.claude/agents/` (los roles base más toda
      variante generada `<rol>-<effort>`, p. ej. `sdd-implementador-xhigh`; el
      manifiesto `.claude-agents-manifest.yaml` no matchea el glob y queda
-     fuera) declaran modelo de la lista permitida `{opus, sonnet, haiku}` —
-     sin Fable como default. Excepción: menciones en el cuerpo descriptivo
-     están permitidas (no se persiguen en prosa).
-  3. `MODELO-AGENTES.md` no contiene Fable en la columna "Modelo" de la tabla
-     de asignación (mismas reglas).
-  4. `MODELO-AGENTES.md` cita `0117-D1` en su bloque introductorio (es la decisión
-     que retiró Fable; sin esa cita la tabla puede revertirse sin dejar
-     rastro).
-  5. `indicators.json` (K7/K9/K10) tiene metas `≈ 0` (post-0117-D1; los topes viejos
-     `≤ 25%/≤ 5%/0` reintroducirían el patrón de gasto que motivó el kit).
-  6. `sdd-gate/SKILL.md` cita `0117-D6` (panel solo en `spec`/`codigo`).
-  7. `sdd-orquestar/SKILL.md` menciona fast-track (`0123-D1`).
-  8. `sdd-orquestar/SKILL.md` menciona modo micro (`0126`).
-  9. `.claude/settings.json` declara `model: sonnet` y `effortLevel: medium`
-     (kit-desarrollo-sistecredito-D2, que revierte el `low` de 0117-D7).
-  10. Las 6 `SKILL.md` de fase no contienen prosa redundante que duplique el
-      frontmatter de los agents.
-  11. `.spec/perfiles.yaml` existe y `perfiles.estandar` no declara `fable` en
-      ningún rol ni en `implementador_complejo` -- Fable/Opus sólo son
-      autorizables desde `profundo` (CA-15).
-  12. Las 6 skills que invocan subagentes (`sdd-especificar`, `sdd-planificar`,
-      `sdd-tareas`, `sdd-implementar`, `sdd-gate`, `sdd-orquestar`) citan
-      `effort_profile.py resolve` en su `SKILL.md` canónico -- ninguna cae en
-      silencio al frontmatter (H5, CA-16).
-  13. `MODELO-AGENTES.md` cita `perfiles.yaml` como fuente de la tabla de
-      modelo/effort por rol (CA-22).
+     fuera) declaran un modelo de la familia real de Anthropic
+     `{opus, sonnet, haiku}` -- invariante de cualquier destino que use
+     agentes Claude, no dato propio de un destino (a diferencia de los
+     checks 10/11, que sí leen su lista de modelos permitidos de
+     configuración -- ver más abajo).
+  3. Las `SKILL.md` de fase no contienen prosa que duplique el frontmatter
+     de los agents: menciona explícitamente un modelo que la configuración
+     de datos del destino no declara como permitido, o repite en prosa el
+     par (modelo, effort) de un subagente que ya tiene su propio agent
+     declarado.
+  4. `.spec/perfiles.yaml` existe; sus perfiles top-level están en la lista
+     de perfiles permitidos de la configuración de datos del destino, y
+     ninguno de sus roles bajo `estandar` declara un modelo fuera de esa
+     misma lista.
+  5. Las skills que invocan subagentes citan `effort_profile.py resolve` en
+     su `SKILL.md` canónico -- ninguna cae en silencio al frontmatter.
+
+Los checks 3 y 4 (numerados `10` y `11` -- se conserva la numeración
+original del validador de origen para trazabilidad, no se renumera a 01-05)
+leen los nombres de modelo/perfil permitidos desde
+`.spec/protocolo-datos.yaml` del destino (`--protocolo-datos` > variable de
+entorno `SDD_PROTOCOLO_DATOS_PATH` > archivo de reposo en la raíz del
+destino -- mismo patrón de precedencia que `preflight.py:resolve_mcp_config`
+usa para el MCP), en vez de traerlos cableados: un destino sin ese archivo
+hace fallar el motor de forma explícita, nunca con un default silencioso.
+
+Los 8 checks que en el validador de origen (donde este archivo se generó)
+cubrían historia puntual de ese repositorio -- referencias a documentos,
+decisiones y artefactos que solo existen ahí -- no viajan como código de
+este motor: cada destino los declara como sus propios datos si le aplican,
+fuera de este archivo.
 
 Salida:
   - Cada chequeo imprime `OK: <id> — <descripción>` o `FAIL: <id> — <descripción>`.
-  - Exit 0 si los 13 chequeos pasan; exit 1 con código si alguno falla.
+  - Exit 0 si los 5 chequeos pasan; exit 1 si alguno falla.
 
 Convenciones:
-  - stdlib only (`argparse`, `json`, `re`, `sys`, `pathlib`).
+  - stdlib only (`argparse`, `json`, `re`, `sys`, `pathlib`) más `_common`
+    (sibling, mismo directorio).
   - Sin red, sin MCP. Drift local.
-  - Reutiliza `_gates_table_rows` del test viejo vía import si está disponible;
-    si no, reimplementa inline (sin duplicar lógica de cobertura).
-
-CA-12 / CA-13 / CA-14 del spec 0158.
 """
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _common import (  # noqa: E402
+    ProtocoloDatosError,
+    field_list,
+    load_protocolo_datos,
+    resolve_protocolo_datos_path,
+)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 AGENTS_DIR = REPO_ROOT / ".claude" / "agents"
-MODELO_AGENTES = REPO_ROOT / ".spec" / "MODELO-AGENTES.md"
 README = REPO_ROOT / ".spec" / "README.md"
-INDICATORS = REPO_ROOT / ".spec" / "planes" / "kit-desarrollo-sistecredito" / "indicators.json"
-GATE_SKILL = REPO_ROOT / ".agents" / "skills" / "sdd-gate" / "SKILL.md"
-GATE_REFS = REPO_ROOT / ".agents" / "skills" / "sdd-gate" / "references"
-ORQUESTAR_SKILL = REPO_ROOT / ".agents" / "skills" / "sdd-orquestar" / "SKILL.md"
-SETTINGS_JSON = REPO_ROOT / ".claude" / "settings.json"
 PERFILES_YAML = REPO_ROOT / ".spec" / "perfiles.yaml"
 SKILLS_DIR = REPO_ROOT / ".agents" / "skills"
 
+#: Familia real de modelos Anthropic -- invariante de cualquier destino que
+#: use agentes Claude (check 02), a diferencia de los modelos/perfiles
+#: *permitidos por este destino* que leen los checks 10/11 de
+#: `.spec/protocolo-datos.yaml`.
 ALLOWED_MODELS = {"opus", "sonnet", "haiku"}
 
-#: The 6 phase skills that invoke subagents (CA-16) -- checks 12 and, via
-#: `check_10_skills_prosa_no_redundante`, the redundant-prose check both
-#: scope to `SKILLS_DIR`, but only these 6 must cite `effort_profile.py
-#: resolve`.
-PHASE_SKILLS = (
-    "sdd-especificar",
-    "sdd-planificar",
-    "sdd-tareas",
-    "sdd-implementar",
-    "sdd-gate",
-    "sdd-orquestar",
-)
+#: Las skills que invocan subagentes (checks 10 y 12) -- cada destino puede
+#: tener un conjunto distinto de skills de fase; el motor no asume una lista
+#: cerrada propia de ningún destino salvo que la declare aquí como parte de
+#: su propio `SKILL.md` (ver `check_12_skills_citan_effort_profile_resolve`,
+#: que recorre `SKILLS_DIR` completo, no una lista cableada).
 EXPECTED_GATES_TABLE = {
     "bajo": {"críticos": "1", "iteraciones": "1", "adversarial": "no"},
     "medio": {"críticos": "1", "iteraciones": "1", "adversarial": "no"},
     "alto": {"críticos": "2", "iteraciones": "2", "adversarial": "sí"},
 }
+
+
+def _load_protocolo_datos(flag: str | None) -> str:
+    path, _origen = resolve_protocolo_datos_path(flag, REPO_ROOT)
+    return load_protocolo_datos(path)
+
+
+def _modelos_permitidos(datos_text: str) -> set[str]:
+    items = field_list(datos_text, "modelos_permitidos")
+    return {m.strip().lower() for m in (items or [])}
+
+
+def _perfiles_permitidos(datos_text: str) -> set[str]:
+    items = field_list(datos_text, "perfiles_permitidos")
+    return {p.strip().lower() for p in (items or [])}
 
 
 # --- Chequeos ----------------------------------------------------------------
@@ -117,17 +136,12 @@ def check_01_readme_gates_table() -> tuple[bool, str]:
 
 
 def check_02_agents_models() -> tuple[bool, str]:
-    """Los agents declarados bajo `.claude/agents/` -- los 9 roles base más
+    """Los agents declarados bajo `.claude/agents/` -- los roles base más
     toda variante generada `<rol>-<effort>` (p. ej. `sdd-implementador-xhigh`,
-    que también matchea el glob `sdd-*.md`) -- declaran modelo de la lista
-    permitida {opus, sonnet, haiku}. El manifiesto
+    que también matchea el glob `sdd-*.md`) -- declaran modelo de la familia
+    real de Anthropic {opus, sonnet, haiku}. El manifiesto
     `.claude-agents-manifest.yaml` no matchea `sdd-*.md` y queda fuera sin
     filtro extra.
-
-    Excepción: si el cuerpo del archivo contiene la cadena literal
-    `0117-D1` o `model: fable` dentro de un bloque que documenta el retiro
-    (texto entre `# ` y el siguiente `# `, o dentro de `> bloquequote`),
-    esa mención no cuenta como default.
     """
     if not AGENTS_DIR.is_dir():
         return False, f"no existe {AGENTS_DIR}"
@@ -146,157 +160,56 @@ def check_02_agents_models() -> tuple[bool, str]:
     return True, f"{len(agent_files)} agents (roles + variantes) en lista permitida {sorted(ALLOWED_MODELS)}"
 
 
-def check_03_modelo_agentes_table() -> tuple[bool, str]:
-    """MODELO-AGENTES.md no contiene Fable como Modelo en la tabla de
-    asignación. Acepta menciones en prosa explicativa (líneas que NO son
-    parte de una fila `| ... | ... |`).
-    """
-    text = MODELO_AGENTES.read_text(encoding="utf-8")
-    table_lines = [ln for ln in text.splitlines() if ln.strip().startswith("|")
-                   and "|" in ln.strip()[1:]]
-    offenders: list[str] = []
-    for i, ln in enumerate(table_lines):
-        cells = [c.strip() for c in ln.strip().strip("|").split("|") if c.strip()]
-        # Comparación insensible a mayúsculas, como ya hace el chequeo 11 sobre
-        # `perfiles.yaml`: la versión anterior comparaba contra el literal
-        # `"Fable"` y dejaba pasar una celda escrita `fable` o `FABLE`.
-        hits = [c for c in cells if c.casefold() == "fable"]
-        if hits:
-            offenders.append(f"línea {i+1}: {hits}")
-    if offenders:
-        return False, "; ".join(offenders)
-    return True, "tabla de asignación sin Fable como Modelo"
-
-
-def check_04_modelo_agentes_cita_0117_d1() -> tuple[bool, str]:
-    text = MODELO_AGENTES.read_text(encoding="utf-8")
-    if "0117-D1" not in text:
-        return False, "no se encontró la cadena `0117-D1`"
-    return True, "cita `0117-D1` (decisión de retiro de Fable)"
-
-
-def check_05_indicators_k7_k9_k10() -> tuple[bool, str]:
-    """`indicators.json` K7/K9/K10 tienen metas `absolute = 0` (post-0117-D1;
-    no `≤25%`/`≤5%` que reintroducirían el patrón de gasto pre-kit)."""
-    if not INDICATORS.is_file():
-        return False, f"no existe {INDICATORS.relative_to(REPO_ROOT)}"
-    data = json.loads(INDICATORS.read_text(encoding="utf-8"))
-    indicators = {i["id"]: i for i in data.get("indicators", [])}
-    expected_targets = {"K7": 0.0, "K9": 0.0, "K10": 0}
-    offenders: list[str] = []
-    for kid, expected in expected_targets.items():
-        if kid not in indicators:
-            offenders.append(f"{kid} no existe")
-            continue
-        actual = indicators[kid].get("target", {}).get("absolute")
-        if actual != expected:
-            offenders.append(f"{kid}: target.absolute={actual} != {expected}")
-    if offenders:
-        return False, "; ".join(offenders)
-    return True, "K7/K9/K10 con metas ≈0 (post-0117-D1)"
-
-
-def check_06_gate_skill_cita_0117_d6() -> tuple[bool, str]:
-    """`sdd-gate/SKILL.md` cita `0117-D6` (panel solo en `spec`/`codigo`).
-
-    El chequeo busca en SKILL.md Y en `references/` — `0117-D6` puede vivir en
-    `deterministic-layer.md` (donde el contrato está implementado).
-    """
-    text = GATE_SKILL.read_text(encoding="utf-8")
-    if "0117-D6" in text:
-        return True, "cita `0117-D6` en SKILL.md"
-    if GATE_REFS.is_dir():
-        for ref in sorted(GATE_REFS.glob("*.md")):
-            if "0117-D6" in ref.read_text(encoding="utf-8"):
-                return True, f"cita `0117-D6` en {ref.relative_to(REPO_ROOT)}"
-    return False, "no se encontró `0117-D6` en SKILL.md ni en references/"
-
-
-def check_07_orquestar_fast_track() -> tuple[bool, str]:
-    text = ORQUESTAR_SKILL.read_text(encoding="utf-8")
-    if "0123-D1" not in text and "fast-track" not in text.lower():
-        return False, "no menciona fast-track ni `0123-D1`"
-    return True, "menciona fast-track (0123-D1)"
-
-
-def check_08_orquestar_modo_micro() -> tuple[bool, str]:
-    text = ORQUESTAR_SKILL.read_text(encoding="utf-8")
-    if "0126" not in text and "modo micro" not in text.lower():
-        return False, "no menciona modo micro ni `0126`"
-    return True, "menciona modo micro (0126)"
-
-
-def check_09_settings_json_sesion() -> tuple[bool, str]:
-    if not SETTINGS_JSON.is_file():
-        return False, f"no existe {SETTINGS_JSON.relative_to(REPO_ROOT)}"
-    data = json.loads(SETTINGS_JSON.read_text(encoding="utf-8"))
-    if data.get("model") != "sonnet":
-        return False, f"settings.model={data.get('model')} != 'sonnet'"
-    if data.get("effortLevel") != "medium":
-        return False, f"settings.effortLevel={data.get('effortLevel')} != 'medium'"
-    return True, "settings.json model=sonnet, effortLevel=medium (kit-desarrollo-sistecredito-D2)"
-
-
-def check_10_skills_prosa_no_redundante() -> tuple[bool, str]:
-    r"""Las 6 SKILL.md de fase no contienen prosa redundante que duplique el
-    frontmatter de los agents.
+def check_10_skills_prosa_no_redundante(datos_text: str) -> tuple[bool, str]:
+    r"""Las `SKILL.md` de `.agents/skills/` no contienen prosa redundante que
+    duplique el frontmatter de los agents.
 
     Detecta dos clases de prosa redundante:
-      (a) Menciones literales de modelos retirados o esfuerzos pre-0117-D1/D2/D3:
-          `(Fable, effort`, `(Sonnet, effort alto)`,
-          `(Sonnet, effort medio)`, `(Sonnet, effort bajo)`.
+      (a) Mención explícita `(Modelo, effort ...)` donde `Modelo` (insensible
+          a mayúsculas) no está en `modelos_permitidos` de
+          `.spec/protocolo-datos.yaml` del destino -- generaliza la
+          detección de nombres de modelo retirados/no autorizados sin
+          cablear ningún nombre concreto en el código del motor.
       (b) Patrón `subagente `X` (Modelo, effort Y)` cuando existe
-          `.claude/agents/X.md` con su propio frontmatter — la prosa debe
-          decir "ver `.claude/agents/<subagente>.md`" en vez de duplicar.
+          `.claude/agents/X.md` con su propio frontmatter -- la prosa debe
+          referenciar ese archivo en vez de duplicarlo, sea cual sea
+          `Modelo` (este patrón no depende de configuración: un subagente
+          con agent declarado siempre debe referenciarlo, no repetirlo).
 
     Solo verifica los canónicos `.agents/skills/` (los espejos `.claude/skills/`
-    son read-only regenerados con `materialize_claude_skills.py`).
+    son read-only, regenerados con `materialize_claude_skills.py`).
     """
-    skills_dir = REPO_ROOT / ".agents" / "skills"
-    if not skills_dir.is_dir():
-        return False, f"no existe {skills_dir.relative_to(REPO_ROOT)}"
+    if not SKILLS_DIR.is_dir():
+        return False, f"no existe {SKILLS_DIR.relative_to(REPO_ROOT)}"
 
-    # (a) Patrones regex de prosa redundante pre-0117-D1/D2/D3.
-    # Incluyen la palabra `effort` cerca para no matchear menciones históricas
-    # sueltas (ej. rationale que explica por qué se retiró).
-    patterns = [
-        (r"\(Fable,\s*effort\b", "Fable + effort (pre-0117-D1)"),
-        (r"\(Sonnet,\s*effort\s+alto\)", "Sonnet effort alto (pre-0117-D3)"),
-        (r"\(Sonnet,\s*effort\s+medio\)", "Sonnet effort medio (pre-0117-D3)"),
-        (r"\(Sonnet,\s*effort\s+bajo\)", "Sonnet effort bajo (pre-0117-D3)"),
-    ]
-
-    offenders: list[str] = []
-
-    # Patrón (b): subagente `X` (Modelo, effort Y) — si X tiene agent declarado,
-    # la prosa es redundante y debe ser reemplazada por una referencia.
-    # El patrón usa comillas tipográficas invertidas (backticks en markdown).
+    modelos_permitidos = _modelos_permitidos(datos_text)
+    model_effort_pattern = re.compile(r"\((\w+),\s*effort\s+(\w+)\)")
     subagente_pattern = re.compile(
         r"subagente\s+`([a-z][\w-]*)`\s*\(([^,]+?),\s*effort\s+([a-z]+)\)"
     )
 
-    for skill_dir in sorted(skills_dir.iterdir()):
+    offenders: list[str] = []
+
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not skill_dir.is_dir():
             continue
         skill_path = skill_dir / "SKILL.md"
         if not skill_path.is_file():
             continue
-        # El barrido va sobre el texto COMPLETO, no línea a línea: los patrones
-        # usan `\s*`/`\s+`, que ya casan un salto de línea, así que el mismo
-        # patrón prohibido partido en dos renglones por el ancho de línea
-        # escapaba de la versión anterior. La línea se deriva del offset para
-        # que el mensaje de error siga señalando dónde está.
         text = skill_path.read_text(encoding="utf-8")
 
         def _line_of(offset: int) -> int:
             return text.count("\n", 0, offset) + 1
 
-        for regex, label in patterns:
-            for match in re.finditer(regex, text):
+        # (a) modelo mencionado en prosa que no está en la lista permitida.
+        for match in model_effort_pattern.finditer(text):
+            modelo = match.group(1)
+            if modelo.lower() not in modelos_permitidos:
                 offenders.append(
-                    f"{skill_path.relative_to(REPO_ROOT)}:{_line_of(match.start())} — `{label}`"
+                    f"{skill_path.relative_to(REPO_ROOT)}:{_line_of(match.start())} — "
+                    f"modelo `{modelo}` fuera de `modelos_permitidos`"
                 )
-        # (b) subagente `X` (Modelo, effort Y) con agent declarado
+        # (b) subagente `X` (Modelo, effort Y) con agent declarado.
         for match in subagente_pattern.finditer(text):
             subagente = match.group(1)
             modelo = match.group(2).strip()
@@ -313,86 +226,102 @@ def check_10_skills_prosa_no_redundante() -> tuple[bool, str]:
         return False, "; ".join(offenders[:5]) + (
             f" (+{len(offenders) - 5} más)" if len(offenders) > 5 else ""
         )
-    return True, f"6 SKILL.md de fase sin prosa redundante ({len(list(skills_dir.iterdir()))} dirs revisadas)"
+    return True, f"SKILL.md de fase sin prosa redundante ({len(list(SKILLS_DIR.iterdir()))} dirs revisadas)"
 
 
-def check_11_perfiles_yaml_estandar_sin_fable() -> tuple[bool, str]:
-    """`.spec/perfiles.yaml` existe y el bloque `perfiles.estandar` no
-    declara `fable` en ningún rol ni en `implementador_complejo` (CA-15) --
-    la autorización de Fable/Opus (`0117-D1`) es exclusiva de `profundo`.
-
-    No valida el esquema completo de `perfiles.yaml` (eso es
-    `effort_profile.py load_profiles`); solo aísla el texto del bloque
-    `estandar:` (2 espacios de indentación, hasta el próximo perfil al mismo
-    nivel) y busca la palabra `fable` en él -- mismo estilo de escaneo de
-    texto que el chequeo 03 sobre `MODELO-AGENTES.md`.
+def check_11_perfiles_yaml_dentro_de_lo_permitido(datos_text: str) -> tuple[bool, str]:
+    """`.spec/perfiles.yaml` existe; sus perfiles top-level (`perfiles.<x>`)
+    están en `perfiles_permitidos` de `.spec/protocolo-datos.yaml`, y el
+    bloque `estandar:` no declara ningún `modelo:` fuera de
+    `modelos_permitidos` -- generaliza "no declara fable" (literal, del
+    validador de origen) a "no declara nada fuera de lo que el destino
+    permite" (config-driven).
     """
     if not PERFILES_YAML.is_file():
         return False, f"no existe {PERFILES_YAML.relative_to(REPO_ROOT)}"
     text = PERFILES_YAML.read_text(encoding="utf-8")
+
+    perfiles_permitidos = _perfiles_permitidos(datos_text)
+    declared = set(re.findall(r"^  (\w[\w-]*):\n", text, re.MULTILINE))
+    fuera_de_lo_permitido = sorted(declared - perfiles_permitidos)
+    if fuera_de_lo_permitido:
+        return False, f"perfiles declarados fuera de `perfiles_permitidos`: {fuera_de_lo_permitido}"
+
     m = re.search(r"^  estandar:\n(.*?)(?=^  \S|\Z)", text, re.MULTILINE | re.DOTALL)
     if m is None:
         return False, "no se encontró el bloque `perfiles.estandar` en perfiles.yaml"
     block = m.group(1)
-    if re.search(r"\bfable\b", block, re.IGNORECASE):
-        return False, "`perfiles.estandar` declara `fable`"
-    return True, "`perfiles.estandar` no declara `fable` en ningún rol"
+    modelos_permitidos = _modelos_permitidos(datos_text)
+    modelos_en_bloque = {mo.lower() for mo in re.findall(r"\bmodelo:\s*(\w+)", block)}
+    fuera = sorted(modelos_en_bloque - modelos_permitidos)
+    if fuera:
+        return False, f"`perfiles.estandar` declara modelo(s) fuera de `modelos_permitidos`: {fuera}"
+    return True, "perfiles y modelos de `perfiles.yaml` dentro de lo permitido por el destino"
 
 
 def check_12_skills_citan_effort_profile_resolve() -> tuple[bool, str]:
-    """Las 6 skills que invocan subagentes citan `effort_profile.py resolve`
-    en su `SKILL.md` canónico (CA-16) -- evita que una skill vuelva a delegar
-    en el frontmatter en silencio (H5)."""
+    """Toda skill de `.agents/skills/` cuyo `SKILL.md` de hecho invoca un
+    subagente -- contiene `subagent_type` o una llamada `Agent(` (la firma
+    real de la invocación, no una mención en prosa: una skill puede
+    *discutir* el concepto de subagente sin lanzar uno) -- cita
+    `effort_profile.py resolve`, para que ninguna delegue en el frontmatter
+    en silencio. No asume una lista cerrada de skills "de fase": recorre
+    `SKILLS_DIR` completo y solo exige la cita a las que de hecho invocan.
+    """
     if not SKILLS_DIR.is_dir():
         return False, f"no existe {SKILLS_DIR.relative_to(REPO_ROOT)}"
     offenders: list[str] = []
-    for name in PHASE_SKILLS:
-        path = SKILLS_DIR / name / "SKILL.md"
-        if not path.is_file():
-            offenders.append(f"{name}/SKILL.md no existe")
+    checked = 0
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        if not skill_dir.is_dir():
             continue
-        if "effort_profile.py resolve" not in path.read_text(encoding="utf-8"):
-            offenders.append(f"{name}/SKILL.md sin `effort_profile.py resolve`")
+        skill_path = skill_dir / "SKILL.md"
+        if not skill_path.is_file():
+            continue
+        text = skill_path.read_text(encoding="utf-8")
+        invokes_subagent = "subagent_type" in text or "Agent(" in text
+        if not invokes_subagent:
+            continue
+        checked += 1
+        if "effort_profile.py resolve" not in text:
+            offenders.append(f"{skill_dir.name}/SKILL.md sin `effort_profile.py resolve`")
     if offenders:
         return False, "; ".join(offenders)
-    return True, "6 SKILL.md de fase citan `effort_profile.py resolve`"
+    return True, f"{checked} SKILL.md que invocan subagentes citan `effort_profile.py resolve`"
 
 
-def check_13_modelo_agentes_cita_perfiles_yaml() -> tuple[bool, str]:
-    """`MODELO-AGENTES.md` cita `perfiles.yaml` como fuente de la tabla de
-    modelo/effort por rol (CA-22)."""
-    text = MODELO_AGENTES.read_text(encoding="utf-8")
-    if "perfiles.yaml" not in text:
-        return False, "no se encontró la cadena `perfiles.yaml`"
-    return True, "cita `perfiles.yaml` como fuente de la tabla"
-
+CHECKS_DATA_DRIVEN = {"10", "11"}
 
 CHECKS = [
     ("01", "README ## Gates de validación vs golden", check_01_readme_gates_table),
     ("02", "agents (roles + variantes) declaran modelo permitido", check_02_agents_models),
-    ("03", "MODELO-AGENTES.md tabla sin Fable", check_03_modelo_agentes_table),
-    ("04", "MODELO-AGENTES.md cita 0117-D1", check_04_modelo_agentes_cita_0117_d1),
-    ("05", "indicators.json K7/K9/K10 ≈ 0", check_05_indicators_k7_k9_k10),
-    ("06", "sdd-gate/SKILL.md cita 0117-D6", check_06_gate_skill_cita_0117_d6),
-    ("07", "sdd-orquestar/SKILL.md fast-track", check_07_orquestar_fast_track),
-    ("08", "sdd-orquestar/SKILL.md modo micro", check_08_orquestar_modo_micro),
-    ("09", "settings.json model=sonnet, effortLevel=medium", check_09_settings_json_sesion),
-    ("10", "6 SKILL.md de fase sin prosa redundante de modelo/effort", check_10_skills_prosa_no_redundante),
-    ("11", "perfiles.estandar sin Fable", check_11_perfiles_yaml_estandar_sin_fable),
-    ("12", "6 SKILL.md de fase citan effort_profile.py resolve", check_12_skills_citan_effort_profile_resolve),
-    ("13", "MODELO-AGENTES.md cita perfiles.yaml", check_13_modelo_agentes_cita_perfiles_yaml),
+    ("10", "SKILL.md de fase sin prosa redundante de modelo/effort", check_10_skills_prosa_no_redundante),
+    ("11", "perfiles.yaml dentro de lo permitido por el destino", check_11_perfiles_yaml_dentro_de_lo_permitido),
+    ("12", "SKILL.md que invocan subagentes citan effort_profile.py resolve", check_12_skills_citan_effort_profile_resolve),
 ]
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Drift detector del protocolo SDD")
+    parser = argparse.ArgumentParser(description="Drift detector del protocolo SDD (motor del kit)")
     parser.add_argument("--quiet", action="store_true", help="solo imprime fallos")
+    parser.add_argument("--protocolo-datos", metavar="RUTA", default=None,
+                         help="ruta explícita a protocolo-datos.yaml (> env "
+                              "SDD_PROTOCOLO_DATOS_PATH > .spec/protocolo-datos.yaml de la raíz)")
     args = parser.parse_args()
+
+    try:
+        datos_text = _load_protocolo_datos(args.protocolo_datos)
+    except ProtocoloDatosError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     failures = 0
     for cid, label, fn in CHECKS:
         try:
-            ok, detail = fn()
+            if cid in CHECKS_DATA_DRIVEN:
+                ok, detail = fn(datos_text)
+            else:
+                ok, detail = fn()
         except Exception as e:  # noqa: BLE001 — un fallo de parse es un fallo de drift
             ok, detail = False, f"excepción: {type(e).__name__}: {e}"
         marker = "OK" if ok else "FAIL"

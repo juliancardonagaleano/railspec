@@ -6,21 +6,25 @@ Pattern origin: `.spec/units/0068-plan-maestro-de-oleadas/scripts/validar.py`
 touched nor imported; these ~10 lines are rewritten here because `0109b` will reuse
 them from its own orchestration.
 
-No external dependencies: stdlib only (`re`, `hashlib`, `pathlib`, `subprocess`).
+No external dependencies: stdlib only (`re`, `hashlib`, `pathlib`, `subprocess`, `os`).
 
 Unit 0114 adds three functions (`dirty_paths`, `resume_point`, `codes_from_output`)
 and changes no existing signature (D-13).
+
+Adds `resolve_protocolo_datos_path`/`load_protocolo_datos`: the shared
+flag > env > archivo-de-reposo resolution for `.spec/protocolo-datos.yaml`,
+reused by `validate_protocol_drift.py` and `test_subset.py` so both read the
+same destination-declared data instead of each carrying its own copy of the
+precedence logic.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 # --- Accumulators -------------------------------------------------------------------
 # FAILURES are errors (they count toward exit != 0); WARNINGS are advisories (they are
@@ -574,3 +578,51 @@ def guarded_popen(cmd: list, **kwargs) -> subprocess.Popen:
     if pattern:
         raise GuardedCommandError(pattern, cmd)
     return subprocess.Popen(cmd, **kwargs)
+
+
+# --- Configuración de datos del destino (`.spec/protocolo-datos.yaml`) ---------------
+# Contrato del motor del kit, válido para cualquier destino: los checks del
+# validador de deriva de protocolo y el selector de subset de tests que
+# necesitan datos propios de cada destino (modelos/perfiles permitidos,
+# subárboles de test) los leen de este archivo en vez de traerlos cableados.
+# Precedencia flag > variable de entorno > archivo de reposo en la raíz del
+# destino — mismo patrón que ya usa `preflight.py` (`resolve_mcp_config`)
+# para el MCP. Un destino sin este archivo no tiene configuración de datos:
+# el motor falla explícito (`ProtocoloDatosError`), nunca cae a un default
+# silencioso.
+
+PROTOCOLO_DATOS_ENV_VAR = "SDD_PROTOCOLO_DATOS_PATH"
+
+
+class ProtocoloDatosError(Exception):
+    """`.spec/protocolo-datos.yaml` ausente o no legible en la ruta resuelta."""
+
+
+def resolve_protocolo_datos_path(
+    flag: str | None, repo_root: Path, env_var: str = PROTOCOLO_DATOS_ENV_VAR
+) -> tuple[Path, str]:
+    """`--protocolo-datos` (flag) > `env_var` > `.spec/protocolo-datos.yaml`
+    relativo a `repo_root`. Devuelve `(ruta, origen)`, `origen` en
+    `{"flag", "env", "default"}` — mismo contrato de retorno que
+    `preflight.resolve_mcp_config`."""
+    if flag:
+        return Path(flag), "flag"
+    from_env = os.environ.get(env_var, "").strip()
+    if from_env:
+        return Path(from_env), "env"
+    return repo_root / ".spec" / "protocolo-datos.yaml", "default"
+
+
+def load_protocolo_datos(path: Path) -> str:
+    """Texto de `.spec/protocolo-datos.yaml` en `path`. Levanta
+    `ProtocoloDatosError` si no existe o no se puede leer — nunca un default
+    silencioso (el archivo mismo documenta esta garantía)."""
+    if not path.is_file():
+        raise ProtocoloDatosError(
+            f"{path}: no existe — el motor del kit no tiene configuración de "
+            "datos para este destino y no cae a un default silencioso"
+        )
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ProtocoloDatosError(f"{path}: no se pudo leer ({exc})") from exc
