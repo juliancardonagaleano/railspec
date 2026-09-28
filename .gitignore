@@ -1,0 +1,51 @@
+# Operating system and IDE files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+
+# Local workspace, temporary files, and logs
+.tmp/
+temp/
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.pytest_*/
+.mypy_cache/
+.pyre/
+.ruff_cache/
+.tox/
+.nox/
+.hypothesis/
+.coverage/
+coverage.xml
+htmlcov/
+pip-wheel-metadata/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node (skills/tooling auxiliar, si aplica)
+node_modules/
+dist/
+build/
+*.tsbuildinfo
