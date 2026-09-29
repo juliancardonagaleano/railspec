@@ -74,6 +74,11 @@ Un crítico por lente, en paralelo.
   el spec se corrige; no se extiende de tapadillo).
 - Si el MCP no responde: no evaluar este lente de memoria; devolver
   `sin-gobernanza` y escalar.
+  Eso vale cuando la superficie existe y no se alcanza; un repositorio
+  **sin superficie de gobernanza** es el caso distinto que define
+  `SKILL.md` § 3 ("Superficie caída ≠ superficie inexistente") — ahí el
+  lente corre igual, para confirmar con evidencia del repo que no hay
+  artefacto aplicable.
 
 ## Cómo puntuar la severidad
 

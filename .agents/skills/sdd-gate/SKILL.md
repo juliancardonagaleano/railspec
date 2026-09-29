@@ -117,6 +117,26 @@ gate: un rechazo del MCP en este paso o en la consulta puntual de un crítico
 `sin-gobernanza`. `governance_consultada: parcial` no existe en ese modo — la
 corrida es `si` o `no`.
 
+**Superficie caída ≠ superficie inexistente.** El *sin fallback* de arriba cubre
+el caso en que la gobernanza **existe y no se puede alcanzar**: hay artefactos
+que aplican, el gate no los puede leer, y criticar igual sería criticar de
+memoria. No cubre el caso distinto en que el repositorio **no tiene superficie
+de gobernanza en absoluto**. Para afirmar lo segundo no basta con que el MCP no
+responda: hay que comprobarlo, y las tres comprobaciones son que no exista
+`AGENTS.md`, que no exista `.mcp.json`, y que `pce-mcp` no esté configurado como
+dependencia de este repositorio sobre sí mismo. Si las tres se cumplen, la
+unidad declara el centinela `governance_refs: [ninguna-aplicable]`, el lente L4
+corre igual — su trabajo es **confirmar con evidencia del repo** que no hay
+artefacto aplicable, no saltarse la evaluación — y el gate persiste
+`governance_consultada: si`, porque el paso 3 hizo su trabajo y llegó a un
+conjunto vacío verificado. Si alguna de las tres falla, había superficie: el
+caso es `sin-gobernanza` y el gate escala.
+
+> El caso típico es el propio repositorio del kit, donde `pce-mcp` aparece solo
+> como carga que se instala en un destino. En un **destino**, en cambio,
+> `pce-mcp` sí es la superficie de gobernanza: que no responda es siempre
+> `sin-gobernanza`, nunca "no hay superficie".
+
 ### 4. Panel de críticos — una sola tanda, sin reintento en bucle
 
 El `criticos` resuelto arriba (§ Parámetros, `resolve --gate --tier`) fija **cuántos

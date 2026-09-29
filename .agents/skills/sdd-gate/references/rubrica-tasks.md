@@ -68,6 +68,11 @@ Un crítico por lente, en paralelo.
   gobernanza), debe existir una tarea que lo haga. Si no, hallazgo `alta`.
 - Si el MCP no responde: no evaluar la parte de gobernanza de memoria; devolver
   `sin-gobernanza` y escalar.
+  Eso vale cuando la superficie existe y no se alcanza; un repositorio
+  **sin superficie de gobernanza** es el caso distinto que define
+  `SKILL.md` § 3 ("Superficie caída ≠ superficie inexistente") — ahí el
+  lente corre igual, para confirmar con evidencia del repo que no hay
+  artefacto aplicable.
 
 ## Cómo puntuar la severidad
 

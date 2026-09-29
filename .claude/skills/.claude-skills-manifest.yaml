@@ -1,5 +1,5 @@
 # GENERADO por scripts/materialize_claude_skills.py — no editar a mano.
-materialized_at: 2026-09-28T22:58:35Z
+materialized_at: 2026-09-29T02:03:38Z
 source: .agents/skills
 files:
   - path: "sdd-desatendido/SKILL.md"
@@ -7,7 +7,7 @@ files:
   - path: "sdd-especificar/SKILL.md"
     sha256: 376b23421a7bd5770336ae06d47885a59cb7de3979e447db0840dfae78345764
   - path: "sdd-gate/SKILL.md"
-    sha256: 13d9d885979ac1dbc5cad26f5568a04c706912b0744081c967dabce39d8534ba
+    sha256: 684915a7f47a7b44d79bade4d251f01a23f80c25560293bc1f3f317cfde2930c
   - path: "sdd-gate/references/delta-critique.md"
     sha256: f3cfcb9a515012491b5ea6ba8621bf97e5bd2d1612d2d9dfee9ab2eacd46cf19
   - path: "sdd-gate/references/deterministic-layer.md"
@@ -15,13 +15,13 @@ files:
   - path: "sdd-gate/references/panel-convergence-verdict.md"
     sha256: 1b025d34e03be6f980907b5d42033d270ee9bb3614ef3d0fa46ae5fd2e264ddb
   - path: "sdd-gate/references/rubrica-codigo.md"
-    sha256: 1acced2911a4f6c9e373bc8f0a8ff1069bd55770be9f04468cdb2a85ba08ab1a
+    sha256: 5fe3d97b0b093b6aa122dc175216b54ed2289cee8d9e4c87b0b740c4b368d30a
   - path: "sdd-gate/references/rubrica-plan.md"
-    sha256: 0013d856aa523e360f363cca221d460c4d988c1df5d5b4ad46c8fb7e62549b86
+    sha256: b1cbe836cf5365e259ca33f4d8f3aec15e823e11ab166aa484488a1a46191f4b
   - path: "sdd-gate/references/rubrica-spec.md"
-    sha256: 94bde122bd855225327e7e1858057a899f013be520580f5e895e41e5f8179c1c
+    sha256: bc7a1f5cde9babebf5073027b184299af2222a9fdae16f8e7aad17e763cd347a
   - path: "sdd-gate/references/rubrica-tasks.md"
-    sha256: 81be5b8ef831a2b2b2bbdfb9857b3e2c8d1615ce84919e5f71bd6cb80372b1be
+    sha256: 04c8c6be6ed853be88943864c2fdfe818e17c9463dbe48d1e71f5b5c90687bab
   - path: "sdd-gate/references/test-subset-codigo.md"
     sha256: fbf5798ee39a0dcb78294b8071542f816586e94a21fb1f093dc2d6611f753d16
   - path: "sdd-implementar/SKILL.md"

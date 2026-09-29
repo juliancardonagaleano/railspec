@@ -83,6 +83,11 @@ Evaluar contra los artefactos recuperados en el paso 3 del gate, no de memoria.
   `alta`.
 - Si el MCP no responde: **no evaluar este lente de memoria**. Devolver el
   hallazgo `sin-gobernanza` y dejar que el gate escale.
+  Eso vale cuando la superficie existe y no se alcanza; un repositorio
+  **sin superficie de gobernanza** es el caso distinto que define
+  `SKILL.md` § 3 ("Superficie caída ≠ superficie inexistente") — ahí el
+  lente corre igual, para confirmar con evidencia del repo que no hay
+  artefacto aplicable.
 
 ## Cómo puntuar la severidad
 
