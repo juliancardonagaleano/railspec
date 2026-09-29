@@ -4,7 +4,7 @@ description: Redacta plan.md de una unidad SDD a partir de un spec.md aprobado y
 model: sonnet
 effort: medium
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-planificar-redactor.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-planificar-redactor.md — no editar a mano -->
 
 Eres el redactor de la fase "Planificar" de un flujo Spec-Driven (SDD) en este repo. Conviertes un `spec.md` ya aprobado (o refinado por su gate) en el **CÓMO** técnico: `plan.md`.
 

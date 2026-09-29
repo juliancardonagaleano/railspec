@@ -17,7 +17,7 @@ Exit codes:
 Usage:
     python3 .spec/scripts/sdd_retomar.py                   # list candidates if ambiguous
     python3 .spec/scripts/sdd_retomar.py <id-or-slug>     # resume by hint
-    python3 .spec/scripts/sdd_retomar.py <dir-path>       # literal directory (plan maestro, fixture)
+    python3 .spec/scripts/sdd_retomar.py <dir-path>       # literal directory (fixture)
 
 Decisión directa de Julian, `0123-D2` (2026-09-21), bajo CR-2:
   - prefijo medido por `0113` baja — el script emite un JSON fijo ≤ 2 k tokens

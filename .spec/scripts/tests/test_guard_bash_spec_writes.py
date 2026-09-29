@@ -61,7 +61,7 @@ class GuardRepoMixin:
         # the pilot's test unit, so every rule has a target either way.
         self.unit_file = self._touch(".spec/units/0000-unidad/bitacora.md")
         self.pilot_file = self._touch(".spec/units/9109-prueba-supervisado/bitacora.md")
-        self.index_file = self._touch(".spec/units/_plan-maestro.md")
+        self.index_file = self._touch(".spec/units/_mandatos-supervisado.md")
         self.outside_file = self._touch("docs/notas.md")
 
     def tearDown(self) -> None:
@@ -246,13 +246,17 @@ class PilotExemptionTests(GuardRepoMixin, unittest.TestCase):
         self.deny_reason("sed -i '' s/a/b/ .spec/units/0000-unidad/bitacora.md")
 
     def test_the_index_is_denied_even_inside_the_pilot(self) -> None:
-        """`_plan-maestro.md` is outside `$TEST_UNIT`: its changelog line goes
-        through `append_changelog_line.py`, which matches no pattern."""
+        """El índice de mandatos (`_mandatos-supervisado.md`, sustituto post-U-0009
+        del archivo histórico que vivía bajo `.spec/units/`) está fuera de
+        `$TEST_UNIT`: una edición directa del archivo se rechaza por la regla
+        general "todo `.spec/units/*` distinto a `$TEST_UNIT` requiere
+        aprobación" — no hay un script específico que lo anexe, el archivo se
+        mantiene por la skill `sdd-supervisado`."""
         reason = self.deny_reason(
-            "echo linea > .spec/units/_plan-maestro.md",
+            "echo linea > .spec/units/_mandatos-supervisado.md",
             exempt_tree=".spec/units/9109-prueba-supervisado",
         )
-        self.assertIn(".spec/units/_plan-maestro.md", reason)
+        self.assertIn(".spec/units/_mandatos-supervisado.md", reason)
 
     def test_one_exempt_path_and_one_outside_still_denies(self) -> None:
         reason = self.deny_reason(

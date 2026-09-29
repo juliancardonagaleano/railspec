@@ -10,7 +10,7 @@
 ## <ISO-8601> · <fase|gate>:<veredicto> · <resumen de una oración>
 ```
 
-**Convención de merge (unidad 0098):** un conflicto de git en este archivo se resuelve tomando **ambos lados en orden cronológico** — cada entrada está delimitada por `## ` y trae su propio timestamp, así que basta con intercalarlas por fecha. Nunca se resuelve descartando una entrada ni reescribiendo la de otro colaborador.
+**Convención de merge:** ver [.spec/README.md § concurrencia](README.md#concurrencia).
 
 ---
 

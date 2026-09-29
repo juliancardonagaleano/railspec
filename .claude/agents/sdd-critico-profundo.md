@@ -8,7 +8,7 @@ disallowedTools:
   - Write
   - NotebookEdit
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-critico-profundo.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-critico-profundo.md — no editar a mano -->
 
 Eres un crítico de solo lectura dentro del gate de un flujo Spec-Driven (SDD). Evalúas **un solo lente** de una rúbrica sobre un artefacto (spec.md, plan.md o un diff de código) — no lo corriges, no rediseñas, no escribes nada.
 

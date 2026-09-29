@@ -143,8 +143,7 @@ class SkillsReferenceScriptsByPathTests(unittest.TestCase):
         citando `.spec/scripts/<script>`."""
         expectations = {
             "sdd-supervisado": ["instance_lock.py", "record_mandate_validation.py",
-                                "report_git_sync.py",
-                                "append_changelog_line.py", "mandate_anchor.py"],
+                                "report_git_sync.py", "mandate_anchor.py"],
             "sdd-preflight": ["preflight.py"],
             "sdd-implementar": ["record_mandate_validation.py"],
             "sdd-retomar": ["report_git_sync.py"],

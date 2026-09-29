@@ -403,7 +403,7 @@ class TestUnambiguousReference(unittest.TestCase):
 
         plan_dir = self.tmp / "planes" / "mi-plan"
         plan_dir.mkdir(parents=True)
-        plan_file = plan_dir / "plan-maestro.md"
+        plan_file = plan_dir / "plan.md"
         plan_file.write_text("# fixture\n", encoding="utf-8")
         mandate = vm.Mandate(plan_file, "plan", "mi-plan", plan_dir / "units")
         self.assertEqual(hoc.unambiguous_reference(mandate), "mi-plan")

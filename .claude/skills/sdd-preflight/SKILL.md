@@ -34,7 +34,7 @@ que `sdd-supervisado` § 1.1 tomara el lock (K5 de la línea base de `0113`).
 
 Quien invoca (siempre `sdd-supervisado`, en lanzamiento o retoma) da:
 
-- **mandato**: la ruta del archivo (`.spec/planes/<id>/plan-maestro.md` o
+- **mandato**: la ruta del archivo (`.spec/planes/<id>/plan.md` o
   `.spec/units/<NNNN-slug>/mandato.md`).
 - **modo**: `launch` o `resume` — informativo, solo se imprime en la cabecera.
 - **unidades del alcance de CA-03**, por sus **dos fuentes**, unidas por quien

@@ -2,7 +2,7 @@
 description: "SDD — correr el gate de validación y refinamiento sobre un artefacto de la unidad"
 argument-hint: "[id/slug de la unidad] [spec|plan|tasks|codigo]"
 ---
-<!-- generado por scripts/materialize_claude_commands.py desde .agents/commands/sdd-gate.md — no editar a mano -->
+<!-- generado por installer/materializers/commands.py desde .agents/commands/sdd-gate.md — no editar a mano -->
 
 Ejecuta la skill canónica `sdd-gate` (`.agents/skills/sdd-gate/SKILL.md`): capa determinista, recuperación de gobernanza vía MCP, panel de críticos en paralelo y bucle de refinamiento, hasta converger o escalar.
 

@@ -1,18 +1,18 @@
-# GENERADO por scripts/materialize_claude_commands.py — no editar a mano.
-materialized_at: 2026-09-28T22:21:03Z
+# GENERADO por installer/materializers/commands.py — no editar a mano.
+materialized_at: 2026-09-29T18:25:44Z
 source: .agents/commands
 files:
   - path: "sdd-especificar.md"
-    sha256: c73bb30c46154361a5b7661f1e6723970d41a24179ff9d1678d127cf0561c17a
+    sha256: 39df78ea7a6d1662641ec9743f57a193cf9631a6043033d3b3b1e922ca146199
   - path: "sdd-gate.md"
-    sha256: d57876c30f29e17a6209ac698408a7a4226775cb814bbfa1035c16bfb5642002
+    sha256: aea3c7417dd8c669d7e5449d93135ff3c98f88a44206d948c835bca6468c0f0e
   - path: "sdd-implementar.md"
-    sha256: 8c9ab01b89db64eb1cf9a04c995066d5f6e5a6c2e92234aacf99eca0e94cef0c
+    sha256: 5b9bbd2125416382d29967583946efca5930cb9f1d6ee8b919a85f396b441930
   - path: "sdd-planificar.md"
-    sha256: 2514e19ac095e661719ae89df14b622122139e817eb004516607ebe1329471fe
+    sha256: 8cff3a5ae3efb4322d92a0e4b3791aafaf0410fdd3c74bbab09d09ed9add2188
   - path: "sdd-retomar.md"
-    sha256: 57aaee99536815616777bc1f04c912ae7d3b5ad4c9cc8e11232ab83bdb8a15ee
+    sha256: df3177ec6023f42d83a4423b15a86b2bb4f718e88a14ab472bb083d981c24f71
   - path: "sdd-tareas.md"
-    sha256: 0d08ea158de7e1a7f07db64b275f22a7604362cfdb49874f046070071a2e8ff9
+    sha256: 176a90257065dd2745d13781f2506c20a4e4d7d07306ae04fc9d8eb8ba5df2f9
   - path: "sdd.md"
-    sha256: 375025d3238ff837c556ac51cadccea1de7df2c66cf10859fb60346429610c9f
+    sha256: ee5dc1dbf8fd5da1b626e3c0540c14f6553372a4fbbeaa7a72001a0a79305546

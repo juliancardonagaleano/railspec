@@ -1,4 +1,11 @@
-"""Tests for ``scripts/materialize_claude_commands.py``.
+"""Tests for ``installer.materializers.commands`` (formerly
+``scripts/materialize_claude_commands.py``).
+
+Migrated to import the canonical module from
+``installer/materializers/commands.py`` (unit 0006); the shim at
+``scripts/materialize_claude_commands.py`` is verified separately by
+``test_skills_reference_scripts.py`` and the manual smoke test in
+``paquete-aprobacion.md``.
 
 Spins up a temporary repo-like tree with ``.agents/commands/sample.md`` and a
 stale ``.claude/commands/`` mirror, then drives the CLI through subprocess to
@@ -24,12 +31,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT / "installer") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "installer"))
 
-import materialize_claude_commands as mcc  # noqa: E402
+from materializers import commands as mcc  # noqa: E402
 
-SCRIPT = SCRIPTS_DIR / "materialize_claude_commands.py"
+SCRIPT = SCRIPTS_ROOT / "materialize_claude_commands.py"
 
 SAMPLE_COMMAND = """---
 description: "Comando de prueba para materialize_claude_commands.py"
@@ -122,7 +133,7 @@ class MaterializeClaudeCommandsTests(unittest.TestCase):
         self.assertEqual(mirror_lines[0], "---")
         header_line = next(line for line in mirror_lines if "generado por" in line)
         self.assertIn(
-            "generado por scripts/materialize_claude_commands.py desde "
+            "generado por installer/materializers/commands.py desde "
             ".agents/commands/sample.md",
             header_line,
         )

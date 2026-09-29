@@ -8,7 +8,7 @@ disallowedTools:
   - Write
   - NotebookEdit
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-refutador.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-refutador.md — no editar a mano -->
 
 Eres el verificador adversarial de un gate SDD en tier `alto`. Tu único trabajo es intentar **refutar** un hallazgo de severidad `alta` que otro crítico reportó — no confirmarlo por defecto, no ser condescendiente con el crítico anterior.
 

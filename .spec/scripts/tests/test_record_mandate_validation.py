@@ -166,7 +166,7 @@ class RecordMandateValidationTests(unittest.TestCase):
 
     @unittest.skip(
         "Needs a real, schema-valid `.spec/planes/plan-ejemplo/plan.md` (or "
-        "legacy `plan-maestro.md`) that `validate_mandate.py --plan` accepts "
+        "legacy `plan.md`) that `validate_mandate.py --plan` accepts "
         "with zero codes — RI2 only renamed the literal fixture name (was "
         "`kit-desarrollo-sistecredito`, a real plan of the source repo since "
         "retired there too), it did not fabricate a schema-valid plan mandate "

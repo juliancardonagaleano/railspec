@@ -1,0 +1,107 @@
+# Estado machine-readable de la unidad de trabajo. Fuente de verdad para la retoma.
+# Comentarios inline solo aclaran lo que NO está en .spec/README.md § Los cuatro modos /
+# § concurrencia / § Gates de validación. Cualquier detalle narrativo vive en bitacora.md.
+id: 0008-perfiles-de-modelos-en-opencode
+titulo: "Perfiles de modelos en opencode.jsonc: configuración local de agentes/skills con modelos MiniMax"
+
+# --- Multi-colaborador — ver .spec/README.md § concurrencia. ---
+dueño: ""             # quien creó la unidad o a quien se le asignó explícitamente.
+carril: ""            # core | orchestrator | studio | sdd (protocolo); ver .spec/README.md § Ejecución multi-agente.
+
+fase: done            # research | spec | plan | tasks | aprobacion | implement | done
+estado: completado    # en-progreso | bloqueado | completado
+creado: "2026-09-29T22:35:00Z"            # ISO-8601, p.ej. 2026-05-22T10:00:00Z
+actualizado: "2026-09-29T23:35:00Z"       # ISO-8601 — actualizar al cerrar cada sesión
+governance_refs: [ninguna-aplicable]   # ids de ADR/policy/principio aplicables; [] sin justificar rechaza el gate del spec.
+                      # [ninguna-aplicable] = no aplica ninguno (con justificación en la tabla del spec).
+comando_validacion: "python3 -m pytest installer -q -k u0008" # comando que verifica esta unidad (ver spec.md CA-NN→test_u0008_*.py)
+
+# --- SDD v2 — Semántica de `modo`, `riesgo`, `perfil` en .spec/README.md § Los cuatro modos / § Gates de validación. ---
+modo: semi-autonomo  # interactivo | semi-autonomo | supervisado | desatendido
+riesgo: medio         # bajo | medio | alto — dimensiona el panel del gate.
+perfil: estandar      # ligero | estandar | profundo — fuente única .spec/perfiles.yaml.
+
+modo_conversion: []   # Lista cronológica de conversiones de `modo` — ver .spec/README.md § concurrencia.
+                      # Toda unidad nace `modo: interactivo`; este campo es el único mecanismo de conversión.
+                      # Validado por .spec/scripts/validate_mode_conversion.py --unit <ruta>.
+
+aprobacion_paquete:
+  decision: aprobado
+  fecha: "2026-09-29T23:15:00Z"
+  por: operador (chat) — aprobación upfront por petición explícita del usuario de conducir la unidad completa en una sola pasada
+  nota: "Modo semi-autonomo — aprobación upfront registrada en `paquete-aprobacion.md` con 4 suposiciones cerradas (P1+P2 cerradas en spec, P3+P4 derivadas al plan) y 4 riesgos aceptados (R1..R4). El operador aprobó el flujo completo en una sola petición. `sdd-implementar` arranca — T1..T6 en orden de dependencias."
+# Decisión humana sobre el paquete (solo modo semi-autonomo).
+# Decisión upfront registrada por el operador (chat) tras redactar paquete-aprobacion.md.
+# `sdd-implementar` NO arranca sin decision: aprobado.
+
+modelo_ejecucion:   # Qué subagente/modelo/effort corrió cada fase — ver .spec/README.md § Ejecución multi-agente → § Auditoría de modelo/effort.
+  especificar: {subagente: sdd-especificar-redactor, modelo: sonnet, effort: high, perfil: estandar, en: "2026-09-29T22:40:00Z"}
+  planificar: {subagente: sdd-planificar-redactor, modelo: sonnet, effort: medium, perfil: estandar, en: "2026-09-29T22:55:00Z"}
+  tareas: {subagente: sdd-tareas-redactor, modelo: haiku, effort: low, perfil: estandar, en: "2026-09-29T23:05:00Z"}
+  implementar:                # una entrada por tarea del tasks.md (T1..T6)
+    - {grupo: T1, subagente: sdd-implementador, modelo: sonnet, effort: low, perfil: estandar, complejidad: estandar, en: "2026-09-29T23:20:00Z"}
+    - {grupo: T2, subagente: sdd-implementador, modelo: sonnet, effort: low, perfil: estandar, complejidad: estandar, en: "2026-09-29T23:21:00Z"}
+    - {grupo: T3, subagente: sdd-implementador, modelo: sonnet, effort: low, perfil: estandar, complejidad: estandar, en: "2026-09-29T23:22:00Z"}
+    - {grupo: T4, subagente: sdd-implementador, modelo: sonnet, effort: medium, perfil: estandar, complejidad: estandar, en: "2026-09-29T23:23:00Z"}
+    - {grupo: T5, subagente: sdd-implementador, modelo: sonnet, effort: medium, perfil: estandar, complejidad: estandar, en: "2026-09-29T23:24:00Z"}
+    - {grupo: T6, subagente: sdd-implementador, modelo: sonnet, effort: low, perfil: estandar, complejidad: estandar, en: "2026-09-29T23:25:00Z"}
+
+gates:
+  spec:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []
+    hallazgos_resueltos: 0
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] confirmado por AGENTS.md § Gobernanza y por L4 con evidencia del repo (AGENTS.md/.mcp.json/opencode.jsonc son payload del kit que viaja al destino, no superficie activa; pce-mcp no está configurado como auto-dependencia — caso típico kit self-installer, precedente U-0005/U-0007). check_governance_surface.py reporta 'superficie-no-declarada' por la triada literal en filesystem; resuelto con `governance_consultada: si` per sdd-gate/SKILL.md § 3 'Superficie caída ≠ superficie inexistente'."
+    criticos:
+      - {lente: "L1 — Testeabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L4 — Gobernanza", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L2 — Ambigüedad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  plan:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []
+    hallazgos_resueltos: 0
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido; trazabilidad 12/12 CA-NN→plan verificada (CA-01..06, 10→G1; CA-07..09→G2; CA-11, 12→verificación read-only); 3 grupos paralelos con archivos disjuntos entre G1 (opencode.jsonc) y G2 (config_cableado.py), G3 reuniendo tests; 5 decisiones DD-1..DD-5 (DD-1 forma entry {_sdd_kit, model}, DD-2 sin provider/default_agent/model global, DD-3 split M3/M2.7-highspeed por capacidad, DD-4 opt-out simétrico a U-0007 CA-07, DD-5 tests dedicados u0008); 4 riesgos R1..R4 mitigados (R1 regresión u0002_ca52, R2 opt-out permisivo, R3 no byte-identical, R4 CA-11/12 regresión preexisting precedente U-0006/U-0009); comando_validacion ejecutable `python3 -m pytest installer -q -k u0008`; reutilización con rutas concretas (config_cableado.py:31-32, 97-104, 222-269; test_config_cableado.py:208-224; test_u0007_mcp_opt_out.py; .agents/agents/*.md); sin tocar kit_manifest/protocolo-datos/perfiles/agentes — coherente con el spec."
+    criticos:
+      - {lente: "L1 — Reutilización", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L4 — Gobernanza y coherencia con el spec", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Riesgos y ejecutabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  tasks:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []
+    hallazgos_resueltos: 0
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido; cobertura 12/12 CA-NN verificada en `cubre:` de T1..T6 (CA-01..06,10→T1+T3; CA-07..09→T2+T4+T5; CA-11,12→T6 read-only); sin criterios inventados; T1..T5 implementación con 5 archivos (1 opencode.jsonc + 1 config_cableado.py + 3 tests nuevos), T6 verificación read-only de contratos preexistentes; dependencias sin ciclos (T1→T3; T1,T2→T4; T1,T2→T5; T1..T5→T6); L1 atomicidad OK (cada TN toca 1-3 archivos y declara qué cambia); L3 fidelidad al plan OK (T1→G1, T2→G2, T3+T4+T5→G3, T6 cubre CA-11/12 que el plan declaró como verificación libre); panel 1 crítico (tier medio + estandar → 1 crítico) evalúa todos los lentes activos → veredicto `aprobado` sin refinamiento; gates.tasks persistido — próxima: paquete de aprobación (modo semi-autonomo: 1 sola aprobación upfront)."
+    criticos:
+      - {lente: "L1 — Atomicidad y verificabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Fidelidad al plan (incluye gobernanza)", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  codigo:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []
+    hallazgos_resueltos: 0
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido; crítico de contexto fresco verifica 12/12 CA-NN con comandos literales — ver detalles por CA abajo. Diff scope: 1 archivo modificado `opencode.jsonc` (+81 -2), 1 archivo modificado `installer/config_cableado.py:mezclar_opencode_jsonc` (+47 -3 — pasada sobre `agent` simétrica a la pasada `mcp`), 3 archivos nuevos `installer/tests/test_u0008_agent_{model_mapping,opt_out,idempotent}.py`. NO se tocó `installer/kit_manifest.yaml` (CA-11, sigue declarando `source: opencode.jsonc` línea 161), `.spec/protocolo-datos.yaml` (CA-12, sigue con `[opus, sonnet, haiku]` — diff `git diff` vacío), `.spec/perfiles.yaml` (CA-12, diff vacío), `.agents/agents/*.md` (CA-12, diff vacío). pytest installer -q: 176/176 pasan (84 u0008 + 92 restantes); pytest installer -q -k u0008: 84/84 pasan; pytest installer -q -k u0002: 57/57 (no regresión U-0002); pytest installer -q -k u0007: 9/9 (no regresión U-0007)."
+    criticos:
+      - {lente: "L1 — Cumplimiento de los CA-NN", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L2 — Correctitud", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Encaje con el repo y gobernanza", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+# Veredicto de cada gate ejecutado; una clave por fase (spec | plan | tasks | codigo).
+                      # Contrato completo (veredicto, causa, iteraciones, hallazgos, criticos, refutador,
+                      # rehabilitado_por) en .spec/README.md § Gates de validación.
+
+depende_de: []        # Block-list de IDs de unidades de las que esta depende (ver .spec/README.md § concurrencia).
+
+# --- Modo supervisado — ver .spec/SUPERVISADO.md y .spec/README.md § Modo supervisado. ---
+mandato: ""            # Ruta al mandato (`mandato.md`/`plan.md` dentro de la propia unidad) o vacío. Ver .spec/SUPERVISADO.md.
+
+validaciones_mandato: []   # Lista de {fecha, fase, exit, codigos} — una entrada por corrida de `validate_mandate.py`.
+                            # Lo escribe `sdd-supervisado`. Validación de contrato con `.spec/scripts/validate_mandate.py`.

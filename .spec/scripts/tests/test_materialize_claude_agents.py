@@ -1,4 +1,11 @@
-"""Tests for `scripts/materialize_claude_agents.py` (unit 0166, G1 — T5).
+"""Tests for `installer.materializers.agents` (formerly
+`scripts/materialize_claude_agents.py`, unit 0166).
+
+Migrated to import the canonical module from
+``installer/materializers/agents.py`` (unit 0006); the shim at
+``scripts/materialize_claude_agents.py`` is verified separately by
+``test_skills_reference_scripts.py`` and the manual smoke test in
+``paquete-aprobacion.md``.
 
 Spins up a temporary `.agents/agents/` with the 9 known roles' canonical
 bodies and a small `perfiles.yaml`, then drives the CLI through subprocess
@@ -20,12 +27,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS_ROOT = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
-SPEC_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(SCRIPTS_ROOT))
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SPEC_SCRIPTS_DIR = REPO_ROOT / ".spec" / "scripts"
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT / "installer") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "installer"))
 sys.path.insert(0, str(SPEC_SCRIPTS_DIR))
 
-import materialize_claude_agents as mca  # noqa: E402
+from materializers import agents as mca  # noqa: E402
 import effort_profile as ep  # noqa: E402
 
 SCRIPT = SCRIPTS_ROOT / "materialize_claude_agents.py"
@@ -116,7 +127,7 @@ class MaterializeClaudeAgentsTests(unittest.TestCase):
         self.assertIn("model: sonnet", text)
         self.assertIn("effort: high", text)
         self.assertIn(
-            "generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml "
+            "generado por installer/materializers/agents.py desde .spec/perfiles.yaml "
             "y .agents/agents/sdd-critico-profundo.md",
             text,
         )

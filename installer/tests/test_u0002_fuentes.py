@@ -11,9 +11,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFEST = REPO_ROOT / "installer" / "kit_manifest.yaml"
 
-sys.path.insert(0, str(REPO_ROOT / "installer"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from manifest import get_kit_version  # noqa: E402
+from installer.manifest import get_kit_version  # noqa: E402
 
 IGNORED_FOR_DUPLICATE_CHECK = (MANIFEST, Path(__file__).resolve())
 

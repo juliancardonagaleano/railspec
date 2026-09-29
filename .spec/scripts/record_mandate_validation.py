@@ -62,13 +62,13 @@ EXIT_INTERNAL = 2
 
 def _plan_exists(mandate: str) -> bool:
     """Same two forms `validate_mandate.py --plan` resolves: an existing
-    directory (fixture, `<dir>/plan.md`, legacy `plan-maestro.md`) or a plan id
-    under `.spec/planes/<id>/plan.md` (legacy `plan-maestro.md`)."""
+    directory (fixture, `<dir>/plan.md`) or a plan id under
+    `.spec/planes/<id>/plan.md`."""
     p = Path(mandate)
     if p.is_dir():
-        return (p / "plan.md").is_file() or (p / "plan-maestro.md").is_file()
+        return (p / "plan.md").is_file()
     plan_dir = PLANS_ROOT / mandate
-    return (plan_dir / "plan.md").is_file() or (plan_dir / "plan-maestro.md").is_file()
+    return (plan_dir / "plan.md").is_file()
 
 
 def entry_line(fecha: str, fase: str, exit_code: int, codes: list[str]) -> str:

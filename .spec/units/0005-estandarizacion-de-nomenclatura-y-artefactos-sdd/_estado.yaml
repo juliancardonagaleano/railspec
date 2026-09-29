@@ -1,0 +1,278 @@
+# Estado machine-readable de la unidad de trabajo. Fuente de verdad para la retoma.
+id: 0005-estandarizacion-de-nomenclatura-y-artefactos-sdd
+titulo: "Estandarización de nomenclatura, unificación de artefactos SDD y reducción de ventana de contexto"
+
+# --- Multi-colaborador (unidad 0098) ---
+dueño: ""             # quien creó la unidad o a quien se le asignó explícitamente.
+                      # Ante escritura concurrente de este archivo (dos colaboradores
+                      # editando a la vez), gana la versión con `actualizado` más
+                      # reciente; el otro colaborador reaplica sus cambios sobre esa
+                      # base — mismo criterio que la resolución real de la colisión
+                      # 0083/0084 (ver _plan-maestro.md § Changelog).
+carril: ""            # servicio o subárbol que esta unidad toca — hoy uno de
+                      # core | orchestrator | studio | sdd (protocolo). Ver
+                      # _plan-maestro.md § Modelo de ejecución multi-agente para la
+                      # regla de paralelismo entre carriles. Se re-declara contra los
+                      # servicios `iark-*` cuando la unidad 0082 los materialice.
+
+fase: done            # research | spec | plan | tasks | aprobacion | implement | done
+                      #   research   = fase 0 opcional (investigación previa)
+                      #   aprobacion = solo modo semi-autonomo: esperando el OK humano
+                      #                del paquete antes de implementar
+estado: completado   # en-progreso | bloqueado | completado
+creado: "2026-09-29T12:00:00Z"
+actualizado: "2026-09-29T18:00:00Z"
+governance_refs: [ninguna-aplicable]   # sin superficie de gobernanza propia del kit; pce-mcp no se ejecuta contra este repo. Mismo precedente que U-0004.
+                      # Si de verdad no aplica ninguno: [ninguna-aplicable], con la
+                      # justificación en la tabla del spec. La lista vacía significa
+                      # "sin consultar", y el gate del spec la rechaza.
+comando_validacion: "python3 -m pytest .spec/scripts/tests installer -q -k u0005"
+
+# --- SDD v2 ---
+# Campos nuevos. A una unidad v1 (sin ellos) se le aplican estos mismos
+# defaults al retomar: modo=interactivo, riesgo=medio, gates={}.
+
+modo: semi-autonomo  # interactivo | semi-autonomo | supervisado | desatendido
+                      #   interactivo   = el humano co-diseña; se pausa tras spec y tras plan.
+                      #   semi-autonomo = spec/plan/tasks sin intervención; UN checkpoint
+                      #                humano antes de implementar (paquete de aprobación).
+                      #   supervisado   = solo válido junto con `mandato` (ver el bloque al
+                      #                pie de este archivo); un plan maestro o una unidad
+                      #                aislada corre fase a fase sin checkpoints intermedios,
+                      #                con decisiones delegadas y paradas tipificadas.
+                      #   desatendido   = tanda de unidades con 1 paquete de aprobación
+                      #                upfront; sin checkpoints intermedios; gates que
+                      #                escalan cierran como auto-deferred.
+                      #                Ver .spec/MODELO-AGENTES.md § Modo desatendido
+                      #                (0031, 2026-09-23).
+
+riesgo: medio         # bajo | medio | alto — asignado en el triaje. Dimensiona los gates:
+                      #   bajo  = 1 crítico  × máx 1 iteración   (bajo 1/1)
+                      #   medio = 1 crítico  × máx 1 iteración   (medio 1/1)
+                      #   alto  = 2 críticos × máx 2 iteraciones + verificación adversarial (alto 2/2)
+                      #   críticos/iteraciones — valores del perfil estandar de .spec/perfiles.yaml
+
+perfil: estandar      # ligero | estandar | profundo — cuánto se gasta en producir la
+                      # corrida (modelo/effort por rol, presupuesto del gate, exploradores).
+                      # Eje independiente de `riesgo`. Fuente única: `.spec/perfiles.yaml`;
+                      # `default: estandar` es fijo ahí. Se cambia con `/sdd-perfil <nombre>`.
+
+modo_conversion: []   # Lista cronológica de conversiones de `modo` (CA-02). Toda
+                      # unidad nace `modo: interactivo`; este campo es el único
+                      # mecanismo por el que pasa a otro modo — una entrada por
+                      # decisión humana de conversión, nunca editado retroactivamente.
+# modo_conversion:
+#   - desde: interactivo
+#     hacia: semi-autonomo
+#     en: "2026-09-24T10:00:00Z"
+#     por: "Julian"
+#     tras: research             # tras ∈ {research, spec} — fase en que se decidió
+#   - desde: semi-autonomo
+#     hacia: desatendido
+#     en: "2026-09-24T11:00:00Z"
+#     por: "Julian"
+#     tras: spec
+# Reglas:
+#   - `desde` de cada entrada == `hacia` de la anterior; `interactivo` en la primera.
+#   - `hacia` ∈ {semi-autonomo, supervisado, desatendido}.
+#   - `hacia: desatendido` exige `mandato` (abajo) poblado con el id de un plan
+#     maestro que liste esta unidad en su `## Unidades miembro`, y el paquete de
+#     ese plan aprobado. El campo `tanda` que antes cumplía este papel está
+#     retirado (2026-09-26): duplicaba con otro nombre lo que ya hace el plan
+#     maestro. Ver AGENTS.md § Modo desatendido.
+#   - Exención (CA-08): una unidad `modo: supervisado`, `mandato` poblado, SIN este
+#     campo y `creado` anterior a 2026-09-24 conserva su modo hasta `fase: done`
+#     sin regularizar — ver .spec/SUPERVISADO.md § Unidades en vuelo. Toda unidad
+#     creada después de esa fecha nace `interactivo` y se convierte por esta lista,
+#     aun bajo el mismo mandato.
+#   - Validado por `.spec/scripts/validate_mode_conversion.py --unit <ruta>`.
+
+# Decisión humana sobre el paquete de aprobación (solo modo semi-autonomo).
+# `sdd-implementar` NO arranca en modo semi-autonomo sin decision: aprobado.
+aprobacion_paquete:
+  decision: aprobado
+  fecha: "2026-09-29T16:00:00Z"
+  nota: "humano aprobó paquete; 20 tareas T1..T20, 14 CA verificables, paquete incluye 3 suposiciones conservadoras y 6 riesgos mitigados"
+# aprobacion_paquete:
+#   decision: aprobado | aprobado-con-cambios | rechazado
+#   fecha: "2026-05-22T10:00:00Z"
+#   nota: "qué pidió cambiar, si aplica"
+
+# --- Auditoría de modelo/effort (mecanismo propio de este repo; ver
+# .spec/MODELO-AGENTES.md para el porqué y la tabla completa). Qué subagente,
+# modelo y effort ejecutó el contenido de cada fase. Quien invoca al
+# subagente lo registra al terminar — no se infiere después, porque nadie
+# más sabe con certeza qué se invocó de verdad.
+modelo_ejecucion:
+  especificar: {subagente: sdd-especificar-redactor, modelo: sonnet, effort: high, perfil: estandar, en: "2026-09-29T13:00:00Z"}
+  planificar: {subagente: sdd-planificar-redactor, modelo: sonnet, effort: medium, perfil: estandar, en: "2026-09-29T14:00:00Z"}
+  tareas: {subagente: sdd-tareas-redactor, modelo: haiku, perfil: estandar, en: "2026-09-29T12:21:40Z"}
+  implementar:
+    - {grupo: G1, subagente: sdd-implementador, modelo: sonnet, effort: medium, perfil: estandar, complejidad: estandar, en: "2026-09-29T17:00:00Z"}
+    - {grupo: G2, subagente: sdd-implementador, modelo: sonnet, effort: medium, perfil: estandar, complejidad: estandar, en: "2026-09-29T17:00:00Z"}
+    - {grupo: G3, subagente: sdd-implementador, modelo: sonnet, effort: medium, perfil: estandar, complejidad: estandar, en: "2026-09-29T17:00:00Z"}
+# modelo_ejecucion:
+#   research:                   # fase 0 opcional (CA-10) — dos sub-entradas, cada
+#                                # una con `modelo` y `perfil`.
+#     exploradores: {subagente: sdd-explorador, modelo: sonnet, effort: medium, perfil: estandar, instancias: 3, en: "2026-05-22T09:00:00Z"}
+#     consolidacion: {subagente: inline, modelo: sonnet, perfil: estandar, en: "2026-05-22T09:30:00Z"}
+#                                # consolidacion corre inline (subagente: "inline"),
+#                                # en el modelo de la sesión que conduce, no en un
+#                                # subagente propio (H15).
+#   especificar: {subagente: sdd-especificar-redactor, modelo: sonnet, effort: high, perfil: estandar, en: "2026-05-22T10:00:00Z"}
+#   planificar:  {subagente: sdd-planificar-redactor,  modelo: sonnet, effort: high, perfil: estandar, en: "2026-05-22T11:00:00Z"}
+#   tareas:      {subagente: sdd-tareas-redactor,      modelo: haiku, perfil: estandar, en: "2026-05-22T11:30:00Z"}
+#   implementar:                # una entrada por grupo del plan
+#     - {grupo: G1, subagente: sdd-implementador,        modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar}
+#     - {grupo: G2, subagente: sdd-implementador-xhigh,  modelo: sonnet, effort: xhigh, perfil: estandar, complejidad: complejo}
+
+# Veredicto de cada gate ejecutado; una clave por fase evaluada
+# (spec | plan | tasks | codigo). Contrato:
+#   veredicto ∈ {aprobado, refinado, escalado}
+#   causa: solo si veredicto=escalado — sin-gobernanza | decision-humana |
+#          hallazgos-sin-resolver | validacion-en-rojo | determinista-irresoluble |
+#          sin-convergencia
+#   iteraciones: entero
+#   hallazgos: lista de objetos {severidad, lente, donde, problema, correccion}
+#              — SOLO los que quedaron sin resolver
+#   hallazgos_resueltos: entero — cuántos se corrigieron (alimenta el paquete)
+#   governance_consultada ∈ {si, parcial, no}
+#   criticos: qué subagente/modelo evaluó cada lente (auditoría, igual que
+#             modelo_ejecucion arriba — mismo mecanismo propio)
+#   refutador: igual, solo presente si corrió verificación adversarial (tier alto)
+#   rehabilitado_por: opcional, en gates.<fase> — decisión humana registrada para
+#             re-correr un gate cuyo último veredicto fue `escalado` sobre la
+#             misma fase, SIN reiniciar `iteraciones`: {por, en, motivo}
+# El detalle narrativo (qué criticó cada lente, qué se descartó) va en bitacora.md.
+gates:
+  spec:
+    veredicto: refinado
+    tier: medio
+    iteraciones: 1
+    fs_hash: "90ad651260fa4f2ad9d9fdc1001927a59c53a57a828a161ce3542329d093cec9"
+    hallazgos:
+      - severidad: baja
+        lente: "L1 — Testeabilidad"
+        donde: "spec.md:57 (CA-06)"
+        problema: "El anchor literal del cross-reference se difiere al plan."
+        correccion: "Sin cambio en spec; nota para el paquete-aprobacion.md: el anchor se fija en plan.md antes de tasks.md."
+      - severidad: baja
+        lente: "L1 — Testeabilidad"
+        donde: "spec.md:50-51 (CA-02 y CA-03)"
+        problema: "CA-02 'el verificador falla' es ambiguo entre verificador y test."
+        correccion: "Aclarar que el test (no el verificador) falla ante violaciones; el verificador sale con exit 0 y stdout no vacío. Anotado como recordatorio para el plan."
+    hallazgos_resueltos: 3
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] confirmado por el crítico L4 con evidencia del repo (mismo caso que U-0004)."
+    criticos:
+      - {lente: "L1 — Testeabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L4 — Gobernanza", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  plan:
+    veredicto: refinado
+    tier: medio
+    iteraciones: 1
+    fs_hash: "c16601361d66c4143b84f2c409b6bf58103be1b65f6e87788bdee7a584edf2e8"
+    hallazgos:
+      - severidad: baja
+        lente: "L1 — Reutilización"
+        donde: "plan.md:35"
+        problema: "Afirma que `_common.field()` etc. son consumidos por `validate_mode_conversion.py` y `validate_gate_budget.py`; solo `validate_gate_budget.py` se verificó."
+        correccion: "Sin cambio en plan; nota de revisión para exactitud."
+    hallazgos_resueltos: 3
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] confirmado; trazabilidad CA-NN→plan completa: los 14 CA-NN del spec tienen sustento en el plan (DD-1..DD-6 justificadas, G1+G2+G3 paralelos con archivos disjuntos)."
+    criticos:
+      - {lente: "L1 — Reutilización", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L4 — Gobernanza y coherencia con el spec", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  tasks:
+    veredicto: refinado
+    tier: medio
+    iteraciones: 1
+    fs_hash: "c16601361d66c4143b84f2c409b6bf58103be1b65f6e87788bdee7a584edf2e8"
+    hallazgos:
+      - severidad: baja
+        lente: "L1 — Atomicidad"
+        donde: "tasks.md T3 (original, antes de refinamiento)"
+        problema: "Tarea puramente de verificación, solapada con checkpoint del verificador de CA-01."
+        correccion: "Mantenida como checkpoint explícito en el flujo (no se funde con T1/T2)."
+      - severidad: baja
+        lente: "L1 — Atomicidad"
+        donde: "tasks.md T9 (original, antes de refinamiento)"
+        problema: "T9 era un duplicado de T20; sin rationale explícito."
+        correccion: "Añadido rationale (gate pre-commit vs test persistente)."
+    hallazgos_resueltos: 2
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido; trazabilidad CA-NN→tasks completa: 14/14 CA cubiertos con un test propio por CA-NN; T4 fusiona CA-08+CA-09 (red+re-estructuración de _estado.yaml, dos caras del mismo edit) tras crítica del panel."
+    criticos:
+      - {lente: "L1 — Atomicidad y verificabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Fidelidad al plan", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  codigo:
+    veredicto: refinado
+    tier: medio
+    iteraciones: 1
+    hallazgos:
+      - severidad: baja
+        lente: "L3 — Encaje con el repo"
+        donde: ".spec/README.md:99 (fila .yaml de la tabla)"
+        problema: "Mencionaba `.spec/MODELO-AGENTES.md` como excepción de la fila `.yaml` — error de categorización, el archivo es `.md`."
+        correccion: "Eliminado; el archivo aparece correctamente en la tabla de Excepciones vigentes (línea 109)."
+      - severidad: baja
+        lente: "L3 — Encaje con el repo"
+        donde: ".spec/_plantillas/_estado.yaml"
+        problema: "Faltaba newline al final (no terminaba en \\n)."
+        correccion: "Añadido."
+    hallazgos_resueltos: 2
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido. 2 hallazgos alta resueltos (anchors muertos: `## Reglas del fan-out` añadido al README con justificación extraída del antiguo bloque de plan.md:36-52; 3 anchors adicionales de `_estado.yaml` — `§ Ejecución multi-agente` corregido, `§ Auditoría de modelo/effort` y `§ Modo supervisado` añadidos como secciones reales del canónico); 2 hallazgos baja resueltos (mención errónea de MODELO-AGENTES.md en fila .yaml; falta de newline). Suite unificada verde: 47 tests pasaron, 19/19 claves top-level preservadas, 4/4 excluidas byte-idénticas, todos los anchors resuelven a secciones reales del README."
+    criticos:
+      - {lente: "L1 — Cumplimiento de los CA-NN", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L2 — Correctitud", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Encaje con el repo y gobernanza", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+# gates:
+#   spec:
+#     veredicto: refinado
+#     iteraciones: 2
+#     hallazgos: []
+#     hallazgos_resueltos: 3
+#     governance_consultada: si
+#     criticos:
+#       - {lente: "L1 — Testeabilidad", subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+#       - {lente: "L4 — Gobernanza",    subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+#     refutador: []
+#   plan:
+#     veredicto: escalado
+#     causa: decision-humana
+#     iteraciones: 1
+#     hallazgos:
+#       - severidad: alta
+#         lente: riesgos
+#         donde: "plan.md § Grupos paralelizables"
+#         problema: "G1 y G3 tocan el mismo archivo"
+#         correccion: "fusionarlos o redistribuir los archivos"
+#     hallazgos_resueltos: 0
+#     governance_consultada: si
+#     criticos:
+#       - {lente: "L1 — Reutilización", subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+#       - {lente: "L4 — Gobernanza",    subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+
+# --- Modo supervisado ---
+# Ver .spec/_plantillas/plan-maestro.md, .spec/_plantillas/mandato.md y
+# .spec/SUPERVISADO.md. Los defaults de una unidad v1 (modo=interactivo,
+# riesgo=medio, gates={}) no cambian por este bloque.
+
+mandato: ""            # Un solo campo, un solo valor escalar: el id de un
+                        # plan (.spec/planes/<id>/) o la ruta relativa al
+                        # archivo de mandato de esta unidad (p.ej.
+                        # mandato.md, dentro de este mismo directorio).
+                        # Solo tiene sentido junto con `modo: supervisado`.
+                        # Comentario de gobierno del campo: solo la
+                        # orquestación de `sdd-supervisado` lo sustituye, y
+                        # solo al iniciar un plan aprobado — nadie más lo
+                        # edita a mano.
+
+validaciones_mandato: []   # Comentado, junto a `gates`: lista de
+                            # {fecha, fase, exit, codigos} — una entrada por
+                            # corrida de `validate_mandate.py` sobre esta
+                            # unidad o su plan. Lo escribe `sdd-supervisado`.
+# validaciones_mandato:
+#   - {fecha: "2026-09-17T16:00:00Z", fase: implement, exit: 0, codigos: []}

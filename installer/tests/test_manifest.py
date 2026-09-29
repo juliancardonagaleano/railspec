@@ -9,9 +9,9 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO_ROOT / "installer"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from manifest import DEFAULT_MANIFEST_PATH, ManifestEntry, load_manifest  # noqa: E402
+from installer.manifest import DEFAULT_MANIFEST_PATH, ManifestEntry, load_manifest  # noqa: E402
 
 _SPEC_DIR = ".spec/"
 EXCLUDED_DEST_PREFIXES = (

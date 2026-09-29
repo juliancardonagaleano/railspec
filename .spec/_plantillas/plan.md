@@ -33,23 +33,9 @@ archivo, van en el mismo grupo. Máximo 4 grupos.
 | G1 | ... | `...` | — | estandar |
 | G2 | ... | `...` | G1 | estandar |
 
-> Si el cambio no admite paralelismo real, sigue siendo **una fila de esta
-> misma tabla**, no una nota aparte que la reemplace: un solo `G1` con Alcance
-> "grupo único — cambios acoplados" y Archivos igual a todo lo que toca el
-> cambio. Así conserva su columna Complejidad — sin fila, ese grupo no tendría
-> dónde marcarse como complejo y nunca podría escalar a un modelo más capaz,
-> justo el caso (una migración de datos, p. ej., que no admite paralelismo)
-> donde más se necesitaría. Un fan-out sobre archivos compartidos produce
-> conflictos, no velocidad — con un solo grupo, esto no aplica.
+> Si el cambio no admite paralelismo real, sigue siendo **una fila de esta misma tabla** (un solo `G1` con Alcance "grupo único — cambios acoplados"). Valores válidos de `Complejidad`: `estandar` (default) o `complejo`, literal que se persiste en `_estado.yaml > modelo_ejecucion > implementar`. `Complejidad: complejo` marca un grupo que exige más razonamiento que el resto (la fase de implementación lo asigna a un modelo más capaz); no marcar todo como complejo, eso vacía la señal.
 >
-> `Complejidad: complejo` marca un grupo que exige más razonamiento que el
-> resto (migración de datos, algoritmo no trivial, decisión de diseño con
-> muchos grados de libertad) — la fase de implementación lo asigna a un modelo
-> más capaz. Valores válidos: `estandar` (default) o `complejo`, siempre sin
-> tilde y en minúscula tal como están en la tabla — es el literal que se
-> persiste en `_estado.yaml > modelo_ejecucion > implementar`, no texto libre
-> para reformular. No marcar todo como complejo, eso vacía la señal. Ver
-> `.spec/MODELO-AGENTES.md`.
+> Ver [.spec/README.md § Reglas del fan-out](README.md#reglas-del-fan-out) para justificación detallada y ejemplos.
 
 ## Riesgos y mitigaciones
 

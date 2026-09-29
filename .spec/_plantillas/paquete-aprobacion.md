@@ -16,9 +16,7 @@ La premisa tal como la dio el humano, literal.
 Resumen ejecutivo del cambio. Si el humano solo lee esto, debe bastarle para
 aceptar o rechazar.
 
-**Perfil de esfuerzo:** `<perfil>` (`ligero` | `estandar` | `profundo`) — se
-puede cambiar en este mismo checkpoint con `/sdd-perfil <nombre>`; rige desde
-la siguiente invocación de subagente.
+**Perfil de esfuerzo:** ver [.spec/README.md § Los cuatro modos](README.md#los-cuatro-modos) o header de [.spec/perfiles.yaml](../perfiles.yaml).
 
 ## Criterios de aceptación
 

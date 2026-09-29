@@ -50,8 +50,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from git_target import GitTargetError, resolve_git_dir, resolve_git_root
-from manifest import (
+from installer.git_target import GitTargetError, resolve_git_dir, resolve_git_root  # noqa: E402
+from installer.manifest import (  # noqa: E402
     DEFAULT_MANIFEST_PATH,
     ManifestError,
     get_kit_version,
@@ -60,7 +60,10 @@ from manifest import (
     sha256_bytes,
     sha256_file,
 )
-from verifier import iter_payload_files
+from installer.materializers.agents import main as agents_main  # noqa: E402
+from installer.materializers.commands import main as commands_main  # noqa: E402
+from installer.materializers.skills import main as skills_main  # noqa: E402
+from installer.verifier import iter_payload_files  # noqa: E402
 
 EXIT_OK = 0
 EXIT_OPERATIONAL_ERROR = 2
@@ -70,12 +73,13 @@ EXIT_NEW_PATH_COLLISION = 3
 # del worktree y fuera de la carga (CA-13).
 INSTALL_RECORD_NAME = "sdd-kit-install-record.yaml"
 
-# Espejos ``.claude/skills|agents|commands`` regenerados en el destino como
-# subprocesos, después de escribir la carga.
+# Espejos ``.claude/skills|agents|commands`` regenerados en el destino
+# después de escribir la carga. Tupla ``(which, callable)`` — U-0006 invoca
+# cada materializador en proceso (sin lanzar intérprete nuevo).
 MIRROR_MATERIALIZERS = (
-    "scripts/materialize_claude_skills.py",
-    "scripts/materialize_claude_agents.py",
-    "scripts/materialize_claude_commands.py",
+    ("agents", agents_main),
+    ("commands", commands_main),
+    ("skills", skills_main),
 )
 
 PRE_PUSH_HOOK_INSTALLER = "scripts/install_pre_push_hook.sh"
@@ -213,19 +217,10 @@ def _manifest_root_dirs(git_root: Path) -> set[str]:
     return roots
 
 
-def _run_materializer(script_rel: str, target: Path) -> int:
-    script_path = target / script_rel
-    result = subprocess.run(
-        [sys.executable, "-B", str(script_path), "--repo-root", str(target)],
-        cwd=target,
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout:
-        print(result.stdout, end="")
-    if result.stderr:
-        print(result.stderr, file=sys.stderr, end="")
-    return result.returncode
+def _run_materializer(which: str, fn, target: Path) -> int:
+    """Invoca un materializador en proceso (U-0006). Pasa ``--repo-root
+    <target>`` y propaga el returncode; sin lanzar intérprete nuevo."""
+    return fn(["--repo-root", str(target)])
 
 
 def _install_pre_push_hook(target: Path) -> int:
@@ -468,11 +463,11 @@ def run_install(
                 _vaciar_directorios_vacios(target_file, git_root, manifest_roots)
 
     # Espejos.
-    for script_rel in MIRROR_MATERIALIZERS:
-        code = _run_materializer(script_rel, git_root)
+    for which, fn in MIRROR_MATERIALIZERS:
+        code = _run_materializer(which, fn, git_root)
         if code != 0:
             print(
-                f"ERROR: {script_rel} falló con código {code} sobre {git_root}.",
+                f"ERROR: materializador {which} falló con código {code} sobre {git_root}.",
                 file=sys.stderr,
             )
             return EXIT_OPERATIONAL_ERROR
@@ -487,8 +482,8 @@ def run_install(
 
     # Cableado de configuración (CA-45..CA-47, CA-51, CA-52).
     try:
-        import config_cableado
-        config_cableado.cablear(git_root, git_root)
+        from installer.config_cableado import cablear  # noqa: E402
+        cablear(git_root, git_root)
     except Exception as exc:
         print(
             f"ERROR: cableado de configuración del entorno falló: {exc}",

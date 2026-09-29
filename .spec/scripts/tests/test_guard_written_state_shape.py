@@ -216,7 +216,7 @@ class GuardRepoMixin:
     def make_plan(self, plan_id: str, content: str) -> Path:
         plan_dir = self.repo / ".spec" / "planes" / plan_id
         plan_dir.mkdir(parents=True, exist_ok=True)
-        plan_file = plan_dir / "plan-maestro.md"
+        plan_file = plan_dir / "plan.md"
         plan_file.write_text(content, encoding="utf-8")
         return plan_file
 
@@ -309,7 +309,7 @@ class ShapeRejectionTests(GuardRepoMixin, unittest.TestCase):
 
 
 class MandateRejectionTests(GuardRepoMixin, unittest.TestCase):
-    """CA-18: a broken anchor or mandate shape in `mandato.md`/`plan-maestro.md`."""
+    """CA-18: a broken anchor or mandate shape in `mandato.md`/`plan.md`."""
 
     def test_mandato_md_with_a_missing_anchor_is_blocked(self) -> None:
         unit = self.make_unit(".spec/units/0000-unidad/", estado=BLOCK_STYLE_ESTADO)
@@ -337,12 +337,19 @@ class MandateRejectionTests(GuardRepoMixin, unittest.TestCase):
         unit = self.make_unit(".spec/units/0000-unidad/", estado=BLOCK_STYLE_ESTADO)
         self.assertNoDecision(self.run_hook(unit / "mandato.md", tool="Edit"))
 
-    def test_plan_maestro_md_takes_the_plan_branch_of_the_validator(self) -> None:
+    def test_plan_md_is_not_watched_post_u0009(self) -> None:
+        # U-0009 retira el archivo histórico de WATCHED_BASENAMES; el guard no
+        # observa ``plan.md`` por construcción (los planes son validados por
+        # `sdd-supervisado` al inicio de la tanda, no por el guard de escritura).
+        # Por construcción, ``make_plan`` aún escribe el archivo, pero el hook
+        # debe retornar ``decision=None`` (no-op) porque el basename no está
+        # en WATCHED_BASENAMES.
         plan_file = self.make_plan("plan-de-prueba", PLAN_TODO_MAL)
         decision = self.decision(self.run_hook(plan_file, tool="Edit"))
-        self.assertIsNotNone(decision)
-        self.assertEqual(self.rejection_lines()[0]["rule"], "validate_mandate --plan")
-        self.assertEqual(self.rejection_lines()[0]["path"], ".spec/planes/plan-de-prueba/plan-maestro.md")
+        self.assertIsNone(
+            decision,
+            "post-U-0009 el guard no observa `plan.md`; el hook debe ser no-op",
+        )
 
 
 class TreeConditionTests(GuardRepoMixin, unittest.TestCase):
@@ -535,14 +542,14 @@ class WorstCaseBudgetTests(GuardRepoMixin, unittest.TestCase):
         )
 
     @unittest.skip(
-        "Needs the largest real `.spec/planes/*/plan-maestro.md`|`plan.md` of "
+        "Needs the largest real `.spec/planes/*/plan.md` of "
         "this repo to measure a worst-case performance budget against. A "
         "freshly-founded kit repo has no `.spec/planes/` backlog depth to draw "
         "that worst case from yet — not a genericity gap, just no data to "
         "measure. Revisit once the kit accumulates its own real plans."
     )
     def test_plan_branch_stays_within_the_budget(self) -> None:
-        source = self._largest(Path(".spec/planes"), "plan-maestro.md", "plan.md")
+        source = self._largest(Path(".spec/planes"), "plan.md")
         plan_file = self.make_plan("plan-de-prueba", source.read_text(encoding="utf-8"))
         elapsed = self._measure(plan_file)
         self.assertLess(

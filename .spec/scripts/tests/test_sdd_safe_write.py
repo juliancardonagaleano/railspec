@@ -273,7 +273,7 @@ class SafeWriteRepoMixin:
         return unit
 
     def seed_plan(self, plan_id: str = "prueba") -> Path:
-        """Build a minimal valid `plan-maestro.md` in the throwaway repo.
+        """Build a minimal valid `plan.md` in the throwaway repo.
 
         The validator in the throwaway resolves `PLANS` from its own
         `parents[2]`, so `plan_id` becomes a sibling plan directory under
@@ -295,7 +295,7 @@ class SafeWriteRepoMixin:
             (REPO / ".spec" / "PARADAS-SUPERVISADO.md").read_bytes()
         )
         plan_text = MINIMAL_PLAN_TEMPLATE.format(plan_id=plan_id)
-        (plan_dir / "plan-maestro.md").write_text(plan_text, encoding="utf-8")
+        (plan_dir / "plan.md").write_text(plan_text, encoding="utf-8")
         hash_proc = subprocess.run(
             [
                 sys.executable,
@@ -315,7 +315,7 @@ class SafeWriteRepoMixin:
             hash_proc.stdout + hash_proc.stderr,
         )
         live_hash = hash_proc.stdout.strip()
-        (plan_dir / "plan-maestro.md").write_text(
+        (plan_dir / "plan.md").write_text(
             plan_text.replace("PLACEHOLDER_HASH", live_hash),
             encoding="utf-8",
         )
@@ -734,7 +734,7 @@ class LoopBehaviorTests(SafeWriteRepoMixin, unittest.TestCase):
     def test_md_file_is_noop(self) -> None:
         unit_dir = self.repo / ".spec" / "units" / "0000-unidad"
         unit_dir.mkdir(parents=True, exist_ok=True)
-        plan = unit_dir / "plan-maestro.md"
+        plan = unit_dir / "plan.md"
         original = "# cabecera\n## Objetivo\ntexto\n"
         plan.write_text(original, encoding="utf-8")
         original_bytes = plan.read_bytes()

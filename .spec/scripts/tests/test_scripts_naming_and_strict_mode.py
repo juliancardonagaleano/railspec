@@ -21,12 +21,13 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 REPO_ROOT = SCRIPTS.parents[1]
 
-# --- The eight names CA-10 checks for forbidden suffixes (six rituals + two hooks) --
+# --- The seven names CA-10 checks for forbidden suffixes (five rituals + two hooks) --
+# U-0009 retira ``append_changelog_line.py`` (sin callers vivos); la lista baja
+# de ocho a siete (cinco rituales Python + dos hooks + ``snapshot_evidence.sh``).
 NAMED_FILES = [
     "record_mandate_validation.py",
     "instance_lock.py",
     "report_git_sync.py",
-    "append_changelog_line.py",
     "snapshot_evidence.sh",
     "mandate_anchor.py",
     "guard_written_state_shape.py",
@@ -37,7 +38,6 @@ PY_RITUALS = [
     "record_mandate_validation.py",
     "instance_lock.py",
     "report_git_sync.py",
-    "append_changelog_line.py",
     "mandate_anchor.py",
 ]
 BASH_RITUAL = "snapshot_evidence.sh"

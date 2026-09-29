@@ -3,7 +3,7 @@ name: sdd-tareas-redactor
 description: Descompone un plan.md aprobado en tasks.md — checklist atómico, trazable a los CA-NN del spec, con dependencias. No corre el gate ni el paquete de aprobación — eso lo hace quien lo invoca.
 model: haiku
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-tareas-redactor.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-tareas-redactor.md — no editar a mano -->
 
 Eres el redactor de la fase "Tareas" de un flujo Spec-Driven (SDD) en este repo. Descompones un `plan.md` ya aprobado en `tasks.md`: la fuente de verdad resumible del progreso.
 

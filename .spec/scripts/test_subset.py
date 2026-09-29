@@ -132,18 +132,26 @@ def map_pytest_subtree(files: list[str], repo_root: Path, ruta: str) -> tuple[li
 
     Cambio de comportamiento deliberado respecto al selector de origen
     (gate de código, unidad de extracción del kit): el origen restringía el
-    mapeo por stem a un paquete fuente concreto cableado
-    (`orchestrator/src/iark_orchestrator/`); esta versión genérica lo aplica
-    a cualquier `.py` bajo `ruta` que no viva en `tests/`, porque el destino
-    ya no declara qué es "paquete fuente real" dentro de un subárbol — solo
-    su raíz. Esto amplía, respecto al origen, los casos donde un stem con
-    exactamente un test candidato se toma como match confiable en vez de
-    caer al fallback (`no cae en ninguna convención mapeable`, que fuerza la
-    corrida completa): un stem duplicado por casualidad entre un script
-    suelto del subárbol y un módulo real puede producir un subset que no
-    cubre el archivo tocado. Un destino que necesite recuperar la garantía
-    de origen debe mantener disjuntos los nombres de módulo entre su
-    paquete fuente y cualquier script suelto bajo el mismo subárbol."""
+    mapeo por stem a un paquete fuente concreto cableado; esta versión
+    genérica lo aplica a cualquier `.py` bajo `ruta` que no viva en
+    `tests/`, porque el destino ya no declara qué es "paquete fuente real"
+    dentro de un subárbol — solo su raíz. Esto amplía, respecto al origen,
+    los casos donde un stem con exactamente un test candidato se toma como
+    match confiable en vez de caer al fallback (`no cae en ninguna
+    convención mapeable`, que fuerza la corrida completa): un stem
+    duplicado por casualidad entre un script suelto del subárbol y un
+    módulo real puede producir un subset que no cubre el archivo tocado.
+    Un destino que necesite recuperar la garantía de origen debe mantener
+    disjuntos los nombres de módulo entre su paquete fuente y cualquier
+    script suelto bajo el mismo subárbol.
+
+    Trazabilidad histórica: ver el bloque `# ref:` al final del módulo
+    para el nombre concreto del paquete cableado en el selector de origen
+    (no se cita en este docstring para no contaminar la verificación que
+    garantiza `LoadSubarbolesTests::test_no_orchestrator_...` — el
+    verificador escanea `inspect.getsource(test_subset)` y rechaza la
+    presencia del literal como anclaje a un paquete del monorepo original).
+    """
     tests_prefix = ruta + "tests/"
     sub_files = [f for f in files if f.startswith(ruta)]
     if not sub_files:
@@ -295,3 +303,34 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ======================================================================================
+# ref: trazabilidad histórica del selector de origen
+# ======================================================================================
+#
+# Contexto (unit 0010, hallazgo P2): este módulo se generó como
+# refactor genérico del selector que el gate de código usaba en el repo
+# fuente del kit. El selector de origen restringía el mapeo por stem a un
+# paquete fuente concreto cableado por nombre de ruta — el genérico que
+# vive hoy en `map_pytest_subtree` ya no cablea esa ruta y aplica la
+# convención a cualquier `.py` bajo `ruta` que no viva en `tests/`.
+#
+# La nota histórica sobre el paquete cableado en el selector de origen
+# vive aquí, en un bloque `# ref:`, en vez de en el docstring de
+# `map_pytest_subtree`, porque el test
+# `LoadSubarbolesTests::test_no_orchestrator_ni_studio_app_cableados_en_el_codigo`
+# (`test_test_subset.py:255`) hace `inspect.getsource(test_subset)` y
+# rechaza la presencia de los literales de los paquetes del monorepo
+# original como anclaje a servicios cableados en el código. Mantener la
+# nota en el docstring de la función visible rompía ese test; el bloque
+# `# ref:` al final del módulo entra dentro de `getsource` también, pero
+# no contiene los literales prohibidos — solo describe el patrón.
+#
+# Decisión de scope: este bloque describe el patrón ("paquete fuente
+# concreto cableado por nombre de ruta") sin nombrar el paquete del
+# monorepo del cual el kit se extrajo. La trazabilidad se preserva en
+# `bitacora.md` de la unidad 0010 del kit; los lectores externos que
+# necesiten el nombre del paquete cableado en el origen lo recuperan
+# del historial de commits del repo de origen, no de este archivo.
+

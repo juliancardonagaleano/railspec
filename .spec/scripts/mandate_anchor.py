@@ -2,12 +2,13 @@
 """Additivity anchor per mandate (unit 0114 — sixth ritual, ancla de aditividad
 correction).
 
-`validate-supervised.sh` step 9 (CA-28 of `0109a`) compares `.spec/units/_plan-maestro.md`
-against a single, global, frozen file (`base-commit.txt`) to prove the index only ever
-gains lines. That anchor never moves forward, so the first legitimate edit to
-`_plan-maestro.md` made outside a supervised mandate leaves step 9 red **forever** and
-blocks **every future mandate** that runs it. This script gives each mandate its own
-anchor instead: the commit its launch actually started from.
+`validate-supervised.sh` step 9 (CA-28 of `0109a`) compares the index of
+mandates against a single, global, frozen file (`base-commit.txt`) to prove
+the index only ever gains lines. That anchor never moves forward, so the
+first legitimate edit to the index made outside a supervised mandate
+leaves step 9 red **forever** and blocks **every future mandate** that runs
+it. This script gives each mandate its own anchor instead: the commit its
+launch actually started from.
 
 Usage
 -----
@@ -41,10 +42,10 @@ written normalized to 40 hex — never the short form the caller passed. A `--co
 that does not resolve to a commit is exit `4` ("commit inválido"); nothing is written.
 
 On a section already valid, `write` does not touch the file and exits `0` (idempotent,
-same regime as `append_changelog_line.py`) — **unless** `--force`, which always
-replaces it. The only intended caller of `--force` is a human, by hand, relaunching a
-mandate after expiry (S-12 of `spec.md`); no script or skill of this unit invokes it
-automatically.
+mismo régimen que `append_changelog_line.py` antes de su retiro en U-0009) — **unless**
+`--force`, which always replaces it. The only intended caller of `--force` is a human,
+by hand, relaunching a mandate after expiry (S-12 of `spec.md`); no script or skill of
+this unit invokes it automatically.
 
 `resolve` prints the commit if the section is valid; if it is absent or invalid it
 prints nothing and still exits `0` — silence is not an error, it is information for
@@ -159,11 +160,12 @@ def render_anchor(text: str, commit: str) -> str:
     `commit:` line), not the position, which a heading that already exists has fixed
     the moment it was written.
 
-    Deliberately **not** built on `instance_lock.replace_section()` nor
-    `append_changelog_line._section_bounds()` (D-21): both already solve "replace the
-    body of a known section", but they belong to scripts closed before this correction
-    existed, and refactoring them to share a helper is a bigger, unrelated change —
-    left as a documented duplication, not a hidden one.
+    Deliberately **not** built on `instance_lock.replace_section()` ni sobre el
+    helper `_section_bounds()` que `append_changelog_line.py` retiró U-0009 (D-21):
+    ambos ya resolvían "reemplazar el cuerpo de una sección conocida", pero
+    pertenecen a scripts cerrados antes de que esta corrección existiera, y refactorizar
+    para compartir el helper es un cambio mayor y ajeno — se mantiene como duplicación
+    documentada, no oculta.
     """
     trailing_newline = text.endswith("\n")
     lines = text.splitlines()

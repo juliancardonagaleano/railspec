@@ -1,4 +1,11 @@
-"""Tests for ``scripts/materialize_claude_skills.py`` (unit 0131, G5 — T15/T16).
+"""Tests for ``installer.materializers.skills`` (formerly
+``scripts/materialize_claude_skills.py``, unit 0131).
+
+Migrated to import the canonical module from
+``installer/materializers/skills.py`` (unit 0006); the shim at
+``scripts/materialize_claude_skills.py`` is verified separately by
+``test_skills_reference_scripts.py`` and the manual smoke test in
+``paquete-aprobacion.md``.
 
 Spins up a temporary repo-like tree with ``.agents/skills/sdd-test/SKILL.md``
 and a stale ``.claude/skills/`` mirror, then drives the CLI through subprocess
@@ -20,12 +27,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS_ROOT = REPO_ROOT / "scripts"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+if str(REPO_ROOT / "installer") not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT / "installer"))
 
-import materialize_claude_skills as mcs  # noqa: E402
+from materializers import skills as mcs  # noqa: E402
 
-SCRIPT = SCRIPTS_DIR / "materialize_claude_skills.py"
+SCRIPT = SCRIPTS_ROOT / "materialize_claude_skills.py"
 
 SAMPLE_SKILL = """---
 description: Sample skill for testing materialize_claude_skills.py

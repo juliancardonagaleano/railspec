@@ -117,7 +117,7 @@ se reduce al subconjunto mínimo (decisión directa de Julian, `0123-D1`,
 2026-09-21, aplicada bajo CR-2):
 
 - se omite el paso 0 (investigación) — el spec cita el código o el `research.md`
-  del plan maestro cuando existe;
+  del plan cuando existe;
 - se redacta un único artefacto `spec.md` (≤ 120 líneas, presupuesto del
   validador `validate_artifact_size.py spec`) que cubre QUÉ, POR QUÉ, criterios
   `CA-NN` y una sección corta "Enfoque" con archivos a tocar y comando de

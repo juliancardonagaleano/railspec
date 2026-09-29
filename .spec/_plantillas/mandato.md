@@ -1,16 +1,17 @@
 # Plantilla — Mandato supervisado de unidad aislada
 
 > Define el
-> **mandato supervisado** cuando el objeto es **una sola unidad SDD** (D-15), no un
-> plan por objetivo (para eso, `.spec/_plantillas/plan-maestro.md`). Se instancia
-> como archivo propio dentro de `.spec/units/<NNNN-slug>/`, con el nombre
-> `mandato.md` **salvo que `plan.md` fije otro nombre** (D-16); `_estado.yaml`
-> referencia esta ruta en su campo `mandato`.
+> **mandato supervisado** cuando el objeto es **una sola unidad SDD** (D-15). Se
+> instancia como archivo propio dentro de `.spec/units/<NNNN-slug>/`, con el
+> nombre `mandato.md` **salvo que `plan.md` fije otro nombre** (D-16);
+> `_estado.yaml` referencia esta ruta en su campo `mandato`.
 >
 > Comparte con la plantilla del plan todas las anclas **salvo**
 > `## Unidades miembro`, `## Cadena de dependencias` y `## Registro de
-> revisiones` (esas tres son propias de una agrupación de varias unidades) —
-> en su lugar, esta plantilla declara `## Unidad amparada`. El resto del
+> revisiones` (esas tres son propias de una agrupación de varias unidades —
+> ver `.spec/SUPERVISADO.md` § 1.1 para la diferencia entre mandato aislado
+> y plan por objetivo; el presente spec es del primer tipo) — en su lugar,
+> esta plantilla declara `## Unidad amparada`. El resto del
 > contenido (`## Mandato`, `## Delegaciones`, `## Registro de decisiones`,
 > `## Paradas`, `## Punto de retoma`, `## Paralelismo`,
 > `## Revisión posterior`) es el **mismo concepto que en el plan**, redactado

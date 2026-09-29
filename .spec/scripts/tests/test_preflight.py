@@ -491,7 +491,7 @@ GIT_DOS_MIEMBROS_ASSERTIONS = """\
 tabla.txt|^git: PASS nada sin commitear bajo el alcance$
 tabla.txt|^  sucias: ninguna$
 tabla.txt|^    \\.spec/planes/9417-preflight-dos-miembros/units/9419-miembro-fuera-de-alcance/_estado\\.yaml$
-tabla.txt|^  alcance: \\.spec/planes/9417-preflight-dos-miembros/units/9418-miembro-en-alcance, \\.spec/planes/9417-preflight-dos-miembros/plan-maestro\\.md$
+tabla.txt|^  alcance: \\.spec/planes/9417-preflight-dos-miembros/units/9418-miembro-en-alcance, \\.spec/planes/9417-preflight-dos-miembros/plan\\.md$
 """
 
 
@@ -531,7 +531,7 @@ class GitRowTests(PreflightCase):
         repo = self.new_seeded_repo("0114-preflight-git-dos-miembros-")
         plan_rel = ".spec/planes/9417-preflight-dos-miembros"
         plan_dir = repo / plan_rel
-        write(plan_dir / "plan-maestro.md", CLEAN_MANDATE_TEXT)
+        write(plan_dir / "plan.md", CLEAN_MANDATE_TEXT)
         en_alcance = seed_unit(repo, f"{plan_rel}/units/9418-miembro-en-alcance",
                                unit_id="9418-miembro-en-alcance")
         fuera = seed_unit(repo, f"{plan_rel}/units/9419-miembro-fuera-de-alcance",
@@ -541,7 +541,7 @@ class GitRowTests(PreflightCase):
         write(fuera / "_estado.yaml",
               (fuera / "_estado.yaml").read_text(encoding="utf-8") + "\nsucio: true\n")
         completed = run_preflight(
-            ["--mandate", str(plan_dir / "plan-maestro.md"), "--unit", str(en_alcance),
+            ["--mandate", str(plan_dir / "plan.md"), "--unit", str(en_alcance),
              "--mcp-config", str(mcp_config(self.mcp_dir(), "ok"))])
         self.check_assertions(GIT_DOS_MIEMBROS_ASSERTIONS, repo, completed.stdout)
         self.assertEqual(completed.returncode, 0, completed.stdout)
@@ -618,7 +618,7 @@ class ValidatorRowTests(PreflightCase):
         self.scenario("9411-preflight-validador-limpio", CLEAN_MANDATE_TEXT, [])
 
     def test_plan_en_plan_md_no_se_valida_como_unidad(self) -> None:
-        # Every real plan is `plan.md`, not `plan-maestro.md`: keying the branch off
+        # Every real plan is `plan.md`, not `plan.md`: keying the branch off
         # the file name alone validated the plan directory as an isolated unit, which
         # has no `_estado.yaml` of its own and so always reported
         # `unidad-supervisado-sin-mandato`.

@@ -15,7 +15,7 @@ this test fails naming exactly which cell moved (CA-13's own wording: "no
 reduce ... respecto a la tabla vigente de `.spec/README.md`"). These specific
 golden values were themselves lowered twice, deliberately: `0117-D4`/`0117-D5`
 (2026-09-20, Julian Cardona Galeano — see `.spec/planes/
-plan-ejemplo/plan-maestro.md § Registro de decisiones`) bajaron
+plan-ejemplo/plan.md § Registro de decisiones`) bajaron
 `medio` de 2 críticos/2 iteraciones a 1/1 (panel consolidado en un solo
 crítico multi-lente) y `alto` de 3 a 2 iteraciones (mismo trigger de
 convergencia "solo si quedó ambiguo" que ya regía `medio`). `0117-D6`

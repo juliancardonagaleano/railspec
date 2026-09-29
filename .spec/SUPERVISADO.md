@@ -17,20 +17,21 @@
 
 ## 1. Artefactos entregados
 
-### Plantilla del plan maestro por objetivo
+### Plantilla del mandato (unificada post-U-0009)
 
-- **Dónde vive:** `.spec/_plantillas/plan-maestro.md`.
-- **Qué es:** el molde de un mandato supervisado por **objetivo** (varias
-  unidades miembro con una cadena de dependencias viva). Un humano lo
-  instancia bajo `.spec/planes/<id>/` (D-17) para abrir un mandato nuevo.
-- **Quién lo escribe:** un humano, al redactar un plan nuevo; la orquestación
-  de `0109b` lo rellena progresivamente mientras el mandato corre.
-- **Contenido:** las 18 anclas literales de `spec.md` CA-01 (`## Objetivo y
+- **Dónde vive:** `.spec/_plantillas/mandato.md` (única plantilla vigente desde
+  U-0009; la plantilla homónima retirada en esa unidad vivía donde mismo —
+  ver bitácora de U-0009 § T24b).
+- **Qué es:** el molde único de un mandato supervisado (`mandato.md` cubre
+  tanto la unidad aislada —D-15— como los antiguos planes por objetivo —
+  archivados bajo `.spec/planes-archive/` con fines de trazabilidad).
+- **Quién lo escribe:** un humano, al redactar un mandato nuevo; la skill
+  `sdd-supervisado` lo rellena progresivamente mientras el mandato corre.
+- **Contenido:** las anclas literales de `spec.md` CA-01 (`## Objetivo y
   criterio de salida` … `## Revisión posterior`, con las tres subsecciones de
-  `## Delegaciones`). En `## Cadena de dependencias`, la cadena se escribe en
-  una línea `Vigente:` con los ids separados por `→` (`/` entre ramas
-  paralelas) y toda anotación entre paréntesis: es la línea que lee el
-  validador para CA-07.
+  `## Delegaciones`); en unidad aislada, sustituye las anclas multi-unidad
+  (`## Unidades miembro`, `## Cadena de dependencias`, `## Registro de
+  revisiones`) por `## Unidad amparada` (CA-02).
 
 ### Plantilla del mandato de unidad aislada
 
@@ -110,7 +111,7 @@
 | `mandato` | Referencia **única** (un solo valor escalar) al mandato que ampara la unidad: el identificador de un plan (`.spec/planes/<id>/`) o la ruta relativa al archivo de mandato de la propia unidad. | Un humano al declarar la unidad supervisado; la skill `sdd-supervisado` (CA-11) la sustituye al iniciar un plan aprobado — nadie más la reescribe. | id de plan `^[a-z0-9]+(-[a-z0-9]+)*$`, o ruta que termina en `.md` / contiene `/` |
 | `validaciones_mandato` | Historial de corridas del validador sobre esta unidad: lista de `{fecha, fase, exit, codigos}`. | la skill `sdd-supervisado` (CA-08) — no se escribe a mano. | lista, vacía por defecto |
 
-### Plantillas de mandato (`plan-maestro.md` / `mandato.md`)
+### Plantillas de mandato (`mandato.md` — única vigente post-U-0009)
 
 | Campo/sección | Qué es | Quién lo escribe | Valores |
 |---|---|---|---|
@@ -135,7 +136,7 @@ una inferencia del conductor): es la excepción, no la regla, y existe para no
 imponerle un modo sin pausas a una unidad ya profunda sin que quede clarísimo
 que fue una decisión humana. La conversión queda registrada en
 `_estado.yaml > modo_conversion` (una entrada por conversión, con `desde`,
-`hacia`, `en`, `por`, `tras`) y en `bitacora.md`. Un mandato o plan maestro
+`hacia`, `en`, `por`, `tras`) y en `bitacora.md`. Un mandato
 **habilita** el modo `supervisado`/`desatendido`: no lo asigna
 por sí solo.
 

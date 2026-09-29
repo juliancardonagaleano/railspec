@@ -28,12 +28,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SDD_KIT_DIR = REPO_ROOT / "installer"
 CLI_PATH = SDD_KIT_DIR / "cli.py"
 
-sys.path.insert(0, str(SDD_KIT_DIR))
+sys.path.insert(0, str(REPO_ROOT))
 
-import installer  # noqa: E402
-import verifier  # noqa: E402
-from git_target import resolve_git_dir, resolve_git_root  # noqa: E402
-from manifest import DEFAULT_MANIFEST_PATH, load_and_validate, sha256_file  # noqa: E402
+from installer.installer import MIRROR_MATERIALIZERS, INSTALL_RECORD_NAME, run_install  # noqa: E402
+from installer.git_target import resolve_git_dir, resolve_git_root  # noqa: E402
+from installer.manifest import DEFAULT_MANIFEST_PATH, load_and_validate, sha256_file  # noqa: E402
+from installer.verifier import iter_payload_files  # noqa: E402
 
 
 def _git_init(path: Path) -> None:
@@ -58,7 +58,7 @@ def _run_install_with_manifest(target: Path, manifest: Path, *, force: bool = Fa
     saved_out, saved_err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = out, err
     try:
-        code = installer.run_install(target, manifest_path=manifest, force=force)
+        code = run_install(target, manifest_path=manifest, force=force)
     finally:
         sys.stdout, sys.stderr = saved_out, saved_err
     return code, out.getvalue(), err.getvalue()
@@ -110,7 +110,7 @@ def _listing(root: Path) -> dict[str, bytes]:
 
 def _payload_pairs() -> list[tuple[Path, str]]:
     entries = load_and_validate()
-    return verifier.iter_payload_files(entries)
+    return iter_payload_files(entries)
 
 
 def _flip_one_byte(data: bytes) -> bytes:
@@ -205,14 +205,12 @@ def test_ca11_mirrors_verify_clean_after_install(tmp_path: Path) -> None:
     install_result = _run_cli(["--target", str(target), "--install"], cwd=REPO_ROOT)
     assert install_result.returncode == 0, install_result.stdout + install_result.stderr
 
-    for script_rel in installer.MIRROR_MATERIALIZERS:
-        check = subprocess.run(
-            [sys.executable, str(target / script_rel), "--check", "--repo-root", str(target)],
-            capture_output=True,
-            text=True,
-            cwd=target,
-        )
-        assert check.returncode == 0, f"{script_rel}: {check.stdout}\n{check.stderr}"
+    for which, fn in MIRROR_MATERIALIZERS:
+        # U-0006: los materializadores corren en proceso (no subprocess) —
+        # `fn` ya está importado arriba. Verificamos con --check que el
+        # espejo regenerado en `target` está limpio.
+        rc = fn(["--check", "--repo-root", str(target)])
+        assert rc == 0, f"materializer {which} --check falló sobre {target}"
 
 
 # ------------------------------------------------------- non-git target
@@ -258,7 +256,7 @@ def test_ca13_conflict_is_reported_regardless_of_previous_install_record(tmp_pat
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     dest_path.write_bytes(_flip_one_byte(source_file.read_bytes()))
 
-    assert not (resolve_git_dir(target) / installer.INSTALL_RECORD_NAME).exists()
+    assert not (resolve_git_dir(target) / INSTALL_RECORD_NAME).exists()
 
     result = _run_cli(["--target", str(target), "--install"], cwd=REPO_ROOT)
 
@@ -350,7 +348,7 @@ def test_ca16_truncated_manifest_stops_with_no_effects(tmp_path: Path) -> None:
     truncated_path = tmp_path / "truncated_manifest.yaml"
     truncated_path.write_text(original_text[:cut_at], encoding="utf-8")
 
-    code = installer.run_install(target, manifest_path=truncated_path)
+    code = run_install(target, manifest_path=truncated_path)
 
     assert code == 2
     assert _listing(target) == before
@@ -426,7 +424,7 @@ def test_ca28_missing_source_stops_with_no_effects(tmp_path: Path) -> None:
     broken_manifest = tmp_path / "broken_manifest.yaml"
     broken_manifest.write_text(yaml.safe_dump(data), encoding="utf-8")
 
-    code = installer.run_install(target, manifest_path=broken_manifest)
+    code = run_install(target, manifest_path=broken_manifest)
 
     assert code == 2
     assert _listing(target) == before
@@ -484,7 +482,7 @@ def test_u0002_ca04_kit_version_missing_returns_2(tmp_path: Path) -> None:
     _git_init(target)
     before = _listing(target)
     bad = _make_manifest_missing_kit_version(tmp_path)
-    code = installer.run_install(target, manifest_path=bad)
+    code = run_install(target, manifest_path=bad)
     assert code == 2
     assert _listing(target) == before
 
@@ -727,7 +725,7 @@ def test_u0002_ca23_orphan_skills_source_removes_mirror(tmp_path: Path) -> None:
     # registro directamente para que el install la considere huérfana
     # al compararlo contra el manifiesto actual).
     from manifest import read_install_record as _read_install_record
-    record_path = resolve_git_dir(target) / installer.INSTALL_RECORD_NAME
+    record_path = resolve_git_dir(target) / INSTALL_RECORD_NAME
     record = _read_install_record(record_path)
     if "baseline" in record and record["baseline"]:
         first_key = next(iter(record["baseline"]))

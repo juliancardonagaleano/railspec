@@ -26,8 +26,8 @@ Acts only if all four hold
     are not valid mandates by design and those two fixture trees hold ~20 states
     and mandates that are invalid **on purpose**;
 (c) for `_estado.yaml`, `read_unit_state()` says `modo: supervisado` or
-    `modo: desatendido` (`plan-maestro.md`/`mandato.md` carry
-    no such condition: they **are** the supervised mandate);
+    `modo: desatendido` (`mandato.md` carries
+    no such condition: it **is** the supervised mandate);
 (d) the path is not exempt under D-16 -- see `_exempt_roots()`.
 
 Outside those conditions it terminates with no decision and no write.
@@ -88,7 +88,7 @@ VALIDATOR = REPO_ROOT / ".spec" / "scripts" / "validate_mandate.py"
 EXIT_OK = 0
 
 #: Condition (a).
-WATCHED_BASENAMES = ("_estado.yaml", "plan-maestro.md", "mandato.md")
+WATCHED_BASENAMES = ("_estado.yaml", "mandato.md")
 
 #: Condition (b): the two trees that hold real units and real mandates.
 UNIT_TREE = re.compile(r"^\.spec/units/[0-9]{4}[a-z]?-[^/]+/")
@@ -179,17 +179,15 @@ def watched_target(rel_path: str, basename: str) -> bool:
 
 
 def validator_command(target: Path, basename: str) -> list[str]:
-    """`--plan` for a master plan, `--unidad` for a unit's own two files. One
+    """`--plan` for a master plan, `--unidad` for a unit's own file. One
     single target per run, never the whole backlog (CA-22b budget).
 
     `--plan` gets the plan **id** (the directory name), not the file path: a
     directory argument makes the validator look for members under
     `<dir>/units/` (its fixture form), while the id resolves members under
     `.spec/units/`, which is where a real plan's members live. Condition (b)
-    already guarantees the file sits at `.spec/planes/<id>/plan-maestro.md`.
+    already guarantees the file sits at `.spec/planes/<id>/plan.md`.
     """
-    if basename == "plan-maestro.md":
-        return [sys.executable, str(VALIDATOR), "--plan", target.parent.name]
     return [sys.executable, str(VALIDATOR), "--unidad", str(target.parent)]
 
 

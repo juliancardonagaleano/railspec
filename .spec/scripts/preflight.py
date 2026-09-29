@@ -758,12 +758,11 @@ def _path_lines(label: str, paths: list[str]) -> list[str]:
 
 def is_plan_mandate(mandate: Path) -> bool:
     # Location, not file name: every real plan lives at `.spec/planes/<id>/plan.md`,
-    # so keying off `plan-maestro.md` alone sent each one down the isolated-unit
+    # so keying off the file basename alone sent each one down the isolated-unit
     # branch below, where a directory with no `_estado.yaml` of its own always
     # reports `unidad-supervisado-sin-mandato` — a BLOCK on a plan the authoritative
-    # validator passes. The old name stays accepted for mandates that use it.
-    if mandate.name == "plan-maestro.md":
-        return True
+    # validator passes. The basename check is retired post-U-0009 (no mandate uses
+    # the legacy name; solo ``plan.md`` queda vigente).
     parent = mandate.parent
     return parent.parent.name == "planes"
 

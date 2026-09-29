@@ -1,10 +1,9 @@
 """Shared utilities for the `.spec/` scripts (local, temporary layer, unit 0109a).
 
-Pattern origin: `.spec/units/0068-plan-maestro-de-oleadas/scripts/validar.py`
-(`:21` `FALLOS` accumulator, `:44-45` `fallo()`, `:48-52` `unidades()` with the
-`^(core-)?\\d{4}-?` regex, `:55-57` `campo()`). That unit is **closed**: it is not
-touched nor imported; these ~10 lines are rewritten here because `0109b` will reuse
-them from its own orchestration.
+Helpers extracted from the unit-de-foundation iteration of the kit (closed
+unit): `FALLOS` accumulator, `fallo()`, `unidades()` with the
+`^(core-)?\\d{4}-?` regex, `campo()`. ~10 lines rewritten here because
+`0109b` reuses them from its own orchestration.
 
 No external dependencies: stdlib only (`re`, `hashlib`, `pathlib`, `subprocess`, `os`).
 

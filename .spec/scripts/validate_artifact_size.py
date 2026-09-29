@@ -23,17 +23,6 @@ Subcommands
         the next level-2 header, not counting it — a nested level-3 header
         does NOT close the entry) of more than 40 lines (CA-03).
 
-    validate_artifact_size.py plan-maestro <plan-maestro.md>
-        Rejects any of the three sections that grow on every retoma —
-        `## Paradas`, `## Punto de retoma`, `## Registro de decisiones` — when
-        a single level-3 entry (`### <id>`, the per-decision or per-stop
-        block) exceeds 60 lines (CA-13 of unit 0123). The validator looks
-        only at those three sections: each one is scanned for its `### `
-        headers, and a level-3 entry is "lines from the `### ` line up to but
-        not counting the next `### ` or `## `" — same rule as `bitacora`
-        but starting at level 3. Sections that don't exist are skipped, not
-        reported as failures.
-
     validate_artifact_size.py budget-coverage --root <dir> --gate <veredicto>
         Measures, over the units under `--root` whose `gates.codigo.veredicto`
         equals `--gate` (i.e. already closed and approved), what fraction
@@ -87,7 +76,6 @@ from unit_state import gate_verdict  # noqa: E402
 # tamaño responde a otra razón —el log de handoff se lee de un vistazo y la
 # skill es un orquestador delgado—.
 BUDGETS = {"spec": 2000, "plan": 2000, "bitacora": 5, "skill": 200}
-PLAN_MAESTRO_BUDGET = 60
 COVERAGE_THRESHOLD = 0.90
 
 
@@ -130,44 +118,6 @@ def bitacora_entries(text: str) -> list[tuple[str, int]]:
             body_lines.append(line)
     flush()
     return result
-
-
-def check_plan_maestro(path: Path) -> int:
-    """`plan-maestro`: per-level-3-entry budget on three sections (CA-13)."""
-    reset()
-    if not path.is_file():
-        print(f"ERROR — no existe {path}", file=sys.stderr)
-        return 1
-    text = path.read_text(encoding="utf-8")
-    sections = ("## Paradas", "## Punto de retoma", "## Registro de decisiones")
-    for section in sections:
-        section_re = re.escape(section)
-        m = re.search(rf"(?m)^{section_re}\s*$", text)
-        if m is None:
-            continue
-        start = m.end()
-        next_section = re.search(r"(?m)^##\s+", text[start:])
-        end = start + next_section.start() if next_section else len(text)
-        body = text[start:end]
-        for entry_header, count in _level3_entries(body):
-            if count > PLAN_MAESTRO_BUDGET:
-                add_failure(
-                    "presupuesto-plan-maestro-excedido",
-                    f"{path}  {section} → {entry_header}",
-                    f"{count} líneas, excede el presupuesto de "
-                    f"{PLAN_MAESTRO_BUDGET} por entrada "
-                    f"(`## {{Paradas, Punto de retoma, Registro de decisiones}}`)",
-                )
-    if FAILURES:
-        print(f"FAIL — {len(FAILURES)} entrada(s) de plan-maestro exceden el "
-              f"presupuesto de {PLAN_MAESTRO_BUDGET} líneas por entrada:")
-        for c, where, detail in FAILURES:
-            print(f"  {c}  {where}  — {detail}")
-        print("códigos: " + " ".join(codes_from(FAILURES)))
-        return 1
-    print(f"PASS — {path}: secciones Paradas/Punto de retoma/Registro de "
-          "decisiones dentro del presupuesto.")
-    return 0
 
 
 def _level3_entries(text: str) -> list[tuple[str, int]]:
@@ -362,14 +312,6 @@ def main(argv: list[str] | None = None) -> int:
         "bitacora", help=f"presupuesto de {BUDGETS['bitacora']} líneas por entrada")
     bitacora_parser.add_argument("archivo", metavar="BITACORA.MD")
     bitacora_parser.set_defaults(func=lambda a: check_bitacora(Path(a.archivo)))
-
-    plan_maestro_parser = sub.add_parser(
-        "plan-maestro",
-        help=f"presupuesto de {PLAN_MAESTRO_BUDGET} líneas por entrada "
-             "en ## Paradas / ## Punto de retoma / ## Registro de decisiones")
-    plan_maestro_parser.add_argument("archivo", metavar="PLAN-MAESTRO.MD")
-    plan_maestro_parser.set_defaults(
-        func=lambda a: check_plan_maestro(Path(a.archivo)))
 
     coverage_parser = sub.add_parser(
         "budget-coverage",

@@ -146,7 +146,7 @@ El protocolo SDD rige toda unidad de trabajo de este repo. Sus piezas:
   (un paquete de aprobación antes de implementar), `supervisado` (un
   mandato gobierna la unidad), `desatendido` (tanda con aprobación upfront).
 - **Plantillas y referencias**: `.spec/_plantillas/{spec,plan,mandato,
-  plan-maestro,tasks}.md` y `.spec/scripts/`. Los agentes que ejecutan cada
+  tasks}.md` y `.spec/scripts/`. Los agentes que ejecutan cada
   fase viven en `.agents/agents/sdd-*`.
 - **Modelo de subagentes y esfuerzo**: `.spec/MODELO-AGENTES.md`.
 

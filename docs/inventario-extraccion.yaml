@@ -43,8 +43,6 @@ entradas:
     categoria: viaja
   - archivo: agent_tool_discipline_telemetry.py
     categoria: viaja
-  - archivo: append_changelog_line.py
-    categoria: viaja
   - archivo: check_diff_isolation.sh
     categoria: viaja
   - archivo: classify_change.py

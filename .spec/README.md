@@ -85,6 +85,31 @@ Plantillas en `.spec/_plantillas/`.
 
 > El kit **no decide** si `.spec/units/` se versiona: cada repo consumidor lo fija en su propio `.gitignore`. Donde no se versionan, las unidades son estado de trabajo local y la retoma funciona entre sesiones de la **misma máquina**, pero no viaja por git entre clones.
 
+# nomenclatura:
+
+Convención de nombres por extensión. Fuente única: este archivo. El verificador
+de la unidad 0005 (`test_u0005_ca02.py`) lee esta tabla — no la hardcodea — y
+falla ante cualquier outlier que no aparezca en la tabla de excepciones.
+
+| Extensión / familia | Convención | Notas |
+|---|---|---|
+| `.py` | `snake_case` | PEP 8. Aplica a scripts Python bajo `scripts/`, `installer/`, `.spec/scripts/` y `.agents/`. |
+| `.sh` | `kebab-case` | Aplica a scripts Bash bajo `scripts/`, `.spec/scripts/` y sub-shells de hooks. |
+| `.md` | `kebab-case` o `single-word lowercase` | Aplica a docs en `.spec/`, `.agents/`, `.claude/`. `README.md` y `AGENTS.md` son single-word y se conservan por compatibilidad. |
+| `.yaml` | `snake_case` | Aplica a archivos YAML estructurales (perfiles, manifiestos, _estado). |
+| `.spec/units/<NNNN-…>/` | `NNNN-kebab-case-slug` | Slug en kebab-case precedido por id de 4 dígitos. |
+| skills / agents (`SKILL.md`/`AGENT.md`) | `kebab-case` | El nombre del directorio del skill/agent define el stem. |
+
+### Excepciones vigentes
+
+| Nombre | Ruta | Motivo |
+|---|---|---|
+| `install_pre_push_hook.sh` | `scripts/install_pre_push_hook.sh` | Load-bearing para `installer/installer.py:81` (`PRE_PUSH_HOOK_INSTALLER`) — 5 referencias load-bearing (`installer/kit_manifest.yaml:187`, `installer/installer.py:81,231,480`, `installer/tests/test_manifest.py:46`); rename queda fuera de esta unidad por contrato con U-0007. |
+| `mcp-pce.py` | `scripts/mcp-pce.py` | Extensión `.py` con stem kebab. Cargado desde `.mcp.json` por nombre exacto; rename exige coordinación con U-0007 (manifiesto del kit). |
+| `MODELO-AGENTES.md` | `.spec/MODELO-AGENTES.md` | Cita existente (8 referencias) pero archivo inexistente — hallazgo adicional registrado en U-0005, resolución fuera de esta unidad por restricción de no crear archivos. |
+| `check_diff_isolation.sh`, `snapshot_evidence.sh`, `test_supervised_test_patron_permiso.sh`, `test_supervised_test_session_limit.sh` | `.spec/scripts/` | Snake_case heredado de la era pre-convención; verificador los nombra como outliers hasta un rename bulk (fuera de esta unidad — la convención es hacia adelante). |
+| `.claude-agents-manifest.yaml`, `.claude-commands-manifest.yaml`, `.claude-skills-manifest.yaml` | `.claude/{agents,commands,skills}/` | Manifiestos generados por `scripts/materialize_claude_*.py` con stem kebab para el kit; rename manual no aplica — la salida del script es la fuente única. |
+
 ## Las fases y sus skills
 
 | Fase | Skill | Slash-command | Produce |
@@ -158,10 +183,32 @@ Reglas que no se negocian:
 |---|---|
 | Planificar | Exploradores en paralelo: reutilización en el repo, gobernanza aplicable, riesgos |
 | Gates | Panel de críticos en paralelo, un lente distinto cada uno |
-| Implementar | Grupos de tareas independientes en paralelo (worktrees), máx. 4 grupos |
+| Implementar | Grupos de tareas independientes en paralelo (worktrees), máx 4 grupos |
 | Verificación | Agente de contexto fresco, distinto del implementador |
 
 El principio detrás: **quien genera no se certifica a sí mismo**, y la diversidad de lentes encuentra más que la repetición del mismo.
+
+### Auditoría de modelo/effort
+
+Mecanismo propio del repo: cada `_estado.yaml` declara, en el bloque `modelo_ejecucion`, qué subagente, modelo y effort ejecutó el contenido de cada fase (`especificar`, `planificar`, `tareas`, `implementar`). El que invoca al subagente lo registra al terminar — no se infiere después, porque nadie más sabe con certeza qué se invocó de verdad. La tabla de roles por fase vive en `.spec/perfiles.yaml`. El `fase: codigo` registra una entrada por grupo del plan (no por tarea).
+
+## Reglas del fan-out
+
+Justificación detallada de los topes de paralelismo del plan y de la implementación. Esta sección es la fuente única que `plan.md` referencia desde el bloque "Complejidad: complejo"; las plantillas no la re-importan.
+
+- **Tope de 4 grupos en `sdd-implementar` (S-15):** cada grupo usa `isolation: worktree`, lo que cuesta recursos del orquestador y del filesystem. Cuatro worktrees paralelos es el límite razonable para mantener coherencia entre los grupos sin diluir la calidad de la revisión de cada diff por el crítico de código.
+- **Grupo único con `Complejidad: complejo`:** una migración de datos, un algoritmo no trivial, o una decisión de diseño con muchos grados de libertad no admite paralelismo real (los archivos se solapan). Se modela como **una sola fila** `G1` con `Alcance = "grupo único — cambios acoplados"` y `Complejidad: complejo`. Sin esa fila, ese grupo no tendría dónde marcarse como complejo y nunca podría escalar a un modelo más capaz — justo el caso (migración de datos, p. ej.) donde más se necesitaría. Marcar todo como complejo vacía la señal.
+- **Fan-out sobre archivos compartidos produce conflictos, no velocidad:** con un solo grupo, el problema no aplica. Con dos o más, deben tener **archivos disjuntos**; si dos grupos tocan el mismo archivo, el fan-out se rechaza antes de implementar.
+- **Cita:** la tabla completa de roles por fase y effort vive en `.spec/MODELO-AGENTES.md` (referencia rota — ver hallazgo pendiente de unidad posterior). El verificador de CA-10 (`test_u0005_ca10.py`) garantiza que el bloque `Complejidad` de `plan.md` no exceda las 5 líneas no-vacías aquí centralizadas.
+
+## Modo supervisado
+
+Modo `modo: supervisado` y `modo: desatendido` se documentan en `.spec/SUPERVISADO.md` y `.spec/PARADAS-SUPERVISADO.md`. Resumen para el lector del `_estado.yaml`:
+
+- `modo: supervisado` exige `mandato:` poblado y un humano con acceso al repo que firma la entrada de mandato vigente.
+- `modo: desatendido` exige `mandato:` con id de plan maestro y paquete de aprobación upfront; los gates que escalan cierran como `auto-deferred`.
+- Toda unidad nace `modo: interactivo`. Las conversiones se registran en `modo_conversion` con `desde`, `hacia`, `en`, `por`, `tras`.
+- Detalle completo: `.spec/SUPERVISADO.md` (artefactos, campos, reglas) y `.spec/SUPERVISADO.md § 3` (fuente única del registro de decisiones, línea de changelog, renovación, conducta ante presupuesto agotado).
 
 ## Fase 0 — Investigar (opcional)
 
@@ -188,6 +235,27 @@ En las fases especificar/planificar, consultar el MCP `pce-mcp` por principios/A
 La cadena de precedencia es la canónica del repo (`pri-gob-precedencia-superficies`): este protocolo la **cita**, no la redefine. Lo único que añade es dónde encaja una unidad SDD en ella: el `spec.md` de una unidad nunca prevalece sobre gobernanza aceptada — si el spec choca con un artefacto aplicable, se corrige el spec o se tramita el cambio de gobernanza por su propio ciclo.
 
 Los gates vuelven a consultar el MCP en cada corrida: evalúan contra la gobernanza recuperada, nunca contra conocimiento embebido. **Sin MCP no hay gobernanza**: se para y se dice, no se degrada a criterio propio.
+
+## concurrencia
+
+Convención de resolución de conflictos cuando dos colaboradores (o dos sesiones
+paralelas de un mismo colaborador) escriben el mismo archivo a la vez. Fuente
+única de las reglas; el resto de plantillas referencia esta sección.
+
+### `bitacora.md`
+
+- Cada entrada es **independiente**: delimitada por `## ` y trae su propio timestamp ISO-8601.
+- Ante un conflicto de git, **tomar ambos lados e intercalar cronológicamente** — basta con ordenar por timestamp y concatenar; nunca descartar una entrada ni reescribir la de otro colaborador.
+- El append es **estrictamente al final del archivo**; no editar entradas previas.
+
+### `_estado.yaml` (regla `0083/0084`)
+
+Ante escritura concurrente de `_estado.yaml` (dos colaboradores editando a la
+vez), gana la versión con `actualizado` más reciente; el otro colaborador
+reaplica sus cambios sobre esa base. El resto de campos son del estado
+machine-readable y se mergean campo a campo siguiendo el mismo criterio (el
+timestamp `actualizado` decide). Esta regla aplica al estado general del
+protocolo SDD (no a gobernanza externa).
 
 ## sdd-kit
 

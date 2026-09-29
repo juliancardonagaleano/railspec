@@ -30,8 +30,6 @@ entries:
     dest: .spec/scripts/_common.sh
   - source: .spec/scripts/agent_tool_discipline_telemetry.py
     dest: .spec/scripts/agent_tool_discipline_telemetry.py
-  - source: .spec/scripts/append_changelog_line.py
-    dest: .spec/scripts/append_changelog_line.py
   - source: .spec/scripts/check_diff_isolation.sh
     dest: .spec/scripts/check_diff_isolation.sh
   - source: .spec/scripts/classify_change.py

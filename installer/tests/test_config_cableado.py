@@ -180,6 +180,13 @@ def test_u0002_ca51_mcp_json_fusion_idempotent_and_preserves_others(tmp_path: Pa
     pce = first["mcpServers"]["pce-mcp"]
     assert pce.get("_sdd_kit") is True
     assert pce["args"] == ["scripts/mcp-pce.sh"]
+    # U-0007 CA-10: bloque `env` presente y consistente entre dos fusiones.
+    assert "env" in pce
+    assert pce["env"]["MCP_PCE_CACHE_TTL_SECS"] == "86400"
+    assert "${HOME}" in pce["env"]["SSL_CERT_FILE"]
+    assert "${HOME}" in pce["env"]["NODE_EXTRA_CA_CERTS"]
+    pce_second = second["mcpServers"]["pce-mcp"]
+    assert pce_second["env"] == pce["env"]
 
 
 def test_u0002_ca51_mcp_json_is_created_if_missing(tmp_path: Path) -> None:
@@ -222,6 +229,14 @@ def test_u0002_ca52_opencode_jsonc_fusion_idempotent_and_preserves_others(tmp_pa
     assert "other-server" in data["mcp"]
     assert data["mcp"]["pce-mcp"].get("_sdd_kit") is True
     assert data["mcp"]["pce-mcp"]["command"] == ["sh", "scripts/mcp-pce.sh"]
+    # U-0007 CA-10: bloque `env` presente y consistente entre dos fusiones.
+    pce = data["mcp"]["pce-mcp"]
+    assert "env" in pce
+    assert pce["env"]["MCP_PCE_CACHE_TTL_SECS"] == "86400"
+    assert "${HOME}" in pce["env"]["SSL_CERT_FILE"]
+    assert "${HOME}" in pce["env"]["NODE_EXTRA_CA_CERTS"]
+    data_second = json.loads(second)
+    assert data_second["mcp"]["pce-mcp"]["env"] == pce["env"]
 
 
 def test_u0002_ca52_opencode_jsonc_is_created_if_missing(tmp_path: Path) -> None:

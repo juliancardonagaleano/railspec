@@ -2,7 +2,7 @@
 
 Exercises the real script as a subprocess (it is Bash, not importable), against
 a throwaway unit directory outside the repo tree so nothing here touches real
-evidence or the real `.spec/units/_plan-maestro.md`.
+evidence or the real shared mandate index.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class SnapshotEvidenceTests(unittest.TestCase):
         self.assertNotIn("mandato.md", names)
         self.assertNotIn("tasks.md", names)
         # Always-written companions.
-        self.assertIn("plan-maestro.diff", names)
+        self.assertIn("index.diff", names)
         self.assertIn("diff-vs-seed.txt", names)
 
     def test_seed_flag_produces_a_diff_vs_seed_with_classifications(self) -> None:

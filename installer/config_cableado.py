@@ -174,6 +174,12 @@ def mezclar_mcp_json(git_root: Path, kit_root: Path) -> None:
     Cada server entry declarada por el kit lleva ``_sdd_kit: true``. Las
     ajenas al kit (sin el discriminador) se preservan sin cambios. Si el
     archivo no existe, se crea.
+
+    Opt-out: si el destino ya tiene un server con el mismo nombre que el
+    kit declara pero **sin** ``_sdd_kit: true`` (el operador lo reemplazó
+    por su propio wrapper), el entry del kit NO se agrega y el del destino
+    queda intacto. El reemplazo atómico sólo ocurre cuando el destino
+    trae el discriminador (CA-07/CA-09).
     """
     dest_path = git_root / MCP_JSON_REL
     data = _read_json(dest_path)
@@ -203,6 +209,8 @@ def mezclar_mcp_json(git_root: Path, kit_root: Path) -> None:
     for name, body in dest_servers.items():
         merged[name] = body
     for name, body in kit_servers.items():
+        if name in dest_servers:
+            continue
         if isinstance(body, dict):
             body = dict(body)
             body[DISCRIMINATOR] = TRUE
@@ -213,11 +221,19 @@ def mezclar_mcp_json(git_root: Path, kit_root: Path) -> None:
 
 
 def mezclar_opencode_jsonc(git_root: Path, kit_root: Path) -> None:
-    """Fusiona con marcador ``opencode.jsonc`` del destino bajo ``mcp``.
+    """Fusiona con marcador ``opencode.jsonc`` del destino bajo ``mcp`` y ``agent``.
 
     Acepta JSONC (``//`` comments y trailing commas) al leer; emite JSON
-    estricto al escribir. Mismo discriminador ``_sdd_kit: true`` por server
-    entry que ``mezclar_mcp_json``.
+    estricto al escribir. Mismo discriminador ``_sdd_kit: true`` por entry
+    que ``mezclar_mcp_json``.
+
+    Opt-out simétrico a ``mezclar_mcp_json`` (CA-08): si el destino ya
+    tiene un server/agent con el mismo nombre que el kit declara pero
+    **sin** ``_sdd_kit: true``, el entry del kit NO se agrega.
+
+    Sections: ``mcp`` (entradas de servidores MCP) y ``agent`` (mapping
+    rol→modelo del kit — U-0008). Cada sección se fusiona con la misma
+    semántica de marcador, en pasadas independientes.
     """
     dest_path = git_root / OPENCODE_JSONC_REL
     data = _read_jsonc(dest_path)
@@ -247,12 +263,40 @@ def mezclar_opencode_jsonc(git_root: Path, kit_root: Path) -> None:
     for name, body in dest_servers.items():
         merged[name] = body
     for name, body in kit_servers.items():
+        if name in dest_servers:
+            continue
         if isinstance(body, dict):
             body = dict(body)
             body[DISCRIMINATOR] = TRUE
         merged[name] = body
 
     data["mcp"] = merged
+
+    kit_agents = kit_data.get("agent")
+    if not isinstance(kit_agents, dict):
+        kit_agents = {}
+
+    dest_agents = data.get("agent")
+    if not isinstance(dest_agents, dict):
+        dest_agents = {}
+
+    for name, body in list(dest_agents.items()):
+        if isinstance(body, dict) and body.get(DISCRIMINATOR) is TRUE:
+            del dest_agents[name]
+
+    merged_agents: dict = {}
+    for name, body in dest_agents.items():
+        merged_agents[name] = body
+    for name, body in kit_agents.items():
+        if name in dest_agents:
+            continue
+        if isinstance(body, dict):
+            body = dict(body)
+            body[DISCRIMINATOR] = TRUE
+        merged_agents[name] = body
+
+    data["agent"] = merged_agents
+
     _write_json(dest_path, data)
 
 

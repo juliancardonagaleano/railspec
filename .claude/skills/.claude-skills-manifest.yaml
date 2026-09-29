@@ -1,9 +1,9 @@
-# GENERADO por scripts/materialize_claude_skills.py — no editar a mano.
-materialized_at: 2026-09-29T08:06:00Z
+# GENERADO por installer/materializers/skills.py — no editar a mano.
+materialized_at: 2026-09-29T18:25:45Z
 source: .agents/skills
 files:
   - path: "sdd-desatendido/SKILL.md"
-    sha256: 439a049e85c979d02eae2ed229b84fc092fa951a7a22fe0e6e7f7117431ac01b
+    sha256: 937836df817c694ad1d0c09047d6395e82bc4b80233df25e3758116a555b1cda
   - path: "sdd-especificar/SKILL.md"
     sha256: 376b23421a7bd5770336ae06d47885a59cb7de3979e447db0840dfae78345764
   - path: "sdd-gate/SKILL.md"
@@ -27,17 +27,17 @@ files:
   - path: "sdd-implementar/SKILL.md"
     sha256: caa6797cbfd5d8de9571ade17ed463c337995820dd77e51f4c3d92cd372f64b0
   - path: "sdd-orquestar/SKILL.md"
-    sha256: 8f52e059904935b0a8f5d5e642fefb8715c9163d9f209cbbd48728e58387befb
+    sha256: 364143fd891791985cb4891a6461ec0ba777ed893655e859177f95bc77cddd6b
   - path: "sdd-perfil/SKILL.md"
     sha256: e661c929112b4f6ae45e0179da43ba5fc9ed6e9bc78e5f8bbc68118b12395b85
   - path: "sdd-planificar/SKILL.md"
     sha256: e49ca72279119b50428f1bc093530ecd5bda917cc4b7113e0e8202831c6fc504
   - path: "sdd-preflight/SKILL.md"
-    sha256: 288cb7cf449abc3bb43d50bf2bb3c1e786551d8534eda615d8e1557d236d7f11
+    sha256: f98386a4d1fea1cc59606d1a684a23074b0dc25603ec9a3983be365e4966c7ce
   - path: "sdd-retomar/SKILL.md"
     sha256: 297b4f060bd8dc79868f0c461045aecb64981d6310006ad2eccac7d325cb9950
   - path: "sdd-supervisado/SKILL.md"
-    sha256: 6f8b2bb1cdd7d6d7a323a9a25ca1b4d83938d11a170e2216b23fe2a4c029e7c4
+    sha256: acccbe6a7deafa5ccac7d225c0bce9717c66a7f7b4bd97e1a20cd66759dc0324
   - path: "sdd-tareas/SKILL.md"
     sha256: b33a4ade453ab6556c42c4430983732f25a71c2de36867c65dd4271282098ff7
   - path: "kit-doctor/SKILL.md"

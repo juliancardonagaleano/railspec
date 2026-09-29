@@ -133,7 +133,7 @@ class _FakeFullMandate:
         self.units_root = units_root
         self._chain = chain
         self._members = members
-        self.path = path or (units_root.parent / "plan-maestro.md")
+        self.path = path or (units_root.parent / "plan.md")
         self.reference = reference
         self.form = "plan"
 
@@ -306,7 +306,7 @@ class RefreshBoardRealContentTests(unittest.TestCase):
             "id: 9930-a\nfase: implement\n", encoding="utf-8")
 
     def _write_mandate(self, text: str) -> Path:
-        path = self.tmp / "plan-maestro.md"
+        path = self.tmp / "plan.md"
         path.write_text(text, encoding="utf-8")
         return path
 
@@ -562,7 +562,7 @@ def make_stub(tmp: Path) -> Path:
 
 
 def build_fixture_repo(tmp: Path, plan_id: str, slugs: list[str], *, chain: str, cap: int) -> Path:
-    """A real git repo, real `.spec/planes/<plan_id>/plan-maestro.md`, real
+    """A real git repo, real `.spec/planes/<plan_id>/plan.md`, real
     `.spec/units/<slug>/_estado.yaml` per member, and a REAL copy of this
     repository's own `.spec/scripts/` -- so every script the fixture launches
     (`supervised_parallel.py`, `supervised_conductor.py`, `validate_mandate.py`,
@@ -578,7 +578,7 @@ def build_fixture_repo(tmp: Path, plan_id: str, slugs: list[str], *, chain: str,
     shutil.copytree(SCRIPTS, repo / ".spec" / "scripts",
                     ignore=shutil.ignore_patterns("__pycache__", "tests"))
     miembros = "\n".join(f"- `{slug}`" for slug in slugs)
-    write_file(repo / ".spec" / "planes" / plan_id / "plan-maestro.md",
+    write_file(repo / ".spec" / "planes" / plan_id / "plan.md",
               PLAN_TEMPLATE.format(miembros=miembros, cadena=chain, tope=cap))
     for slug in slugs:
         write_file(repo / ".spec" / "units" / slug / "_estado.yaml",
@@ -680,7 +680,7 @@ class ParallelEndToEndTestCase(unittest.TestCase):
         slugs = ["9912-unidad-c"]
         self.repo = build_fixture_repo(self.tmp, plan_id, slugs, chain=slugs[0], cap=1)
         instance_lock = self.repo / ".spec" / "scripts" / "instance_lock.py"
-        mandate_path = self.repo / ".spec" / "planes" / plan_id / "plan-maestro.md"
+        mandate_path = self.repo / ".spec" / "planes" / plan_id / "plan.md"
         acquire = subprocess.run(
             [sys.executable, str(instance_lock), "acquire", str(mandate_path),
              "--session", "otra-sesion", "--launcher", "Otro"],
@@ -720,7 +720,7 @@ class LockRecheckPerLaunchTests(unittest.TestCase):
 
     def test_lock_gone_busy_between_two_launches_of_the_same_cycle_stops_the_second(self) -> None:
         mandate = _FakeFullMandate(self.repo / "units", "u1/u2", ["u1", "u2"],
-                                   path=self.repo / "plan-maestro.md")
+                                   path=self.repo / "plan.md")
         config = hop.ParallelConfig(
             plan="fixture-plan", repo_root=self.repo,
             evidencia_dir=self.repo / "evidencia", tope_worktrees=2,
@@ -987,7 +987,7 @@ class ParadaArbolPrincipalBlocksLaunchTests(unittest.TestCase):
         shutil.rmtree(self.repo, ignore_errors=True)
 
     def test_no_new_launch_while_parada_arbol_principal_is_present(self) -> None:
-        mandate = _FakeFullMandate(self.repo / "units", "u1", ["u1"], path=self.repo / "plan-maestro.md")
+        mandate = _FakeFullMandate(self.repo / "units", "u1", ["u1"], path=self.repo / "plan.md")
         config = hop.ParallelConfig(
             plan="fixture-plan", repo_root=self.repo, evidencia_dir=self.repo / "evidencia",
             tope_worktrees=2, max_cycles=1, poll_seconds=0.01,
@@ -1063,7 +1063,7 @@ class DrainMergesTests(unittest.TestCase):
 
     def _mandate(self, chain: str, members: list[str]) -> _FakeFullMandate:
         return _FakeFullMandate(self.units_root, chain, members,
-                                path=self.repo / "plan-maestro.md", reference="fixture-drain")
+                                path=self.repo / "plan.md", reference="fixture-drain")
 
     def _drain(self, mandate, data: dict) -> None:
         config = hop.ParallelConfig(plan="fixture-drain", repo_root=self.repo)

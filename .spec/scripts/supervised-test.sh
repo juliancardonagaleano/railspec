@@ -6,7 +6,7 @@
 #
 # `capturar-unidad` snapshots one unit directory — `_estado.yaml`,
 # `mandato.md`, `bitacora.md`, `tasks.md`, `paquete-aprobacion.md`
-# (whichever exist), a diff of the shared plan-maestro file and, with
+# (whichever exist), a diff of the shared index file and, with
 # `--seed <dir>`, a `diff-vs-seed.txt` classifying each artifact as
 # `igual|cambiado|nuevo|borrado` against a previous capture of the same
 # shape. It is the single implementation of "which files, in which order"
@@ -36,8 +36,10 @@ cd "$ROOT" || exit 1
 # shellcheck source=./_common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
-# Used by `capturar_en()` below for the diff of the shared plan-maestro file.
-PLAN_MAESTRO=".spec/units/_plan-maestro.md"
+# Used by `capturar_en()` below for the diff of the shared index file (the
+# append-only list of supervised mandates; pre-U-0009 era el archivo histórico
+# del flujo de plan por objetivo).
+MANDATOS_INDEX=".spec/units/_mandatos-supervisado.md"
 
 # Defensa general sobre el log de cada invocación: un subproceso que se
 # detiene en un permiso que no puede pedir sale **0** y responde en una
@@ -93,7 +95,7 @@ capturar_en() {
   for f in $CAPTURA_ARCHIVOS ; do
     [ -f "$TEST_UNIT/$f" ] && cp "$TEST_UNIT/$f" "$dest/$f"
   done
-  git diff -U0 -- "$PLAN_MAESTRO" > "$dest/plan-maestro.diff" 2>/dev/null || true
+  git diff -U0 -- "$MANDATOS_INDEX" > "$dest/index.diff" 2>/dev/null || true
   if [ -n "$seed" ] && [ -d "$seed" ]; then
     : > "$dest/diff-vs-seed.txt"
     for f in $CAPTURA_ARCHIVOS ; do
@@ -146,7 +148,7 @@ cmd_capturar_unidad() {
     for f in $CAPTURA_ARCHIVOS ; do
       [ -f "$TEST_UNIT/$f" ] && printf '%s/%s\n' "$dest" "$f"
     done
-    printf '%s/plan-maestro.diff\n' "$dest"
+    printf '%s/index.diff\n' "$dest"
     printf '%s/diff-vs-seed.txt\n' "$dest"
     printf '%s/capturado-en.txt\n' "$dest"
     return 0

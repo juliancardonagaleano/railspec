@@ -1,7 +1,7 @@
 # Condiciones de parada indelegables — modo supervisado
 
 > **Lista única** de condiciones de parada del modo supervisado. Ambas plantillas de mandato
-> (`.spec/_plantillas/plan-maestro.md`, `.spec/_plantillas/mandato.md`) la referencian por
+> (`.spec/_plantillas/mandato.md`, única plantilla vigente post-U-0009) la referencian por
 > ruta en `## Condiciones de parada` y **no la reproducen**; `.spec/scripts/validate_mandate.py`
 > falla con `paradas-sin-referencia` si un mandato no contiene esa referencia.
 >
@@ -123,18 +123,18 @@
     `cierre-con-pendientes`.
 
 ## Paradas tipificadas — modo desatendido (0031, 2026-09-23; renombradas al
-agrupador único del plan maestro el 2026-09-26)
+agrupador único del mandato el 2026-09-26)
 
 Adicionales a las 14 paradas existentes:
 
 ### `plan-incompleto` (abort)
 
-**Cuándo aplica:** una unidad amparada por el plan maestro falla de modo que afecta materialmente a las demás unidades amparadas (e.g., un cambio de plan maestro invalida el resto de las unidades; una falla de gobernanza bloquea el MCP para todo lo que sigue).
+**Cuándo aplica:** una unidad amparada por el mandato falla de modo que afecta materialmente a las demás unidades amparadas (e.g., un cambio de mandato invalida el resto de las unidades; una falla de gobernanza bloquea el MCP para todo lo que sigue).
 
-**Acción:** detener el resto de unidades amparadas por el plan; reportar al humano con lista de unidades ejecutadas + unidad fallida + razón; preservar estado de cada `_estado.yaml`.
+**Acción:** detener el resto de unidades amparadas por el mandato; reportar al humano con lista de unidades ejecutadas + unidad fallida + razón; preservar estado de cada `_estado.yaml`.
 
 ### `unidad-amparada-fallida` (auto-deferred)
 
 **Cuándo aplica:** una unidad tiene un gate que escala a `escalado` (cualquier hallazgo `alta` o `media` sin resolver).
 
-**Acción:** cerrar el gate como `escalado: auto-deferred` en `_estado.yaml > gates.<fase>.veredicto` con causa `hallazgos-sin-resolver`; agregar entrada en bitácora; **continuar con la siguiente unidad amparada por el mismo plan maestro**. El gate escalado se acumula como trabajo futuro en una unidad posterior (la numeración tentativa se publica en el reporte final).
+**Acción:** cerrar el gate como `escalado: auto-deferred` en `_estado.yaml > gates.<fase>.veredicto` con causa `hallazgos-sin-resolver`; agregar entrada en bitácora; **continuar con la siguiente unidad amparada por el mismo mandato**. El gate escalado se acumula como trabajo futuro en una unidad posterior (la numeración tentativa se publica en el reporte final).

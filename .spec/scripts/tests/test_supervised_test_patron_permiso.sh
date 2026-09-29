@@ -3,7 +3,7 @@
 # `supervised-test.sh` (unidad 0114, corrección del falso positivo de T21,
 # 2026-09-21: ver `.spec/units/0114-preflight-y-rituales-como-scripts/
 # bitacora.md` en torno a la entrada de T21, y `.spec/planes/
-# plan-ejemplo/plan-maestro.md` § Punto de retoma, entrada
+# plan-ejemplo/mandato.md` § Punto de retoma, entrada
 # 2026-09-21T15:03:00Z).
 #
 # Covers exactly the two cases the re-gate distinguished:

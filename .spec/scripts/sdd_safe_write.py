@@ -25,7 +25,7 @@ Acts only if all five hold
 (b) the path, resolved absolutely and made relative to `REPO_ROOT`, sits
     inside this repo (a path outside is not ours and exits 0 silently);
 (c) the suffix is `.yaml` -- the loop is **no-op on `.md`** (no-op for
-    `plan-maestro.md` / `mandato.md`; the guard still catches them);
+    `mandato.md`; the guard still catches it);
 (d) the basename, the tree and the absence of exemption match the same
     conditions `guard_written_state_shape.py` enforces on its matcher
     `Edit|Write|MultiEdit` (the two hooks run in the same matcher; the loop
@@ -144,7 +144,7 @@ WATCHED_YAML_BASENAME = "_estado.yaml"
 #: `guard_written_state_shape.py` by decision of plan.md § Decisiones de diseño
 #: -- the two hooks are separate processes with no shared module of their own,
 #: and `_common.py` belongs to the ritual scripts, not to the hooks.
-WATCHED_BASENAMES = ("_estado.yaml", "plan-maestro.md", "mandato.md")
+WATCHED_BASENAMES = ("_estado.yaml", "mandato.md")
 UNIT_TREE = re.compile(r"^\.spec/units/[0-9]{4}[a-z]?-[^/]+/")
 PLAN_TREE = re.compile(r"^\.spec/planes/[^/]+/")
 EXCLUDED_TREES = (
@@ -249,12 +249,10 @@ def validator_command(target: Path, basename: str) -> list[str]:
 
     Byte-identical with `guard_written_state_shape.py::validator_command` by
     decision of plan.md § Decisiones de diseño. The `--plan` branch is
-    unreachable in this loop (the `.md` extension is filtered upstream); it
-    is kept for byte-identity with the guard and so that a future
+    unreachable in this loop (the `.md` extension is filtered upstream);
+    it is kept for byte-identity with the guard and so that a future
     re-widening of the loop does not silently lose the plan form.
     """
-    if basename == "plan-maestro.md":
-        return [sys.executable, str(VALIDATOR), "--plan", target.parent.name]
     return [sys.executable, str(VALIDATOR), "--unidad", str(target.parent)]
 
 
@@ -407,7 +405,7 @@ def main() -> int:
         return EXIT_OK  # outside the repo: not ours
 
     # Condition (c): extension filter -- the loop is no-op on `.md`. The
-    # guard still catches `plan-maestro.md` and `mandato.md` behind us;
+    # guard still catches `mandato.md` behind us;
     # the loop is the canonical-form pass for `_estado.yaml` only.
     suffix = target.suffix
     if suffix == ".md":

@@ -13,7 +13,7 @@ Usage
                      [--start <iso-8601>] [--dry-run]
     instance_lock.py release <mandato> --session <id> [--dry-run]
 
-`<mandato>` is the mandate file: `.spec/planes/<id>/plan-maestro.md` for a
+`<mandato>` is the mandate file: `.spec/planes/<id>/plan.md` for a
 goal-based plan, `.spec/units/<NNNN-slug>/mandato.md` for an isolated unit.
 
 **Only `inspect` is read-only** — it is the one the preflight uses, and it is the
@@ -62,7 +62,7 @@ EXIT_OTHER_SESSION = 5
 LOCK_SECTION = "## Instancia en curso"
 
 #: Literal written when the section is emptied. The **form** of an empty section is
-#: the templates' (`.spec/_plantillas/{mandato,plan-maestro}.md`, § Instancia en
+#: the templates' (`.spec/_plantillas/mandato.md`, § Instancia en
 #: curso): a body with no `- sesion:` bullet. The suite compares against the template
 #: on that criterion; this constant is only the literal this script leaves behind.
 EMPTY_BODY = "Sin instancia."

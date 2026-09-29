@@ -27,23 +27,9 @@ creado: "2026-09-28T00:00:00Z"            # ISO-8601, p.ej. 2026-05-22T10:00:00Z
 actualizado: "2026-09-29T05:45:00Z"       # ISO-8601 — actualizar al cerrar cada sesión
 governance_refs: [ninguna-aplicable]   # ids de ADR/policy/principio aplicables (poblado vía MCP en fase spec/plan).
 
-# --- Cadena de dependencias (forward-compatible con plan-maestro) ---
-# Esta unidad NO puede cerrar (fase: done) hasta que la unit 0003 llegue a done.
-# Razón: los fixes 1-8 de 0003 hacen confiable el chequeo de superficie que
-# la unit 0002 ya aprobó (gate: refinado) con base en una triada estrecha que
-# perdió opencode.jsonc. Sin 0003, un re-gate del spec de 0002 (necesario por
-# el scope delta que añadió CA-51..CA-55) podría volver a aprobar con base en
-# evidencia cacheada o falla de filesystem.
-# Mecánica: la dependencia se respeta manualmente por el orquestador (el campo
-# `estado` formal no incluye 'bloqueado'; el protocolo SDD v2 no tiene ese
-# estado — ver comentario arriba). Cuando 0003 llegue a done, el orquestador
-# puede re-correr el gate del spec de 0002 (con el script nuevo) y, si pasa,
-# avanzar 0002 a implement.
-dependencias:
-  - unidad: 0003-fiabilidad-de-gates-de-gobernanza
-    relacion: "0002 no puede cerrar hasta que 0003 llegue a done"
-    motivo: "0003 endurece el gate de superficie (triada declarativa + segunda red + re-validación entre fases). Sin 0003, el gate de 0002 vuelve a aprobar con base en evidencia potencialmente cacheada o estrecha (incidente 2026-09-29)."
-    disparador: "0003 llega a done"
+# --- Cadena de dependencias — U-0009: migrada a `depende_de:` (DD-4). ---
+depende_de:
+  - 0003-fiabilidad-de-gates-de-gobernanza
                       # Si de verdad no aplica ninguno: [ninguna-aplicable], con la
                       # justificación en la tabla del spec. La lista vacía significa
                       # "sin consultar", y el gate del spec la rechaza.
@@ -126,7 +112,8 @@ aprobacion_paquete: {}
 #   nota: "qué pidió cambiar, si aplica"
 
 # --- Auditoría de modelo/effort (mecanismo propio de este repo; ver
-# .spec/MODELO-AGENTES.md para el porqué y la tabla completa). Qué subagente,
+# .spec/MODELO-AGENTES.md § Auditoría de modelo/effort para el porqué y la
+# tabla completa). Qué subagente,
 # modelo y effort ejecutó el contenido de cada fase. Quien invoca al
 # subagente lo registra al terminar — no se infiere después, porque nadie
 # más sabe con certeza qué se invocó de verdad.
@@ -290,19 +277,11 @@ gates:
 #       - {lente: "L4 — Gobernanza",    subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
 
 # --- Modo supervisado ---
-# Ver .spec/_plantillas/plan-maestro.md, .spec/_plantillas/mandato.md y
-# .spec/SUPERVISADO.md. Los defaults de una unidad v1 (modo=interactivo,
-# riesgo=medio, gates={}) no cambian por este bloque.
+# Ver .spec/_plantillas/mandato.md y .spec/SUPERVISADO.md. Los defaults de
+# una unidad v1 (modo=interactivo, riesgo=medio, gates={}) no cambian por
+# este bloque.
 
-mandato: 0002-versionado-y-actualizacion-del-instalador   # ver `.spec/planes/0002-versionado-y-actualizacion-del-instalador/plan.md`.
-                        # plan (.spec/planes/<id>/) o la ruta relativa al
-                        # archivo de mandato de esta unidad (p.ej.
-                        # mandato.md, dentro de este mismo directorio).
-                        # Solo tiene sentido junto con `modo: supervisado`.
-                        # Comentario de gobierno del campo: solo la
-                        # orquestación de `sdd-supervisado` lo sustituye, y
-                        # solo al iniciar un plan aprobado — nadie más lo
-                        # edita a mano.
+mandato: ""
 
 validaciones_mandato: []   # Comentado, junto a `gates`: lista de
                             # {fecha, fase, exit, codigos} — una entrada por

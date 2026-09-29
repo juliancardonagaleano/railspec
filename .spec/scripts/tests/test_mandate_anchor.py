@@ -496,7 +496,8 @@ class HashPreservationTests(unittest.TestCase):
 
 
 # ======================================================================================
-# CA-31: `validate-supervised.sh` Paso 9 (D-19) — additivity of `_plan-maestro.md`
+# CA-31: `validate-supervised.sh` Paso 9 (D-19) — additivity of the mandato index
+# (post-U-0009: `.spec/units/_mandatos-supervisado.md`)
 # ======================================================================================
 
 class ValidateSupervisedBaseTests(unittest.TestCase):
@@ -509,6 +510,8 @@ class ValidateSupervisedBaseTests(unittest.TestCase):
     reworking this suite. A throwaway repo with its own two-commit history does not
     rot: it seeds exactly the additive/non-additive cases Paso 9 discriminates."""
 
+    INDEX_BASENAME = "_mandatos-supervisado.md"
+
     def setUp(self) -> None:
         self.repo = new_repo("0114-validate-supervised-")
         self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
@@ -519,7 +522,7 @@ class ValidateSupervisedBaseTests(unittest.TestCase):
         self.script = self.scripts / "validate-supervised.sh"
         units = self.repo / ".spec" / "units"
         units.mkdir(parents=True)
-        self.index = units / "_plan-maestro.md"
+        self.index = units / self.INDEX_BASENAME
         # Deliberately not `- entrada 1` (a markdown bullet): the diff marker
         # `-` prefixed to a line that already starts with `-` produces `--`,
         # which the script's own `grep -E '^-[^-]'` (excluding the `---`

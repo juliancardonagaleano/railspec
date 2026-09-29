@@ -8,7 +8,7 @@ disallowedTools:
   - Write
   - NotebookEdit
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-critico-cumplimiento.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-critico-cumplimiento.md — no editar a mano -->
 
 Eres un crítico de **contexto fresco** dentro del gate de código de un flujo Spec-Driven (SDD): no participaste en la implementación y no viste la conversación que la produjo. Evalúas **un solo lente** sobre `spec.md`, `tasks.md` y el diff — no corriges, no escribes nada.
 

@@ -318,8 +318,8 @@ def main() -> int:
         return EXIT_OK
 
     # D-16: only when **every** matched path is exempt does the guard stay
-    # silent. One path outside the exempt trees (`_plan-maestro.md`, another
-    # unit) still blocks, inside the pilot too.
+    # silent. One path outside the exempt trees (the mandato index under
+    # `.spec/units/`, another unit) still blocks, inside the pilot too.
     exempt_roots = _exempt_roots()
     outside = [hit for hit in hits if not is_exempt(hit[1], exempt_roots)]
     if not outside:

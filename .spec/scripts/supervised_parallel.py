@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Parallelism manager for a supervised mandate — unit 0118, Part B (G4).
 
-Reopened by explicit human decision `0118-D3` (`plan-maestro.md`,
-2026-09-21) despite `CA-15` having measured `CR-4` **not** met (K3 = -15.16 %,
-threshold >= 30 %, see `0118-D1`) — Julian, the mandate's owner, decided to
-build G4 anyway, exercising the `reversion` `0118-D1` already provided for.
+Reopened by explicit human decision `0118-D3` (referring to the mandato
+template that consolidates `## Paralelismo`, 2026-09-21) despite `CA-15`
+having measured `CR-4` **not** met (K3 = -15.16 %, threshold >= 30 %,
+see `0118-D1`) — Julian, the mandate's owner, decided to build G4 anyway,
+exercising the `reversion` `0118-D1` already provided for.
 
 Wraps `supervised_conductor.py` (unit 0118, G1) the same way that script
 wraps `sdd-supervisado`: this script never re-implements its per-step loop —
@@ -418,7 +419,7 @@ def parallelism_cap(mandate: vm.Mandate, override: int | None) -> int:
     """`tope-worktrees` of `## Paralelismo`, or `override` if given. Falls back to
     `DEFAULT_CAP` (documented, not a silent business-rule constant) only when the
     field is missing/unparseable — the operative value today is `3`
-    (`plan-maestro.md § Paralelismo`), same as the fallback, but this reads the
+    (`mandato.md § Paralelismo`), same as the fallback, but this reads the
     field first rather than hardcoding it."""
     if override is not None:
         return override

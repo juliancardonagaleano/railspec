@@ -55,23 +55,15 @@ modo_conversion:
 
 # --- Mandato (requerido por `modo: desatendido`) ---
 # Ver `.spec/planes/0003-fiabilidad-de-gates-de-gobernanza/plan.md`.
-mandato: 0003-fiabilidad-de-gates-de-gobernanza
+# U-0009: vaciado — la unidad ya no se ampara bajo un plan maestro (retirado por U-0009;
+# ver `.spec/SUPERVISADO.md` § 1.1).
+mandato: ""
 
 aprobacion_paquete: {}
 
-# --- Cadena de dependencias (forward-compatible con plan-maestro) ---
-# Esta unidad debe llegar a `done` ANTES de que la unit 0002 pueda cerrar.
-# Razón: 0002 introduce contrato de gobernanza (Cobertura doble Claude+Opencode,
-# CA-51..CA-55) y depende de los fixes 1-8 de esta unidad para que ese contrato
-# pueda ser validado confiablemente por el gate del spec de 0002 cuando se
-# re-corre después del scope delta (ver § Análisis de regresiones de 0002).
-dependencias:
-  - unidad: 0002-versionado-y-actualizacion-del-instalador
-    relacion: "0003 debe llegar a done antes que 0002 cierre (done)"
-    motivo: "0002 entrega el contrato de gobernanza (AGENTS.md + .mcp.json + opencode.jsonc);
-             los fixes 1-8 hacen que el gate de 0002 pueda verificar confiablemente
-             ese contrato. Sin 1-8, el gate de 0002 vuelve a aprobar con base en
-             evidencia cacheada del spec inicial."
+# --- Cadena de dependencias — U-0009: migrada a `depende_de:` (DD-4). ---
+depende_de:
+  - 0002-versionado-y-actualizacion-del-instalador
 
 # --- Auditoría de modelo/effort ---
 modelo_ejecucion:

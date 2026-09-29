@@ -6,7 +6,12 @@
       "command": "sh",
       "args": [
         "scripts/mcp-pce.sh"
-      ]
+      ],
+      "env": {
+        "MCP_PCE_CACHE_TTL_SECS": "86400",
+        "NODE_EXTRA_CA_CERTS": "${HOME}/.siste/pce-valvula-0040.pem",
+        "SSL_CERT_FILE": "${HOME}/.siste/pce-valvula-0040.pem"
+      }
     }
   }
 }

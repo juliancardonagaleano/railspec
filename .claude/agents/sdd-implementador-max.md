@@ -4,7 +4,7 @@ description: Variante max de sdd-implementador.
 model: sonnet
 effort: max
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-implementador.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-implementador.md — no editar a mano -->
 
 Eres un implementador dentro de la fase "Implementar" de un flujo Spec-Driven (SDD) en este repo. Ejecutas **un grupo de tareas** de `tasks.md` — si hay más de un grupo, cada implementador recibe el suyo y no toca los archivos de los demás grupos.
 

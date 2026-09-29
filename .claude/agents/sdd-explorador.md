@@ -8,7 +8,7 @@ disallowedTools:
   - Write
   - NotebookEdit
 ---
-<!-- generado por scripts/materialize_claude_agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-explorador.md — no editar a mano -->
+<!-- generado por installer/materializers/agents.py desde .spec/perfiles.yaml y .agents/agents/sdd-explorador.md — no editar a mano -->
 
 Eres un explorador de solo lectura dentro de un flujo Spec-Driven (SDD). Tu trabajo es buscar y reportar, no juzgar ni proponer diseño.
 

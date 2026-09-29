@@ -1,0 +1,137 @@
+# Estado machine-readable de la unidad de trabajo. Fuente de verdad para la retoma.
+# Comentarios inline solo aclaran lo que NO está en .spec/README.md § Los cuatro modos /
+# § concurrencia / § Gates de validación. Cualquier detalle narrativo vive en bitacora.md.
+id: 0009-retiro-del-protocolo-de-plan-maestro
+titulo: "Retiro del protocolo de plan maestro, consolidación en mandato.md y drift-check de _estado.yaml"
+
+# --- Multi-colaborador — ver .spec/README.md § concurrencia. ---
+dueño: ""             # quien creó la unidad o a quien se le asignó explícitamente.
+carril: ""            # core | orchestrator | studio | sdd (protocolo); ver .spec/README.md § Ejecución multi-agente.
+
+fase: done            # research | spec | plan | tasks | aprobacion | implement | done
+estado: completado   # en-progreso | bloqueado | completado
+creado: "2026-09-29T18:00:00Z"
+actualizado: "2026-09-29T18:30:00Z"
+governance_refs: [ninguna-aplicable]   # sin superficie de gobernanza propia del kit; pce-mcp no se ejecuta contra este repo.
+                       # [ninguna-aplicable] = no aplica ninguno (con justificación en la tabla del spec).
+comando_validacion: "" # comando que verifica esta unidad (p.ej. build/typecheck/validate del repo)
+
+# --- SDD v2 — Semántica de `modo`, `riesgo`, `perfil` en .spec/README.md § Los cuatro modos / § Gates de validación. ---
+modo: semi-autonomo  # interactivo | semi-autonomo | supervisado | desatendido
+riesgo: alto          # bajo | medio | alto — dimensiona el panel del gate.
+perfil: estandar      # ligero | estandar | profundo — fuente única .spec/perfiles.yaml.
+
+modo_conversion: []   # Lista cronológica de conversiones de `modo` — ver .spec/README.md § concurrencia.
+                      # Toda unidad nace `modo: interactivo`; este campo es el único mecanismo de conversión.
+                      # Validado por .spec/scripts/validate_mode_conversion.py --unit <ruta>.
+
+aprobacion_paquete:
+  decision: aprobado
+  fecha: "2026-09-29T21:00:00Z"
+  nota: ""
+# Decisión humana sobre el paquete (solo modo semi-autonomo).
+                        # `sdd-implementar` NO arranca sin decision: aprobado.
+
+modelo_ejecucion:   # Qué subagente/modelo/effort corrió cada fase — ver .spec/README.md § Ejecución multi-agente → § Auditoría de modelo/effort.
+  especificar: {subagente: sdd-especificar-redactor, modelo: sonnet, effort: high, perfil: estandar, en: "2026-09-29T18:30:00Z"}
+  planificar:  {subagente: sdd-planificar-redactor, modelo: sonnet, effort: medium, perfil: estandar, en: "2026-09-29T19:30:00Z"}
+  implementar:                # una entrada por grupo del plan
+    - {grupo: G1, subagente: sdd-implementador, modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar, en: "2026-09-29T22:00:00Z"}
+    - {grupo: G2, subagente: sdd-implementador, modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar, en: "2026-09-29T22:00:00Z"}
+    - {grupo: G3, subagente: sdd-implementador, modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar, en: "2026-09-29T22:00:00Z"}
+    - {grupo: G4, subagente: sdd-implementador, modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar, en: "2026-09-29T22:00:00Z"}
+    - {grupo: G5, subagente: sdd-implementador, modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar, en: "2026-09-29T22:00:00Z"}
+
+gates:
+  spec:
+    veredicto: refinado
+    tier: alto
+    iteraciones: 1
+    hallazgos:
+      - severidad: alta
+        lente: "L1 — Testeabilidad"
+        donde: "spec.md:61 (CA-08)"
+        problema: "Typo en el ID: `governanza` (v) en lugar de `gobernanza` (b)."
+        correccion: "Sustituido por grafía con `b`; añadido un one-liner literal al grep para evitar futuras regresiones tipográficas."
+      - severidad: media
+        lente: "L1 — Testeabilidad"
+        donde: "spec.md:65 (CA-12 original)"
+        problema: "Mezclaba un comando reproducible y una cláusula narrativa sin comando."
+        correccion: "Partido en CA-12a (comando sobre test_u0005_ca12.py) y CA-12b (dos greps literales sobre U-0005 spec.md y tasks.md reformulados)."
+      - severidad: baja
+        lente: "L1 — Testeabilidad"
+        donde: "spec.md:36 (alcance) y otros"
+        problema: "Cifras menores inexactas o mezcla de exit-code vs. conteo impreso; no bloqueante."
+        correccion: "Sin cambio en spec; nota de revisión para exactitud."
+    hallazgos_resueltos: 2
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] confirmado por L4 con evidencia del repo (precedentes U-0004, U-0005)."
+    criticos:
+      - {lente: "L1 — Testeabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L4 — Gobernanza", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  plan:
+    veredicto: refinado
+    tier: alto
+    iteraciones: 1
+    hallazgos:
+      - severidad: baja
+        lente: "L1 — Reutilización"
+        donde: "plan.md:62"
+        problema: "Cita `sdd_safe_write_canonical.normalize_canonical` sin `ruta:línea`; sin verificar que la canonización ya soporta block-lists."
+        correccion: "Verificable en `sdd_safe_write_canonical.py:544` (post-refinamiento del plan)."
+      - severidad: baja
+        lente: "L4 — Coherencia"
+        donde: "plan.md (tabla de archivos)"
+        problema: "Falta decisión consciente sobre U-0005 `plan.md` (líneas 7, 33, 69, 95) que mantiene 'plan-maestro.md' en prosa histórica."
+        correccion: "Decisión: comentarios inline históricos de unidades cerradas NO se reformulan (excepto los que CA-12a/b exige: spec.md:69, tasks.md:16,27,37)."
+    hallazgos_resueltos: 8
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] confirmado; trazabilidad 16/16 CA-NN→plan completa; 5 grupos paralelos con archivos disjuntos entre G2..G5."
+    criticos:
+      - {lente: "L1 — Reutilización", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L4 — Gobernanza y coherencia con el spec", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  tasks:
+    veredicto: aprobado
+    tier: alto
+    iteraciones: 1
+    hallazgos:
+      - severidad: baja
+        lente: "L3 — Fidelidad al plan"
+        donde: "tasks.md (G2 vs plan.md)"
+        problema: "plan.md dice 'G1 condiciona G4 pero no G2/G3/G5'; tasks.md declara T6..T17 con `depende de: T5` (G2 depende de G1). Inconsistencia menor plan↔tasks."
+        correccion: "Sin cambio en tasks; nota de revisión para plan si el gate de código lo requiere."
+    hallazgos_resueltos: 1
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido; cobertura 16/16 CA-NN con tareas explícitas; T24b añadida para preservar prosa de DD-4 antes del borrado del bloque `dependencias:`."
+    criticos:
+      - {lente: "L1 — Atomicidad y verificabilidad", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Fidelidad al plan", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+  codigo:
+    veredicto: refinado
+    tier: alto
+    iteraciones: 1
+    hallazgos:
+      - severidad: alta
+        lente: "L2 — Correctitud"
+        donde: ".spec/scripts/tests/test_test_subset.py:258 (CA-16)"
+        problema: "`python3 -m pytest .spec/scripts/tests installer -q` retorna exit 1 (no 0) por regresión preexisting: el docstring de `map_pytest_subtree` en `.spec/scripts/test_subset.py:65-72` cita `orchestrator/src/iark_orchestrator/` como referencia histórica al script del que se extrajo el genérico. Verificado con `git stash`: la falla persiste sin U-0009. U-0009 no tocó `test_subset.py` (git diff HEAD retorna vacío)."
+        correccion: "Fuera del alcance de U-0009; queda como hallazgo para una unidad posterior que reformule el docstring de `map_pytest_subtree` o ajuste el test."
+      - severidad: media
+        lente: "L1 — Cumplimiento"
+        donde: "Diff: 5 archivos fuera de la tabla 'Archivos' de plan.md (plantillas _estado.yaml/.md, README.md, .gitignore, test_scripts_naming_and_strict_mode.py)"
+        problema: "Scope creep: el refactor externaliza prosa inline de templates a 4 secciones nuevas en README.md y reduce `_estado.yaml` de 185 a 43 líneas. No rompe ningún CA y mejora la centralización, pero el plan § T5/T15 solo autorizaba cambios puntuales."
+        correccion: "Sin cambio; nota de trazabilidad para unidades posteriores (el plan debe listar exhaustivamente los archivos o el implementador debe escalar antes de proceder)."
+    hallazgos_resueltos: 0
+    governance_consultada: si
+    governance_nota: "centinela [ninguna-aplicable] mantenido; 15/16 CA-NN verificados en disco; CA-16 falla por regresión preexisting verificada con `git stash` (no atribuible a U-0009). Implementación ejecutada en 5 grupos paralelos (G1..G5); 837 tests pasan / 1 falla preexisting."
+    criticos:
+      - {lente: "L1 — Cumplimiento de los CA-NN", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L2 — Correctitud", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+      - {lente: "L3 — Encaje con el repo y gobernanza", subagente: general, modelo: sonnet, effort: low, perfil: estandar}
+
+# --- Modo supervisado — ver .spec/SUPERVISADO.md y .spec/README.md § Modo supervisado. ---
+mandato: ""            # id de un plan maestro (.spec/planes/<id>/) o ruta relativa al mandato de esta unidad.
+                        # Solo tiene sentido junto con `modo: supervisado`. Lo sustituye `sdd-supervisado` al iniciar un plan aprobado — nadie más lo edita a mano.
+
+validaciones_mandato: []   # Lista de {fecha, fase, exit, codigos} — una entrada por corrida de `validate_mandate.py`.
+                            # Lo escribe `sdd-supervisado`. Validación de contrato con `.spec/scripts/validate_mandate.py`.

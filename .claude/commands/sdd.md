@@ -2,7 +2,7 @@
 description: "SDD — conducir el flujo Spec-Driven completo desde una petición (modo interactivo o semi-autonomo)"
 argument-hint: "[descripción del cambio | id/slug para retomar] [--modo interactivo|semi-autonomo] [--riesgo bajo|medio|alto]"
 ---
-<!-- generado por scripts/materialize_claude_commands.py desde .agents/commands/sdd.md — no editar a mano -->
+<!-- generado por installer/materializers/commands.py desde .agents/commands/sdd.md — no editar a mano -->
 
 Ejecuta la skill canónica `sdd-orquestar` (`.agents/skills/sdd-orquestar/SKILL.md`) siguiendo el protocolo de Desarrollo Spec-Driven de `AGENTS.md`: triar la petición, y si es un cambio no trivial, conducir las fases con su gate de validación.
 

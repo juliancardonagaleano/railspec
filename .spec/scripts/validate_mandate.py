@@ -12,9 +12,9 @@ Usage
     validate_mandate.py --hash    --plan|--unidad <x>   # sha256 for the `## Aprobación` entry
     validate_mandate.py --resumen --plan|--unidad <x>   # fields that `sdd-retomar` transcribes
 
-`--plan` accepts an id (resolved to `.spec/planes/<id>/plan.md` (or legacy `plan-maestro.md`), members
+`--plan` accepts an id (resolved to `.spec/planes/<id>/plan.md`, members
 under `.spec/units/`) or the path of an existing directory (fixture:
-`<dir>/plan.md` (legacy: `plan-maestro.md`), members under `<dir>/units/`).
+`<dir>/plan.md`, members under `<dir>/units/`).
 
 Emission rules (CA-21)
 -----------------------
@@ -359,13 +359,22 @@ def resolve_unit(unit_dir: Path) -> Mandate | None:
     if list_ is not None and len(list_) == 1:
         value = list_[0]
     if not value.strip():
+        # U-0009 / DD-3: ``mandato: ""`` es válido en ``modo: desatendido`` (la
+        # unidad se ampara bajo un mandato pre-existente archivado o no
+        # requiere mandato formal; este caso es post-retiro del flujo de plan
+        # por objetivo — la unidad no se ampara bajo ningún plan por objetivo).
+        # En ``modo: supervisado`` sigue siendo rechazo ``unidad-mandato-vacio``.
+        if field(text, "modo") == "desatendido":
+            unit_mandate = unit_dir / "mandato.md"
+            if not unit_mandate.is_file():
+                unit_mandate = unit_dir / "plan.md"
+            if unit_mandate.is_file():
+                return Mandate(unit_mandate, "unidad", "mandato.md", UNITS)
         add_failure("unidad-mandato-vacio", where, "`mandato` presente pero vacío")
         return None
 
     value = value.strip()
     plan_file = PLANS / value / "plan.md"
-    if not plan_file.exists():
-        plan_file = PLANS / value / "plan-maestro.md"  # legacy compat
     path_file = unit_dir / value
     has_plan = plan_file.is_file()
     has_path = path_file.is_file()
@@ -405,14 +414,10 @@ def resolve_plan(arg: str) -> Mandate | None:
     p = Path(arg)
     if p.is_dir():
         file = p / "plan.md"
-        if not file.exists():
-            file = p / "plan-maestro.md"  # legacy compat
         units_root = p / "units"
         reference = p.name
     else:
         file = PLANS / arg / "plan.md"
-        if not file.exists():
-            file = PLANS / arg / "plan-maestro.md"  # legacy compat
         units_root = UNITS
         reference = arg
     if not file.is_file():

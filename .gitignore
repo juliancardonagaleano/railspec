@@ -62,3 +62,5 @@ build/
 .spec/.pilot-verde
 .spec/.kit-install/
 .spec/scripts/**/__pycache__/
+.gitnexus/
+.codebase-memory/

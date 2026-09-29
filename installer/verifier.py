@@ -29,8 +29,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from git_target import GitTargetError, resolve_git_dir, resolve_git_root
-from manifest import (
+from installer.git_target import GitTargetError, resolve_git_dir, resolve_git_root  # noqa: E402
+from installer.manifest import (  # noqa: E402
     DEFAULT_MANIFEST_PATH,
     REPO_ROOT,
     ManifestEntry,

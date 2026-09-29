@@ -1,6 +1,6 @@
 ---
 name: sdd-supervisado
-description: "Use when: conducir un mandato supervisado ya aprobado — un plan maestro por objetivo (`.spec/planes/<id>/`) o una unidad aislada ya en `modo: supervisado` — fase a fase, con gates, decisiones delegadas, paradas tipificadas y cierre, sin checkpoints humanos intermedios. Does NOT aplicar a unidades `interactivo` ni `semi-autonomo` (esas van por `sdd-orquestar`), ni aprobar un mandato, ni redactar el mandato. Keywords: supervisado, mandato, plan maestro, delegaciones, punto de retoma, overnight."
+description: "Use when: conducir un mandato supervisado ya aprobado — un mandato de plan archivado bajo `.spec/planes-archive/<id>/` o una unidad aislada ya en `modo: supervisado` — fase a fase, con gates, decisiones delegadas, paradas tipificadas y cierre, sin checkpoints humanos intermedios. Does NOT aplicar a unidades `interactivo` ni `semi-autonomo` (esas van por `sdd-orquestar`), ni aprobar un mandato, ni redactar el mandato. Keywords: supervisado, mandato, delegaciones, punto de retoma, overnight."
 compatibility: "Claude-first (subagentes en paralelo, worktrees)"
 license: "Proprietary"
 metadata:
@@ -31,7 +31,7 @@ que introdujeron este modo en este repo: se conservan por trazabilidad.
 
 | Usar | NO usar |
 |---|---|
-| Conducir un plan maestro o una unidad aislada bajo mandato aprobado | Unidad `interactivo` o `semi-autonomo` → `sdd-orquestar` |
+| Conducir un mandato de plan archivado o una unidad aislada bajo mandato aprobado | Unidad `interactivo` o `semi-autonomo` → `sdd-orquestar` |
 | Retomar un mandato que quedó parado | Redactar o aprobar un mandato → acto humano |
 | Cerrar un mandato cuyo criterio de salida se cumplió | Desbloquear una parada → solo el autor de la entrada de mandato vigente |
 
@@ -137,10 +137,10 @@ mandato aprobado, por cada unidad amparada:
   <id>` bajo la entrada de ese plan— en el índice de mandatos `.spec/units/_mandatos-supervisado.md`.
   Esta skill crea, en este mismo paso: el índice si no existe (con la cabecera canónica de
   `.spec/_plantillas/mandato.md` § "Formato de entrada en las secciones-registro"); la entrada
-  del plan bajo `## Planes por objetivo` si es la primera unidad de ese plan (`### <id-plan>` con
-  `- mandato: <ruta de su plan-maestro.md>`, reemplazando la nota de sección vacía — ese
-  reemplazo no cuenta como editar una entrada existente); y la entrada de la unidad, sin línea de
-  changelog todavía (las líneas las escribe § 11 al parar o cerrar).
+del plan bajo `## Planes por objetivo` si es la primera unidad de ese plan (`### <id-plan>` con
+   `- mandato: <ruta de su plan.md>`, reemplazando la nota de sección vacía — ese
+   reemplazo no cuenta como editar una entrada existente); y la entrada de la unidad, sin línea de
+   changelog todavía (las líneas las escribe § 11 al parar o cerrar).
 
 ## 2. Flujo por unidad, dirigido por estado
 
@@ -289,8 +289,9 @@ Ante cualquiera de estas paradas:
    sub-bloque "Visibilidad agregada".
 5. Liberar el lock con `.spec/scripts/instance_lock.py release`, que es lo que
    vacía `## Instancia en curso`.
-6. Anexar la línea de changelog (§ 11) con
-   `.spec/scripts/append_changelog_line.py`.
+6. Anexar la línea de changelog (§ 11) directamente con la herramienta de edición del
+   harness, conforme a `.spec/SUPERVISADO.md` § "Línea de changelog"
+   (U-0009 retiró `append_changelog_line.py` por falta de callers vivos).
 
 ### 6.A Visibilidad agregada (por defecto)
 
@@ -456,8 +457,9 @@ resolver— trae `medicion-pendiente: unidad=<id> indicadores=<lista> bitacora=<
 esta es la sesión que la resuelve: medir esos indicadores con `usage_report.py
 indicators` sobre la ventana de esta sesión, anotarlos en la bitácora que la línea
 señala con fecha y `session_id`, y marcar `medicion-hecha: <fecha>` en esa misma línea
-del changelog (edición puntual con la herramienta de edición del harness:
-`.spec/scripts/append_changelog_line.py` solo anexa, no reescribe líneas existentes).
+del changelog (edición puntual con la herramienta de edición del harness —
+`append_changelog_line.py` se retiró en U-0009; el conductor hace la edición
+misma respetando el formato aditivo: solo anexa, no reescribe líneas existentes).
 
 El conductor **nunca** escribe `## Revisión posterior`: esa sección la escribe **solo el autor** de la entrada de mandato vigente.
 El paso de `revision: pendiente` a `aceptada`/`revertida` de una decisión `autonoma` es acto de ese humano — **nunca** de esta skill, que no tiene paso alguno para hacerlo (`0109a` CA-01g, `## Revisión posterior`).
@@ -467,7 +469,9 @@ El paso de `revision: pendiente` a `aceptada`/`revertida` de una decisión `auto
 Al parar o cerrar un mandato, anexar a la entrada de ese mandato en el índice de mandatos
 `.spec/units/_mandatos-supervisado.md` **una única línea** fechada que referencie el mandato y su
 punto de retoma, sin duplicar el detalle —que vive en `## Paradas` / `## Punto de retoma` del
-propio mandato—. Esa línea la escribe `.spec/scripts/append_changelog_line.py`.
+propio mandato—. Esa línea la escribe el conductor con la herramienta de edición del
+harness (U-0009 retiró `append_changelog_line.py` por falta de callers vivos;
+la idempotencia se preserva verificando manualmente que la línea no exista).
 Idempotente: una segunda invocación con la misma línea no la duplica y sigue saliendo
 `0`. Junto con crear la entrada al marcar (§ 1.4), es el **único** cambio que esta
 skill hace al índice: ninguna línea ni entrada existente se edita ni se borra.

@@ -8,7 +8,86 @@
         "sh",
         "scripts/mcp-pce.sh"
       ],
-      "timeout": 20000
+      "timeout": 20000,
+      "env": {
+        "MCP_PCE_CACHE_TTL_SECS": "86400",
+        "NODE_EXTRA_CA_CERTS": "${HOME}/.siste/pce-valvula-0040.pem",
+        "SSL_CERT_FILE": "${HOME}/.siste/pce-valvula-0040.pem"
+      }
+    }
+  },
+  "agent": {
+    "sdd-critico-cumplimiento": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-critico-estructural": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-critico-profundo": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-critico-profundo-low": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-critico-profundo-max": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-especificar-redactor": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-especificar-redactor-medium": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-especificar-redactor-xhigh": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-explorador": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-implementador": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-implementador-high": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-implementador-low": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-implementador-max": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-implementador-xhigh": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
+    },
+    "sdd-planificar-redactor": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-refutador": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-refutador-max": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M3"
+    },
+    "sdd-tareas-redactor": {
+      "_sdd_kit": true,
+      "model": "minimax/MiniMax-M2.7-highspeed"
     }
   }
 }

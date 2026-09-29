@@ -21,7 +21,7 @@
 # `test_mandate_anchor.py`'s differential test over real git history both
 # name "Paso 9" by number, and retiring the numbering along with the step
 # would just move the same fragility elsewhere. Steps 2 (closed code list), 9
-# (aditividad of `_plan-maestro.md`) and 12 (every real `modo: supervisado`
+# (aditividad del índice de mandatos) and 12 (every real `modo: supervisado`
 # unit resolves its mandate) keep doing real work.
 #
 # Comparison base (step 9). Compares against `BASE_COMMIT`: `VALIDAR_BASE` if
@@ -121,7 +121,7 @@ step "Paso 8 — no-copia de gobernanza sobre los archivos del inventario (CA-24
 retired "invocaba \`no_copy.py\` contra shingles del ADR que introdujo este modo (dominio \`ia\` rechazado, CA-29); \`no_copy.py\` y su fixture se eliminan con este mismo corte"
 
 # ---------------------------------------------------------------------------- 9
-step "Paso 9 — aditividad de _plan-maestro.md y _tanda-*.md (CA-28)"
+step "Paso 9 — aditividad del índice de mandatos (CA-28)"
 if [ -n "${VALIDAR_BASE:-}" ]; then
   BASE_COMMIT="$VALIDAR_BASE"
 else
@@ -131,14 +131,22 @@ fi
 BASE_COMMIT="$(git rev-parse --verify "${BASE_COMMIT}^{commit}" 2>/dev/null)" \
   || fail "la base de comparación no resuelve a un commit (revisar \$VALIDAR_BASE)"
 ok "base de comparación: $BASE_COMMIT"
-git diff --quiet "$BASE_COMMIT" -- '.spec/units/_tanda-*.md' \
-  || fail "los _tanda-*.md tienen diff contra la base; CA-28 los exige sin cambios"
-git diff -U0 "$BASE_COMMIT" -- .spec/units/_plan-maestro.md | grep -E '^-[^-]' > "$TMP/borradas.txt"
-if [ -s "$TMP/borradas.txt" ]; then
-  cat "$TMP/borradas.txt" >&2
-  fail "_plan-maestro.md tiene líneas eliminadas o reescritas; CA-28 exige adiciones"
+# El índice vigente es `.spec/units/_mandatos-supervisado.md` (ver
+# `.spec/SUPERVISADO.md` § "Línea de changelog"). Si el archivo existe en la
+# base congelada, se verifica su aditividad; si no existe (retirado por U-0009
+# o aún no creado), se omite el chequeo sin fallar — el archivo es histórico,
+# no normativo, y no aparece en ninguna unidad vigente.
+INDEX_FILE='.spec/units/_mandatos-supervisado.md'
+if git cat-file -e "${BASE_COMMIT}:${INDEX_FILE}" 2>/dev/null; then
+  git diff -U0 "$BASE_COMMIT" -- "$INDEX_FILE" | grep -E '^-[^-]' > "$TMP/borradas.txt"
+  if [ -s "$TMP/borradas.txt" ]; then
+    cat "$TMP/borradas.txt" >&2
+    fail "$INDEX_FILE tiene líneas eliminadas o reescritas; CA-28 exige adiciones"
+  fi
+  ok "$INDEX_FILE solo con adiciones (CA-28)"
+else
+  ok "ningún índice de mandatos presente en la base — Paso 9 no aplica"
 fi
-ok "_tanda-*.md sin diff y _plan-maestro.md solo con adiciones"
 
 # ---------------------------------------------------------------------------- 10
 step "Paso 10 — todo materializado del kit ya versionado y modificado, inventariado"

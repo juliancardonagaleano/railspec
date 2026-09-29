@@ -14,11 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MANIFEST = REPO_ROOT / "installer" / "kit_manifest.yaml"
 CLI = REPO_ROOT / "installer" / "cli.py"
 
-sys.path.insert(0, str(REPO_ROOT / "installer"))
+sys.path.insert(0, str(REPO_ROOT))
 
-from git_target import resolve_git_dir  # noqa: E402
-from manifest import load_and_validate, sha256_file  # noqa: E402
-from verifier import run_verify  # noqa: E402
+from installer.git_target import resolve_git_dir  # noqa: E402
+from installer.manifest import load_and_validate, sha256_file  # noqa: E402
+from installer.verifier import run_verify  # noqa: E402
 
 
 def _git_init(path: Path) -> None:
