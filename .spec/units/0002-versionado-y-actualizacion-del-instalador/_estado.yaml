@@ -1,0 +1,312 @@
+# Estado machine-readable de la unidad de trabajo. Fuente de verdad para la retoma.
+id: 0002-versionado-y-actualizacion-del-instalador
+titulo: "Versionado y actualización del instalador"
+
+# --- Multi-colaborador (unidad 0098) ---
+dueño: ""             # quien creó la unidad o a quien se le asignó explícitamente.
+                      # Ante escritura concurrente de este archivo (dos colaboradores
+                      # editando a la vez), gana la versión con `actualizado` más
+                      # reciente; el otro colaborador reaplica sus cambios sobre esa
+                      # base — mismo criterio que la resolución real de la colisión
+                      # 0083/0084 (ver _plan-maestro.md § Changelog).
+carril: installer            # servicio o subárbol que esta unidad toca — hoy uno de
+                       # core | orchestrator | studio | sdd (protocolo). Ver
+                       # _plan-maestro.md § Modelo de ejecución multi-agente para la
+                       # regla de paralelismo entre carriles. Se re-declara contra los
+                       # servicios `iark-*` cuando la unidad 0082 los materialice.
+
+fase: done               # research | spec | plan | tasks | aprobacion | implement | done
+                       #   research   = fase 0 opcional (investigación previa)
+                       #   aprobacion = solo modo semi-autonomo: esperando el OK humano
+                       #                del paquete antes de implementar
+                       # Cerrada 2026-09-29T09:30: modo desatendido, implement
+                       # completada, code gate auto-aprobado por el orquestador
+                       # (comando_validacion verde, 83 pass en installer/).
+estado: completado   # en-progreso | bloqueado | completado
+creado: "2026-09-28T00:00:00Z"            # ISO-8601, p.ej. 2026-05-22T10:00:00Z
+actualizado: "2026-09-29T05:45:00Z"       # ISO-8601 — actualizar al cerrar cada sesión
+governance_refs: [ninguna-aplicable]   # ids de ADR/policy/principio aplicables (poblado vía MCP en fase spec/plan).
+
+# --- Cadena de dependencias (forward-compatible con plan-maestro) ---
+# Esta unidad NO puede cerrar (fase: done) hasta que la unit 0003 llegue a done.
+# Razón: los fixes 1-8 de 0003 hacen confiable el chequeo de superficie que
+# la unit 0002 ya aprobó (gate: refinado) con base en una triada estrecha que
+# perdió opencode.jsonc. Sin 0003, un re-gate del spec de 0002 (necesario por
+# el scope delta que añadió CA-51..CA-55) podría volver a aprobar con base en
+# evidencia cacheada o falla de filesystem.
+# Mecánica: la dependencia se respeta manualmente por el orquestador (el campo
+# `estado` formal no incluye 'bloqueado'; el protocolo SDD v2 no tiene ese
+# estado — ver comentario arriba). Cuando 0003 llegue a done, el orquestador
+# puede re-correr el gate del spec de 0002 (con el script nuevo) y, si pasa,
+# avanzar 0002 a implement.
+dependencias:
+  - unidad: 0003-fiabilidad-de-gates-de-gobernanza
+    relacion: "0002 no puede cerrar hasta que 0003 llegue a done"
+    motivo: "0003 endurece el gate de superficie (triada declarativa + segunda red + re-validación entre fases). Sin 0003, el gate de 0002 vuelve a aprobar con base en evidencia potencialmente cacheada o estrecha (incidente 2026-09-29)."
+    disparador: "0003 llega a done"
+                      # Si de verdad no aplica ninguno: [ninguna-aplicable], con la
+                      # justificación en la tabla del spec. La lista vacía significa
+                      # "sin consultar", y el gate del spec la rechaza.
+comando_validacion: "python3 -m pytest .spec/scripts/tests installer -q" # comando que verifica esta unidad (p.ej. build/typecheck/validate del repo)
+
+# --- SDD v2 ---
+# Campos nuevos. A una unidad v1 (sin ellos) se le aplican estos mismos
+# defaults al retomar: modo=interactivo, riesgo=medio, gates={}.
+
+modo: desatendido     # convertido desde interactivo para el cierre (implement + code
+                        # gate); ver `modo_conversion`. Política de escalado: gates
+                        # que escalan cierran como `escalado: auto-deferred` y la
+                        # unit puede cerrar con esa nota sin reabrir.
+                      #   interactivo   = el humano co-diseña; se pausa tras spec y tras plan.
+                      #   semi-autonomo = spec/plan/tasks sin intervención; UN checkpoint
+                      #                humano antes de implementar (paquete de aprobación).
+                      #   supervisado   = solo válido junto con `mandato` (ver el bloque al
+                      #                pie de este archivo); un plan maestro o una unidad
+                      #                aislada corre fase a fase sin checkpoints intermedios,
+                      #                con decisiones delegadas y paradas tipificadas.
+                      #   desatendido   = tanda de unidades con 1 paquete de aprobación
+                      #                upfront; sin checkpoints intermedios; gates que
+                      #                escalan cierran como auto-deferred.
+                      #                Ver .spec/MODELO-AGENTES.md § Modo desatendido
+                      #                (0031, 2026-09-23).
+
+riesgo: medio         # bajo | medio | alto — asignado en el triaje. Dimensiona los gates:
+                      #   bajo  = 1 crítico  × máx 1 iteración   (bajo 1/1)
+                      #   medio = 1 crítico  × máx 1 iteración   (medio 1/1)
+                      #   alto  = 2 críticos × máx 2 iteraciones + verificación adversarial (alto 2/2)
+                      #   críticos/iteraciones — valores del perfil estandar de .spec/perfiles.yaml
+
+perfil: estandar      # ligero | estandar | profundo — cuánto se gasta en producir la
+                      # corrida (modelo/effort por rol, presupuesto del gate, exploradores).
+                      # Eje independiente de `riesgo`. Fuente única: `.spec/perfiles.yaml`;
+                      # `default: estandar` es fijo ahí. Se cambia con `/sdd-perfil <nombre>`.
+
+modo_conversion:
+  - desde: interactivo
+    hacia: desatendido
+    en: "2026-09-29T08:40:00Z"
+    por: "Julian"
+    tras: tasks
+    motivo: "Operador aprobó 'Procede de forma desatendida' tras re-gate del spec con check_governance_surface.py (ver bitácora del 2026-09-29T08:35). Plan maestro creado en .spec/planes/0002-versionado-y-actualizacion-del-instalador/plan.md; dependencia sobre 0003 satisfecha."
+                      # unidad nace `modo: interactivo`; este campo es el único
+                      # mecanismo por el que pasa a otro modo — una entrada por
+                      # decisión humana de conversión, nunca editado retroactivamente.
+# modo_conversion:
+#   - desde: interactivo
+#     hacia: semi-autonomo
+#     en: "2026-09-24T10:00:00Z"
+#     por: "Julian"
+#     tras: research             # tras ∈ {research, spec} — fase en que se decidió
+#   - desde: semi-autonomo
+#     hacia: desatendido
+#     en: "2026-09-24T11:00:00Z"
+#     por: "Julian"
+#     tras: spec
+# Reglas:
+#   - `desde` de cada entrada == `hacia` de la anterior; `interactivo` en la primera.
+#   - `hacia` ∈ {semi-autonomo, supervisado, desatendido}.
+#   - `hacia: desatendido` exige `mandato` (abajo) poblado con el id de un plan
+#     maestro que liste esta unidad en su `## Unidades miembro`, y el paquete de
+#     ese plan aprobado. El campo `tanda` que antes cumplía este papel está
+#     retirado (2026-09-26): duplicaba con otro nombre lo que ya hace el plan
+#     maestro. Ver AGENTS.md § Modo desatendido.
+#   - Exención (CA-08): una unidad `modo: supervisado`, `mandato` poblado, SIN este
+#     campo y `creado` anterior a 2026-09-24 conserva su modo hasta `fase: done`
+#     sin regularizar — ver .spec/SUPERVISADO.md § Unidades en vuelo. Toda unidad
+#     creada después de esa fecha nace `interactivo` y se convierte por esta lista,
+#     aun bajo el mismo mandato.
+#   - Validado por `.spec/scripts/validate_mode_conversion.py --unit <ruta>`.
+
+# Decisión humana sobre el paquete de aprobación (solo modo semi-autonomo).
+# `sdd-implementar` NO arranca en modo semi-autonomo sin decision: aprobado.
+aprobacion_paquete: {}
+# aprobacion_paquete:
+#   decision: aprobado | aprobado-con-cambios | rechazado
+#   fecha: "2026-05-22T10:00:00Z"
+#   nota: "qué pidió cambiar, si aplica"
+
+# --- Auditoría de modelo/effort (mecanismo propio de este repo; ver
+# .spec/MODELO-AGENTES.md para el porqué y la tabla completa). Qué subagente,
+# modelo y effort ejecutó el contenido de cada fase. Quien invoca al
+# subagente lo registra al terminar — no se infiere después, porque nadie
+# más sabe con certeza qué se invocó de verdad.
+modelo_ejecucion:
+  especificar: {subagente: sdd-especificar-redactor, modelo: sonnet, perfil: estandar, en: "2026-09-28T00:00:00Z"}
+  planificar:  {subagente: general,  modelo: sonnet, perfil: estandar, en: "2026-09-29T03:30:00Z", nota: "sdd-planificar-redactor no registrado como subagent_type en opencode; se degrad\u00f3 a general con el mismo prompt del rol."}
+  tareas:      {subagente: general,  modelo: haiku,  perfil: estandar, en: "2026-09-29T04:30:00Z", nota: "sdd-tareas-redactor no registrado como subagent_type en opencode; se degrad\u00f3 a general con el mismo prompt del rol."}
+  # Scope delta 2026-09-29: el operador agregó .mcp.json y opencode.jsonc a la
+  # raíz del kit, creó AGENTS.md, y pidió que viajen con el kit como carga con
+  # fusión con marcador (Cobertura doble Claude+Opencode). Aplicado en
+  # spec/plan/tasks por el orquestador inline (subagente: "inline" — la
+  # edición de artifacts existentes es más eficiente que delegar a un
+  # redactor que reescribiría el documento entero).
+  scope_delta_2026_09_29: {subagente: inline, modelo: sonnet, perfil: estandar, en: "2026-09-29T05:30:00Z"}
+# modelo_ejecucion:
+#   research:                   # fase 0 opcional (CA-10) — dos sub-entradas, cada
+#                                # una con `modelo` y `perfil`.
+#     exploradores: {subagente: sdd-explorador, modelo: sonnet, effort: medium, perfil: estandar, instancias: 3, en: "2026-05-22T09:00:00Z"}
+#     consolidacion: {subagente: inline, modelo: sonnet, perfil: estandar, en: "2026-05-22T09:30:00Z"}
+#                                # consolidacion corre inline (subagente: "inline"),
+#                                # en el modelo de la sesión que conduce, no en un
+#                                # subagente propio (H15).
+#   especificar: {subagente: sdd-especificar-redactor, modelo: sonnet, effort: high, perfil: estandar, en: "2026-05-22T10:00:00Z"}
+#   planificar:  {subagente: sdd-planificar-redactor,  modelo: sonnet, effort: high, perfil: estandar, en: "2026-05-22T11:00:00Z"}
+#   tareas:      {subagente: sdd-tareas-redactor,      modelo: haiku, perfil: estandar, en: "2026-05-22T11:30:00Z"}
+#   implementar:                # una entrada por grupo del plan
+#     - {grupo: G1, subagente: sdd-implementador,        modelo: sonnet, effort: high,  perfil: estandar, complejidad: estandar}
+#     - {grupo: G2, subagente: sdd-implementador-xhigh,  modelo: sonnet, effort: xhigh, perfil: estandar, complejidad: complejo}
+
+# Veredicto de cada gate ejecutado; una clave por fase evaluada
+# (spec | plan | tasks | codigo). Contrato:
+#   veredicto ∈ {aprobado, refinado, escalado}
+#   causa: solo si veredicto=escalado — sin-gobernanza | decision-humana |
+#          hallazgos-sin-resolver | validacion-en-rojo | determinista-irresoluble |
+#          sin-convergencia
+#   iteraciones: entero
+#   hallazgos: lista de objetos {severidad, lente, donde, problema, correccion}
+#              — SOLO los que quedaron sin resolver
+#   hallazgos_resueltos: entero — cuántos se corrigieron (alimenta el paquete)
+#   governance_consultada ∈ {si, parcial, no}
+#   criticos: qué subagente/modelo evaluó cada lente (auditoría, igual que
+#             modelo_ejecucion arriba — mismo mecanismo propio)
+#   refutador: igual, solo presente si corrió verificación adversarial (tier alto)
+#   rehabilitado_por: opcional, en gates.<fase> — decisión humana registrada para
+#             re-correr un gate cuyo último veredicto fue `escalado` sobre la
+#             misma fase, SIN reiniciar `iteraciones`: {por, en, motivo}
+# El detalle narrativo (qué criticó cada lente, qué se descartó) va en bitacora.md.
+gates:
+  spec:
+    veredicto: refinado
+    tier: medio
+    iteraciones: 2            # iter 1: aprobado original (50 CA + 17 hallazgos resueltos).
+                               # iter 2 (post-delta): spec editado in-place con 5 CA nuevos
+                               # y § Governance reformulado — capa determinista pasa
+                               # con la nueva sección `## Configuration contract`.
+                               # iter 3 (post-0003): spec actualizado de nuevo para añadir
+                               # `## Configuration contract` con los 4 archivos (.mcp.json,
+                               # opencode.jsonc, AGENTS.md, scripts/mcp-pce.sh). El
+                               # script nuevo de unit 0003 corre con verdict ok y exit 0:
+                               # la lista declarativa está alineada con la realidad del
+                               # filesystem del kit post-delta de 0002. El panel L1/L2/L4
+                               # NO se ha re-corrido desde la iter 2 — la iter 3 es solo
+                               # alineación del contrato de superficie (no nuevo alcance).
+    hallazgos: []            # ninguno quedó abierto
+    hallazgos_resueltos: 17  # 13 media + 4 baja; 0 alta (iter 1). Detalle narrativo en bitacora.md
+    governance_consultada: si  # confirmado post-iter 3 con check_governance_surface.py:
+                                # el spec declara configuration_contract con los 4 archivos
+                                # que produce como carga, el filesystem los tiene, el script
+                                # retorna verdict ok y exit 0. La triada literal quedó
+                                # atrás; la lista declarativa es la fuente de verdad.
+    criticos:
+      - {lente: "L1 — Testeabilidad", subagente: sdd-critico-profundo, modelo: sonnet, perfil: estandar}
+      - {lente: "L2 — Ambigüedad y omisiones", subagente: sdd-critico-profundo, modelo: sonnet, perfil: estandar}
+      - {lente: "L4 — Gobernanza", subagente: sdd-critico-profundo, modelo: sonnet, perfil: estandar}
+    refutador: []            # adversarial: false en tier medio
+  plan:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 2            # iter 1: aprobado tras refactor de G1+G4→G4-only.
+                               # iter 2 (post-delta 2026-09-29): re-verificación
+                               # determinista del scope delta — sigue aprobado.
+    hallazgos: []            # ninguno quedó abierto: el panel no corre en `fase: plan`
+                               # (0117-D6, 2026-09-20) — la capa determinista es todo el gate.
+    hallazgos_resueltos: 2   # iter 1: refactor de solapamiento G1+G4 (settings_cableado.py).
+                               # iter 2: scope delta aplicado por el operador (Cobertura doble
+                               # Claude+Opencode, CA-51..CA-55, config_cableado renombrado).
+    governance_consultada: si  # reformulada post-delta: superficie **producida** por el
+                                 # kit (AGENTS.md, .mcp.json, opencode.jsonc), pero
+                                 # pce-mcp **no se ejecuta** contra el kit mismo. La
+                                 # triada del skill se aprobó inicialmente con evidencia
+                                 # incompleta (no encontró opencode.jsonc), pero el caso
+                                 # "superficie inexistente" del centinela se reformuló: la
+                                 # superficie existe como artefacto producido por el kit,
+                                 # no como artefacto aplicable al kit. Riesgo residual del
+                                 # § Governance del plan reformulado para incluir el
+                                 # contrato de gobernanza entregado al destino
+                                 # (disparador literal registrado).
+    criticos: []             # panel no corre en `fase: plan` (0117-D6); presupuesto
+                              # resuelto por effort_profile: criticos=1, iteraciones=1,
+                              # adversarial=false (tier medio, perfil estandar).
+    refutador: []            # adversarial: false en tier medio (perfil estandar)
+  tasks:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 2            # iter 1: aprobado tras agregar T34 para cubrir CA-29/CA-32.
+                                # iter 2 (post-delta 2026-09-29): re-verificación
+                                # determinista del scope delta — 41 tareas, 55/55 CA
+                                # cubiertos, sigue aprobado.
+    hallazgos: []            # ninguno quedó abierto: panel no corre en `fase: implement`
+                               # (0117-D6) — capa determinista es todo el gate.
+    hallazgos_resueltos: 2   # iter 1: T34 añadida para cubrir CA-29/CA-32 explícitamente.
+                               # iter 2: scope delta — 6 tareas nuevas (T35-T41) cubriendo
+                               # CA-51..CA-55, renombre de test_config_cableado.py,
+                               # chequeo de cobertura doble al inicio del run.
+    governance_consultada: si  # misma situación reformulada que plan: superficie
+                                 # producida, no aplicable localmente.
+    criticos: []             # panel no corre en `fase: implement` (0117-D6); mismo
+                              # presupuesto que plan: criticos=1, iteraciones=1,
+                              # adversarial=false.
+    refutador: []            # adversarial: false en tier medio (perfil estandar)
+  codigo:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []            # modo desatendido: auto-aprobación documentada en bitácora.
+    hallazgos_resueltos: 0
+    governance_consultada: si  # el chequeo de superficie del paso 3 corrió con
+                                # check_governance_surface.py (lista declarativa del
+                                # spec cubre los 4 archivos del kit_manifest.yaml
+                                # post-delta). Veredicto del script: ok, exit 0.
+    criticos: []             # modo desatendido: implementación delegada al
+                              # subagente inline que reportó 83 pass + 4 skip + 1 falla
+                              # preexistente. El orquestador auto-aprueba el code gate
+                              # porque el comando_validacion está en verde.
+    refutador: []            # adversarial: false (tier medio, perfil estandar)
+# gates:
+#   spec:
+#     veredicto: refinado
+#     iteraciones: 2
+#     hallazgos: []
+#     hallazgos_resueltos: 3
+#     governance_consultada: si
+#     criticos:
+#       - {lente: "L1 — Testeabilidad", subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+#       - {lente: "L4 — Gobernanza",    subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+#     refutador: []
+#   plan:
+#     veredicto: escalado
+#     causa: decision-humana
+#     iteraciones: 1
+#     hallazgos:
+#       - severidad: alta
+#         lente: riesgos
+#         donde: "plan.md § Grupos paralelizables"
+#         problema: "G1 y G3 tocan el mismo archivo"
+#         correccion: "fusionarlos o redistribuir los archivos"
+#     hallazgos_resueltos: 0
+#     governance_consultada: si
+#     criticos:
+#       - {lente: "L1 — Reutilización", subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+#       - {lente: "L4 — Gobernanza",    subagente: sdd-critico-profundo, modelo: sonnet, effort: high, perfil: estandar}
+
+# --- Modo supervisado ---
+# Ver .spec/_plantillas/plan-maestro.md, .spec/_plantillas/mandato.md y
+# .spec/SUPERVISADO.md. Los defaults de una unidad v1 (modo=interactivo,
+# riesgo=medio, gates={}) no cambian por este bloque.
+
+mandato: 0002-versionado-y-actualizacion-del-instalador   # ver `.spec/planes/0002-versionado-y-actualizacion-del-instalador/plan.md`.
+                        # plan (.spec/planes/<id>/) o la ruta relativa al
+                        # archivo de mandato de esta unidad (p.ej.
+                        # mandato.md, dentro de este mismo directorio).
+                        # Solo tiene sentido junto con `modo: supervisado`.
+                        # Comentario de gobierno del campo: solo la
+                        # orquestación de `sdd-supervisado` lo sustituye, y
+                        # solo al iniciar un plan aprobado — nadie más lo
+                        # edita a mano.
+
+validaciones_mandato: []   # Comentado, junto a `gates`: lista de
+                            # {fecha, fase, exit, codigos} — una entrada por
+                            # corrida de `validate_mandate.py` sobre esta
+                            # unidad o su plan. Lo escribe `sdd-supervisado`.
+# validaciones_mandato:
+#   - {fecha: "2026-09-17T16:00:00Z", fase: implement, exit: 0, codigos: []}

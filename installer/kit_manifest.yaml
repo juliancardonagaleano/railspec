@@ -14,6 +14,12 @@
 # `.spec/protocolo-datos.yaml` NO figura aquí a propósito: es configuración
 # propia de cada destino (modelos/perfiles permitidos, subárboles de test),
 # nunca parte de la carga que el kit sobrescribe.
+#
+# `kit_version:` es la **única fuente de versión** del kit (CA-01). Un test
+# falla si la cadena aparece declarada en cualquier otro archivo de datos
+# del repo (CA-43). El instalador la expone vía `--version` (CA-02) y la
+# persiste en el registro de instalación del destino (CA-03).
+kit_version: "0.1.0"
 updated_at: "2026-09-28T00:00:00Z"
 entries:
   # --- .spec/scripts/ — motor genérico (39 del inventario + unit_state.py, ---
@@ -137,6 +143,37 @@ entries:
   - source: .agents/skills
     dest: .agents/skills
 
+  # --- Configuración del entorno (Claude + Opencode, fusión con marcador) ---
+  # Esta carga es **única**: en el destino el instalador la fusiona con
+  # marcador (no la copia byte a byte) salvo `AGENTS.md` y `mcp-pce.sh`,
+  # que viajan como carga ordinaria. Cobertura doble: Claude y Opencode
+  # apuntan a la misma herramienta (`scripts/mcp-pce.sh`). Si una de las
+  # dos entradas JSON falta, el install aborta con código 2 (no 3, no
+  # drift) — CA-55. Ver `plan.md` § Decisiones para la forma del marcador.
+  #
+  # - `.mcp.json` se fusiona con marcador en entries de `mcpServers`
+  #   (CA-51), discriminador `_sdd_kit: true` por server.
+  # - `opencode.jsonc` se fusiona con marcador en entries de `mcp` (CA-52),
+  #   mismo discriminador, sintaxis JSONC.
+  # - `AGENTS.md` es prosa de gobernanza que viaja como carga (overwrite,
+  #   no fusión — CA-53). El destino puede agregar prosa local sin que el
+  #   kit la pise (decisión a tomar en `0002`).
+  - source: .mcp.json
+    dest: .mcp.json
+  - source: opencode.jsonc
+    dest: opencode.jsonc
+  - source: AGENTS.md
+    dest: AGENTS.md
+
+  # --- Launcher del MCP pce-mcp (carga para que el destino tenga el ------
+  # script que invocan los configs anteriores). El cliente Python real vive
+  # fuera del kit (lo provee la PCE); este loader solo lee credenciales
+  # de `.env` y exec'a `scripts/mcp-pce.py` (CA-54). Si `mcp-pce.py` falta
+  # en el destino, el config queda armado pero el hook falla en runtime
+  # con mensaje claro — el install no aborta por ello.
+  - source: scripts/mcp-pce.sh
+    dest: scripts/mcp-pce.sh
+
   # --- scripts/ de nivel superior (materializadores, huérfano kit_doctor.py, --
   # --- instalador del gancho de pre-push) --------------------------------
   - source: scripts/kit_doctor.py
@@ -149,3 +186,20 @@ entries:
     dest: scripts/materialize_claude_skills.py
   - source: scripts/install_pre_push_hook.sh
     dest: scripts/install_pre_push_hook.sh
+
+  # --- Output styles del agente (CA-44) -----------------------------
+  - source: .claude/output-styles
+    dest: .claude/output-styles
+
+  # --- Configuración de Claude Code (cableado por fusión con marcador) --
+  # Esta entrada es **especial**: no es una entrada común de la carga.
+  # El instalador lee `.claude/settings.json` del kit, identifica sus
+  # entries de hook marcadas con `_sdd_kit: true`, y las fusiona con las
+  # del destino preservando contenido ajeno (CA-45..CA-47). El archivo
+  # sí se escribe en el worktree, pero no se copia byte a byte.
+  - source: .claude/settings.json
+    dest: .claude/settings.json
+
+  # --- Script antidrift del hook de pre-push (G3 lo crea) ----------
+  - source: installer/scripts/check_install_drift.py
+    dest: installer/scripts/check_install_drift.py

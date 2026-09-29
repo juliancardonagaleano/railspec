@@ -53,11 +53,15 @@ def test_ca06_no_dest_under_dot_git() -> None:
         assert not entry.dest.startswith(".git/"), entry.dest
 
 
-def test_ca07_no_dest_is_agents_or_instructions_md() -> None:
+def test_ca07_no_dest_is_instructions_md() -> None:
+    """AGENTS.md sí puede figurar (carga de gobernanza CA-53, scope delta
+    2026-09-29): es prosa que el kit produce y entrega al destino. Solo
+    ``INSTRUCTIONS.md`` queda prohibido (no se usa en este kit).
+    """
     entries = _entries()
     for entry in entries:
         name = entry.dest.rsplit("/", 1)[-1]
-        assert name not in ("AGENTS.md", "INSTRUCTIONS.md"), entry.dest
+        assert name != "INSTRUCTIONS.md", entry.dest
 
 
 def test_ca08_no_dest_falls_in_excluded_surfaces() -> None:

@@ -209,16 +209,23 @@ del repositorio que instala.
 | Operación | Cómo se activa |
 |---|---|
 | verificar | Por defecto, sin flags de escritura |
-| instalar | `--install` (con `--force` para autorizar sobrescribir conflictos) |
+| instalar | `--install` (con `--force` para autorizar borrar huérfanas con drift) |
+| versión | `--version` (imprime `kit_version:` por stdout, sale con código 0) |
 
 Códigos de salida:
 
 | Código | Significado |
 |---|---|
-| 0 | Correcto (verificar: sin divergencias; instalar: sin conflictos o con `--force`) |
+| 0 | Correcto (incluye `--version`; verificar: sin divergencias; instalar: sin colisiones) |
 | 1 | Verificar con al menos una divergencia |
-| 2 | Error operativo. Antes de escribir la carga: destino intacto. Si falla un materializador de espejo o el gancho de pre-push tras escribirla: destino parcialmente escrito, indicado en el mensaje de error |
-| 3 | Instalar con al menos un conflicto sin `--force` |
+| 2 | Error operativo (manifiesto sin `kit_version:`, destino inválido, fuente ilegible). Antes de escribir la carga: destino intacto |
+| 3 | Instalar abortado por colisión de ruta nueva (manifiesto la declara y la línea base del destino no; única causa de código 3, no autorizada por `--force`). `verificar` también devuelve 3 cuando hay huérfana |
+
+`--force` solo tiene efecto sobre huérfanas con drift en `--install` (CA-22):
+autoriza borrarlas. No tiene efecto sobre conflictos de ruta nueva
+(CA-40): esos abortan con código 3 incluso con `--force`. No tiene efecto
+sobre desactualizada (sobrescritura silenciosa, siempre permitida) ni sobre
+drift de ruta declarada (sobrescritura silenciosa, siempre permitida).
 
 Verificar un destino contra la carga vigente del kit:
 
@@ -230,4 +237,10 @@ Instalar (o reinstalar con `--force`) sobre ese destino:
 
 ```
 python3 <ruta-al-kit>/installer/cli.py --target <ruta-destino> --install [--force]
+```
+
+Imprimir la versión del kit:
+
+```
+python3 <ruta-al-kit>/installer/cli.py --version
 ```

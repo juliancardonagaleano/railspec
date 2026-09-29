@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "_sdd_kit": true,
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .spec/scripts/guard_generated_paths.py"
+          },
+          {
+            "type": "command",
+            "command": "python3 .spec/scripts/guard_bash_spec_writes.py"
+          }
+        ]
+      }
+    ]
+  }
+}

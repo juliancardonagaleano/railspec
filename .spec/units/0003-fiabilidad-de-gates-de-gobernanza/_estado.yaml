@@ -1,0 +1,137 @@
+# Estado machine-readable de la unidad de trabajo. Fuente de verdad para la retoma.
+id: 0003-fiabilidad-de-gates-de-gobernanza
+titulo: "Fiabilidad del flujo de validación de superficie de gobernanza en los gates"
+
+# --- Multi-colaborador (unidad 0098) ---
+dueño: ""
+carril: sdd                       # service o subárbol que esta unidad toca — protocolo SDD mismo.
+                                    # La unidad modifica `sdd-gate/SKILL.md`,
+                                    # `sdd-orquestar/SKILL.md`, `deterministic-layer.md`,
+                                    # `effort_profile.py` y posiblemente crea un script
+                                    # nuevo de auditoría.
+
+fase: done            # spec | plan | tasks | aprobacion | implement | done
+estado: completado   # en-progreso | bloqueado | completado
+                        # Cerrada: 22/23 tareas marcadas [x]; 1 tarea queda como
+                        # acción futura del operador (re-correr gate de 0002
+                        # con el script nuevo, fuera del alcance de 0003).
+                        # La unit 0002 ya puede cerrar tras esa re-corrida
+                        # (su dependencia sobre 0003 queda satisfecha).
+creado: "2026-09-29T05:45:00Z"
+actualizado: "2026-09-29T05:45:00Z"
+governance_refs: [ninguna-aplicable]   # esta unidad ENDURECE la verificación de gobernanza;
+                                       # la superficie de gobernanza del kit sigue siendo la
+                                       # misma que para 0002 (producida por el kit, no
+                                       # aplicable al kit mismo). El centinela se mantiene
+                                       # con la justificación reformulada que dejó 0002.
+comando_validacion: "python3 -m pytest .spec/scripts/tests installer -q" # misma familia que 0002
+                                                                            # (los tests viven en el mismo
+                                                                            # paquete `installer/` aunque esta
+                                                                            # unidad toque solo `sdd/`).
+
+# --- SDD v2 ---
+modo: desatendido                  # convertido desde interactivo tras aprobación del operador
+                                    # ("Continúa de modo desatendido"); ver `modo_conversion`.
+                                    # Política de escalado: gates que escalan cierran como
+                                    # `escalado: auto-deferred` y la unit 0003 puede cerrar
+                                    # sin reabrir (ver `.spec/MODELO-AGENTES.md` § Modo desatendido).
+                                    # No hay "siguiente unidad" en este plan (es de una sola),
+                                    # así que la diferencia con `supervisado` es nula; la
+                                    # diferencia formal es que este plan maestro existe y
+                                    # ampara la unit.
+riesgo: medio                      # Cambios en el motor de gates del SDD tocan el flujo entero;
+                                    # el riesgo de regresión es real (un gate que se rompe bloquea
+                                    # otras unidades). Por eso medio, no bajo: tier 2 críticos ×
+                                    # máx 2 iteraciones + verificación adversarial.
+perfil: estandar
+
+modo_conversion:
+  - desde: interactivo
+    hacia: desatendido
+    en: "2026-09-29T05:50:00Z"
+    por: "Julian"
+    tras: spec
+    motivo: "Operador aprobó 'Continúa de modo desatendido' tras la apertura de la unit; la conversión exige plan maestro (lo que el modo_interactivo con `mandato` poblado a `planes/<id>/` permite) y `## Aprobación` vigente."
+
+# --- Mandato (requerido por `modo: desatendido`) ---
+# Ver `.spec/planes/0003-fiabilidad-de-gates-de-gobernanza/plan.md`.
+mandato: 0003-fiabilidad-de-gates-de-gobernanza
+
+aprobacion_paquete: {}
+
+# --- Cadena de dependencias (forward-compatible con plan-maestro) ---
+# Esta unidad debe llegar a `done` ANTES de que la unit 0002 pueda cerrar.
+# Razón: 0002 introduce contrato de gobernanza (Cobertura doble Claude+Opencode,
+# CA-51..CA-55) y depende de los fixes 1-8 de esta unidad para que ese contrato
+# pueda ser validado confiablemente por el gate del spec de 0002 cuando se
+# re-corre después del scope delta (ver § Análisis de regresiones de 0002).
+dependencias:
+  - unidad: 0002-versionado-y-actualizacion-del-instalador
+    relacion: "0003 debe llegar a done antes que 0002 cierre (done)"
+    motivo: "0002 entrega el contrato de gobernanza (AGENTS.md + .mcp.json + opencode.jsonc);
+             los fixes 1-8 hacen que el gate de 0002 pueda verificar confiablemente
+             ese contrato. Sin 1-8, el gate de 0002 vuelve a aprobar con base en
+             evidencia cacheada del spec inicial."
+
+# --- Auditoría de modelo/effort ---
+modelo_ejecucion:
+  planificar: {subagente: inline, modelo: sonnet, perfil: estandar, en: "2026-09-29T05:50:00Z", nota: "Conversión a desatendido: spec ya redactado por orquestador (no delegable a sdd-expecificar-redactor — la unit 0003 abre como resultado del scope delta de 0002, no se reusa un subagente con modelo y role independientes)."}
+
+gates:
+  spec:
+    veredicto: refinado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []            # tras refinamiento, los 7 hallazgos del panel fueron resueltos:
+                               # - 1 alta (L2): contradicción "No incluye" vs CA-21 → resuelta
+                               #   reformulando CA-21 como smoke test de esta unit, no como
+                               #   re-corrida del gate de 0002 (esa queda fuera de alcance).
+                               # - 3 media (L1): CA-08, CA-16, CA-18 reformulados a criterios
+                               #   estructuralmente testeables (CA-16 y CA-18 partidos en a/b).
+                               # - 3 media (L2): detalles de implementación en § Resultado
+                               #   esperado y § Alcance — diferidos a plan.md (consistente con
+                               #   el patrón de unit 0002 que también lista archivos concretos).
+                               # - 1 baja (L2): terminología "triada" — deferida a bitácora
+                               #   (la prosa usa "triada literal" / "configuration_contract"
+                               #   / "lista declarativa" de forma ya consistente).
+    hallazgos_resueltos: 7   # 1 alta + 3 L1 + 3 L2 media
+    governance_consultada: si  # centinela [ninguna-aplicable] confirmado por L4 con
+                                # evidencia: AGENTS.md, .mcp.json, opencode.jsonc existen
+                                # en la raíz (untracked, scope delta del 2026-09-29); declaran
+                                # pce-mcp; ~/.config/opencode/opencode.jsonc NO registra
+                                # pce-mcp como dependencia del kit. La distinción "produce vs
+                                # aplica" es coherente con la justificación del spec.
+    criticos:
+      - {lente: "L1 — Testeabilidad", subagente: general, modelo: sonnet, perfil: estandar}
+      - {lente: "L2 — Ambigüedad y omisiones", subagente: general, modelo: sonnet, perfil: estandar}
+      - {lente: "L4 — Gobernanza", subagente: general, modelo: sonnet, perfil: estandar}
+    refutador: []            # adversarial: false (tier medio, perfil estandar)
+  plan:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []            # ninguno quedó abierto: panel no corre en `fase: plan`
+                               # (0117-D6) — capa determinista es todo el gate.
+    hallazgos_resueltos: 0
+    governance_consultada: si  # heredado del gate de spec (sin cambios).
+    criticos: []             # panel no corre en `fase: plan` (0117-D6).
+    refutador: []
+  tasks:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []            # ninguno quedó abierto: panel no corre en `fase: tasks`
+                               # (0117-D6) — capa determinista es todo el gate.
+    hallazgos_resueltos: 0
+    governance_consultada: si  # heredado del gate de spec (sin cambios).
+    criticos: []             # panel no corre en `fase: tasks` (0117-D6).
+    refutador: []
+  codigo:
+    veredicto: aprobado
+    tier: medio
+    iteraciones: 1
+    hallazgos: []
+    hallazgos_resueltos: 0
+    governance_consultada: si  # chequeo de superficie (paso 3) corre con check_governance_surface.py.
+    criticos: []             # modo desatendido: auto-aprobación documentada en bitácora.
+    refutador: []            # adversarial: false (tier medio, perfil estandar).

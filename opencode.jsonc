@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pce-mcp": {
+      "_sdd_kit": true,
+      "type": "local",
+      "command": [
+        "sh",
+        "scripts/mcp-pce.sh"
+      ],
+      "timeout": 20000
+    }
+  }
+}

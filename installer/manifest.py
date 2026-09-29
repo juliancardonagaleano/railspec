@@ -100,3 +100,32 @@ def load_and_validate(
     entries = load_manifest(path)
     validate_entries(entries, repo_root)
     return entries
+
+
+def get_kit_version(path: Path = DEFAULT_MANIFEST_PATH) -> str:
+    """Lee el campo top-level `kit_version:` del manifiesto. Lanza
+    ``ManifestError`` si está ausente, vacío, o no es un string (CA-01).
+    """
+    data = _read_yaml_body(path)
+    version = data.get("kit_version")
+    if not isinstance(version, str) or not version.strip():
+        raise ManifestError(
+            f"el manifiesto debe declarar `kit_version:` no vacío en {path}"
+        )
+    return version.strip()
+
+
+def read_install_record(record_path: Path) -> dict:
+    """Lee el archivo de registro de instalación en `<git_dir>/sdd-kit-install-record.yaml`
+    y devuelve un dict con claves esperadas (`installed_at`, `kit_version`,
+    `baseline`, `aggregate_digest`). Si el archivo no existe o no es
+    legible, devuelve dict vacío (es el caso de un destino legado sin
+    línea base). CA-49 trata un archivo presente pero ilegible como
+    legado.
+    """
+    if not record_path.is_file():
+        return {}
+    try:
+        return _read_yaml_body(record_path)
+    except ManifestError:
+        return {}

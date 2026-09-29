@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pce-mcp": {
+      "_sdd_kit": true,
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "scripts/mcp-pce.sh"
+      ]
+    }
+  }
+}

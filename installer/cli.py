@@ -2,6 +2,7 @@
 """Punto de entrada único de sdd-kit.
 
 Uso:
+    python3 installer/cli.py --version
     python3 installer/cli.py [--target <ruta>]
     python3 installer/cli.py [--target <ruta>] --install [--force]
     python3 installer/cli.py --help
@@ -11,12 +12,16 @@ el destino —implícito (este repositorio) o explícito (``--target``)— contr
 el manifiesto del kit y no escribe nada. ``--install`` activa la operación
 de **instalar**: escribe la carga del kit en el destino, regenera sus
 espejos y deja instalado el gancho de pre-push. ``--force`` sólo tiene
-efecto junto con ``--install``: autoriza sobrescribir rutas en conflicto con
-el destino.
+efecto junto con ``--install``: autoriza borrar huérfanas con drift del
+destino (la única semántica que ``--force`` controla; no hay otras — CA-22,
+CA-30b). ``--version`` imprime por stdout el valor del campo ``kit_version:``
+del manifiesto sin espacios ni líneas extra (CA-02); si el manifiesto no
+declara ``kit_version:`` o está vacío, sale con código 2.
 
-Códigos de salida: 0 correcto (verificar: sin divergencias); 1 verificar
-con al menos una divergencia; 2 error operativo (manifiesto o destino
-inválido); 3 instalar con al menos un conflicto sin ``--force``.
+Códigos de salida: 0 correcto (incluye ``--version`` y verificar sin
+divergencias); 1 verificar con al menos una divergencia; 2 error
+operativo (manifiesto sin ``kit_version:``, o destino inválido); 3 instalar
+abortado por colisión de ruta nueva sin posibilidad de ``--force`` (CA-40).
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ if str(_INSTALLER_DIR) not in sys.path:
     sys.path.insert(0, str(_INSTALLER_DIR))
 
 from installer import run_install  # noqa: E402
-from manifest import REPO_ROOT  # noqa: E402
+from manifest import REPO_ROOT, ManifestError, get_kit_version  # noqa: E402
 from verifier import run_verify  # noqa: E402
 
 # Nombres de operación estables: esta es la única fuente que la ayuda
@@ -64,7 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Con --install: autoriza sobrescribir rutas en conflicto con el destino.",
+        help="Con --install: autoriza borrar huérfanas con drift del destino "
+             "(única semántica que controla --force; CA-22).",
+    )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Imprime el valor de `kit_version:` del manifiesto y sale.",
     )
     return parser
 
@@ -72,6 +83,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.version:
+        try:
+            print(get_kit_version())
+        except ManifestError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        return 0
 
     target = args.target.resolve() if args.target is not None else REPO_ROOT
 
