@@ -128,7 +128,22 @@ def _find_test_by_stem(repo_root: Path, ruta: str, stem: str) -> list[Path]:
 def map_pytest_subtree(files: list[str], repo_root: Path, ruta: str) -> tuple[list[str] | None, str]:
     """`(subset, reason)`. `subset is None` significa "sin subset para este
     subárbol" — `reason` distingue `no-aplica` (nada tocado) de un descarte
-    (algo tocado pero no mapeable con limpieza)."""
+    (algo tocado pero no mapeable con limpieza).
+
+    Cambio de comportamiento deliberado respecto al selector de origen
+    (gate de código, unidad de extracción del kit): el origen restringía el
+    mapeo por stem a un paquete fuente concreto cableado
+    (`orchestrator/src/iark_orchestrator/`); esta versión genérica lo aplica
+    a cualquier `.py` bajo `ruta` que no viva en `tests/`, porque el destino
+    ya no declara qué es "paquete fuente real" dentro de un subárbol — solo
+    su raíz. Esto amplía, respecto al origen, los casos donde un stem con
+    exactamente un test candidato se toma como match confiable en vez de
+    caer al fallback (`no cae en ninguna convención mapeable`, que fuerza la
+    corrida completa): un stem duplicado por casualidad entre un script
+    suelto del subárbol y un módulo real puede producir un subset que no
+    cubre el archivo tocado. Un destino que necesite recuperar la garantía
+    de origen debe mantener disjuntos los nombres de módulo entre su
+    paquete fuente y cualquier script suelto bajo el mismo subárbol."""
     tests_prefix = ruta + "tests/"
     sub_files = [f for f in files if f.startswith(ruta)]
     if not sub_files:
