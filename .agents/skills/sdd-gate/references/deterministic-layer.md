@@ -20,6 +20,21 @@ lanza el panel esta vez", sino que esas dos fases nunca lo lanzan.
   determinista de esta lista: si excede el presupuesto, **no se lanza el
   panel** — se devuelve el control a la skill de fase con el conteo real de
   líneas que excedió, para que lo recorte antes de reintentar.
+- **Re-chequeo de hash de filesystem entre fases** (unit 0003, fix 2,
+  CA-04/CA-05): en `fase: plan` y `fase: tasks`, calcular el `fs_hash`
+  actual del filesystem raíz con el mismo algoritmo del script
+  `check_governance_surface.py` (excluye `.git/`, `.spec/`, `.gitnexus/`,
+  `.venv/`, `.pytest_cache/`, `.ruff_cache/`, `.tmp/`, `.codebase-memory/`;
+  orden estable; sha256 agregado). Comparar con el `fs_hash` persistido al
+  cerrar la fase anterior (en `_estado.yaml > gates.<fase_anterior>.fs_hash`
+  o, si se prefiere, en un campo paralelo del gate). Si difiere, escalar con
+  causa `superficie-cambiada` y forzar re-ejecución del chequeo de
+  superficie del paso 3 (no del paso 2 entero — el resto de los chequeos
+  deterministas son invariantes bajo cambios de filesystem). Si coincide,
+  atajo: no invocar el script del paso 3 entero; el gate lo aprueba
+  directamente. **Opt-in** para re-verificación explícita: si el orquestador
+  quiere saltarse el atajo, fija `force_recheck: true` (no expuesto en CLI
+  hoy; queda para una iteración posterior).
 
 Si algún chequeo determinista falla, **no se lanza el panel**: se devuelve el
 control a la skill de fase con la lista de faltantes para que los complete. Eso

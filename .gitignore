@@ -43,6 +43,7 @@ htmlcov/
 pip-wheel-metadata/
 pip-log.txt
 pip-delete-this-directory.txt
+**/.env
 
 # Node (skills/tooling auxiliar, si aplica)
 node_modules/

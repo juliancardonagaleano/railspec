@@ -187,6 +187,31 @@ def _emit_candidates(units: list[dict[str, str]]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def _vigencia_gobernanza(meta: dict[str, object]) -> dict[str, str]:
+    """Extrae `verificado_en` y `fs_hash` del último gate aprobado.
+
+    Unit 0003 (fix 6) introduce la convención: cada vez que el gate de
+    superficie corre, persiste estos dos campos bajo el gate correspondiente
+    (`gates.<fase>.verificado_en`, `gates.<fase>.fs_hash`). Esta función
+    los extrae del último gate con `veredicto ∈ {aprobado, refinado}`.
+    """
+    gates = meta.get("gates", {})
+    if not isinstance(gates, dict):
+        return {}
+    for fase in ("codigo", "tasks", "plan", "spec"):
+        g = gates.get(fase, {})
+        if isinstance(g, dict):
+            ver = g.get("verificado_en") or g.get("verificado_fecha")
+            fs = g.get("fs_hash")
+            if ver or fs:
+                return {
+                    "ultima_fase": fase,
+                    "verificado_en": str(ver) if ver else "",
+                    "fs_hash": str(fs) if fs else "",
+                }
+    return {}
+
+
 def _emit_resume(unit_dir: Path) -> None:
     estado_path = unit_dir / "_estado.yaml"
     try:
@@ -212,6 +237,11 @@ def _emit_resume(unit_dir: Path) -> None:
         "modo": modo,
         "riesgo": riesgo,
         "perfil": perfil,
+        # Vigencia de gobernanza (unit 0003, fix 6, CA-12/CA-13): campos
+        # opcionales que el script `check_governance_surface.py` rellena
+        # cuando corre. Si están presentes, la sesión que los lee puede
+        # detectar fs_hash desactualizado o verificado_en > 24h.
+        "vigencia_gobernanza": _vigencia_gobernanza(meta),
         "next": PHASE_TO_SKILL.get(fase, "?"),
         "gates": gates_block or "{}",
         "aprobacion": aprobacion_block or "{}",

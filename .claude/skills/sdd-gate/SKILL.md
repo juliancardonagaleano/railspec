@@ -92,14 +92,36 @@ para "completar" nada: emite directamente `escalado` con causa
 Los críticos evalúan contra la gobernanza vigente, no contra su criterio. Las
 rúbricas no contienen reglas de gobernanza: las recuperan.
 
-- **CONSULTAR** `pce-mcp` → tool `resolve_entity` → query: cada
+**A partir de unit 0003 (fix 7), este paso se delega a un script testeable**:
+`.spec/scripts/check_governance_surface.py --unit <ruta-unidad> --spec
+<ruta-spec> --filesystem-root <ruta>`. El script encapsula la triada literal
+(red de seguridad) y la lista declarativa del spec (`configuration_contract:`
+en una sección propia). El skill invoca el script y traduce el Report JSON
+a veredicto del gate:
+
+- Exit 0, verdict `ok` → `governance_consultada: si`, continuar.
+- Exit 1, verdict `superficie-no-declarada` → escalar con causa
+  `superficie-no-declarada` y la lista de archivos que declaran MCP/gob
+  fuera de la configuration_contract.
+- Exit 2, verdict `configuration_contract-inconsistente` → escalar con
+  causa `configuration_contract-inconsistente` y la lista de rutas
+  declaradas pero ausentes.
+- Exit 3, verdict `error` → escalar con causa `auditor-fallo`.
+
+La triada literal por nombre fijo (buscar `AGENTS.md` y `.mcp.json`
+explícitamente) deja de ser fuente de verdad: cuando el spec no declara
+`configuration_contract:`, el script cae a la triada como red de seguridad
+(verifica que `AGENTS.md`, `.mcp.json`, `opencode.jsonc`, etc. no declaren
+MCP/gob sin estar en la lista declarativa; si declaran, escala).
+
+**CONSULTAR** `pce-mcp` → tool `resolve_entity` → query: cada
   id de `_estado.yaml > governance_refs` → **APLICAR**: el mandato de cada
   artefacto es criterio de evaluación del panel.
 - **APLICAR** siempre la gobernanza indexada en `AGENTS.md` (baseline de
   toda unidad) aunque no esté en `governance_refs`: su ausencia ahí **no**
   es hallazgo.
 - **CONSULTAR** `pce-mcp` → tools `traverse_knowledge` (query = objeto de
-  la unidad) y `search_catalog` acotado por `domain`/`query` a ese objeto,
+  la unit) y `search_catalog` acotado por `domain`/`query` a ese objeto,
   con `type` en `adr`, `policy` y `principle` → **APLICAR**: detectar
   artefactos **específicos del objeto** que el spec no listó (hallazgo
   "gobernanza omitida"). Los tres tipos, no dos: un ADR omitido pesa más
@@ -173,6 +195,16 @@ En **modo supervisado**, un rechazo del MCP en esta consulta puntual del crític
 cierra el gate igual que en el paso 3: veredicto `escalado` con causa
 `sin-gobernanza`. No existe `governance_consultada: parcial` en ese modo — la
 corrida es `si` o `no`.
+
+**Fallback de `subagent_type` no registrados** (unit 0003, fix 4, CA-08):
+la regla de críticos anterior (líneas 189-195) aplica solo a
+`sdd-critico-*` y `sdd-refutador`. A partir de unit 0003, la regla se
+**generaliza** a cualquier rol `sdd-*` que opencode no reconozca. La
+degradación es explícita y trazable: el orquestador anota en `bitacora.md`
+qué rol se degradó, inyecta en el prompt las instrucciones del rol desde
+`.agents/agents/<rol>.md`, y persiste `subagente: general|general-purpose`
+en `modelo_ejecucion.<fase>`. Detalle operacional en
+`references/subagent-fallback.md`.
 
 Qué rol lanzar por lente — esta tabla solo asigna el rol; cada lanzamiento
 resuelve su `subagent_type`/`model` con `resolve --role <rol>` (arriba). Ver

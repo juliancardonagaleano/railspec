@@ -169,6 +169,41 @@ Un gate `escalado` en modo semi-autonomo no es un fallo del modo: es el diseño.
 
 Cada skill de fase actualiza `_estado.yaml` y anexa a `bitacora.md` 1 línea (`## <ISO> · <fase> · <resumen>`); cada gate escribe su veredicto en `_estado.yaml > gates`. Verificar que ocurrió antes de avanzar: si el estado no se persistió, la unidad no se puede retomar.
 
+## Cross-check de superficie (unit 0003, fix 8, CA-17/CA-18)
+
+Antes de persistir el resultado de un explorador de gobernanza (delegado
+en `sdd-explorador` por la fase 0 o en la fase 2 de `sdd-planificar`), el
+orquestador ejecuta **tres acciones** en orden:
+
+1. **Verificar existencia de archivos esperados con `ls -la`** sobre la
+   raíz del repo. Si el explorador dice "no hay `AGENTS.md`" pero `ls`
+   muestra uno, el orquestador no persiste el resultado del explorador.
+2. **Ejecutar `grep` o `find` sobre el filesystem actual**: `grep -rln
+   "pce-mcp\|mcpServers\|"mcp"" .` excluyendo `.git/`, `.spec/`,
+   `.gitnexus/`. Si el grep encuentra archivos que declaran MCP/gob y el
+   explorador dijo "no surface", el orquestador no persiste el
+   resultado.
+3. **Comparar el resultado del explorador contra (1) y (2) antes de
+   persistir.** Si hay divergencia (explorador dice "no surface" pero
+   filesystem tiene archivos que podrían declararla), el orquestador
+   ejecuta su propio probe — el script
+   `.spec/scripts/check_governance_surface.py` — antes de aceptar el
+   veredicto. La salida del script se convierte en el veredicto
+   persistido.
+
+El incidente del 2026-09-29 ocurrió porque el orquestador confió
+ciegamente en el resultado del explorador (`opencode.jsonc` declaraba
+`pce-mcp` pero el explorador no lo encontró porque su patrón de búsqueda
+era estrecho). Esta sección convierte esa falla en regla explícita.
+
+**Test de cumplimiento**: `u0003_ca18a_*` verifica estructuralmente que
+esta sección existe y enumera las tres acciones. `u0003_ca18b_*`
+verifica funcionalmente que, con un `tmp_path` que contiene
+`opencode.jsonc` declarando `pce-mcp` y un explorador simulado que
+devuelve "no surface", la regla del orquestador hace que el veredicto
+del gate sea `escalado` (no `aprobado`). Reproduce el incidente del
+2026-09-29 con filesystem real.
+
 ## Retoma
 
 Si el usuario pide continuar una unidad existente, delegar primero a `sdd-retomar` (corre forkeada, ver `.spec/MODELO-AGENTES.md`) para reconstruir contexto, y continuar el flujo desde la fase que indique `_estado.yaml`, respetando el `modo` registrado. Si `sdd-retomar` reporta varias unidades candidatas sin poder elegir, preguntar al humano cuál antes de seguir — ella no puede preguntarlo directamente.
