@@ -19,6 +19,7 @@ railspec/
     railspec-graph/       grafo de código centralizado y RAG sobre FalkorDB
   schemas/v1/             JSON Schema generados + manifiesto de tools
   examples/v1/            un ejemplo válido por mensaje
+  deploy/                 imagen, manifiestos de Kubernetes y cliente de reindexado
   docs/contratos.md       qué fija cada contrato y cómo se versiona
   tests/                  deriva de esquemas y ejemplos, invariantes
 ```
@@ -36,4 +37,5 @@ python -m pytest railspec
 ```
 
 Ver [docs/contratos.md](docs/contratos.md), [docs/grafo.md](docs/grafo.md) y
-[docs/proxy-local.md](docs/proxy-local.md).
+[docs/proxy-local.md](docs/proxy-local.md). Despliegue en AKS:
+[docs/despliegue.md](docs/despliegue.md).
