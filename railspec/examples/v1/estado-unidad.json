@@ -1,0 +1,76 @@
+{
+  "actualizado_en": "2026-09-30T18:00:00Z",
+  "actualizado_por": {
+    "agente": "motor",
+    "canal": "servidor",
+    "proveedor_identidad": "github",
+    "tipo": "agente"
+  },
+  "arnes": "claude-code",
+  "comando_validacion": "pytest",
+  "consumo": {
+    "costo_usd": 0.0,
+    "segundos": 0,
+    "tokens": 0
+  },
+  "creado_en": "2026-09-30T13:00:00Z",
+  "depende_de": [],
+  "dueno": {
+    "canal": "arnes",
+    "github_id": 83125327,
+    "login": "juliancardonagaleano",
+    "proveedor_identidad": "github",
+    "tipo": "humano"
+  },
+  "estado": "en-progreso",
+  "fase": "implement",
+  "gates": {
+    "spec": {
+      "cerrado_en": "2026-09-30T15:00:00Z",
+      "criticos": [
+        "correctitud"
+      ],
+      "gobernanza_consultada": "si",
+      "hallazgos": [],
+      "iteraciones": 1,
+      "refutador": false,
+      "veredicto": "refinado"
+    }
+  },
+  "governance_refs": [
+    "ADR-012"
+  ],
+  "insumos": [
+    "00000000-0000-4000-8000-000000000009"
+  ],
+  "modelo_ejecucion": [],
+  "modo": "interactivo",
+  "modo_conversion": [],
+  "orden_vigente": "00000000-0000-4000-8000-000000000001",
+  "perfil": "estandar",
+  "presupuesto": {},
+  "repositorios": [
+    {
+      "base_commit": "4063ae9000000000000000000000000000000000",
+      "rama": "rs/0001",
+      "repositorio": "certificados-api",
+      "rol": "primario"
+    },
+    {
+      "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "repositorio": "reporteria",
+      "rol": "transversal"
+    }
+  ],
+  "resoluciones": [],
+  "riesgo": "medio",
+  "secuencia_ordenes": 4,
+  "titulo": "Emitir certificados en PDF firmado",
+  "unidad": {
+    "org": "acme",
+    "unidad": "0001-emitir-pdf",
+    "workspace": "certificados"
+  },
+  "version": 12,
+  "version_contrato": "1.0"
+}

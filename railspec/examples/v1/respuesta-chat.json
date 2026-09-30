@@ -1,0 +1,19 @@
+{
+  "afirmaciones": [
+    {
+      "referencias": [
+        {
+          "commit": "4063ae9000000000000000000000000000000000",
+          "nombre": "pdf.emitir",
+          "repositorio": "certificados-api",
+          "ruta": "src/pdf.py",
+          "simbolo": "fd5e814c7d3a4757bc1cbd6ef29b15ce303a6043a226186cdaec35af2eae85b1",
+          "tipo": "simbolo",
+          "tipo_simbolo": "funcion"
+        }
+      ],
+      "texto": "La emisión del PDF vive en pdf.emitir y no firma el documento."
+    }
+  ],
+  "preguntas_abiertas": []
+}

@@ -1,0 +1,3005 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+      "properties": {
+        "agente": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nodo o rol del agente, si tipo=agente.",
+          "title": "Agente"
+        },
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "en_nombre_de": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "github_id del humano por quien actúa un agente.",
+          "title": "En Nombre De"
+        },
+        "github_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github Id"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "description": "Login de GitHub; informativo, la identidad es github_id.",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcGithubActions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proveedor_identidad": {
+          "default": "github",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "title": "Proveedor Identidad",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoActor"
+        }
+      },
+      "required": [
+        "tipo",
+        "canal"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "Afirmacion": {
+      "additionalProperties": false,
+      "properties": {
+        "referencias": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "archivo": "#/$defs/RefArchivo",
+                "criterio": "#/$defs/RefCriterio",
+                "decision": "#/$defs/RefDecision",
+                "gobernanza": "#/$defs/RefGobernanza",
+                "nodo-grafo": "#/$defs/RefNodoGrafo",
+                "simbolo": "#/$defs/RefSimbolo",
+                "unidad": "#/$defs/RefUnidad"
+              },
+              "propertyName": "tipo"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RefSimbolo"
+              },
+              {
+                "$ref": "#/$defs/RefArchivo"
+              },
+              {
+                "$ref": "#/$defs/RefNodoGrafo"
+              },
+              {
+                "$ref": "#/$defs/RefUnidad"
+              },
+              {
+                "$ref": "#/$defs/RefCriterio"
+              },
+              {
+                "$ref": "#/$defs/RefGobernanza"
+              },
+              {
+                "$ref": "#/$defs/RefDecision"
+              }
+            ]
+          },
+          "maxItems": 20,
+          "title": "Referencias",
+          "type": "array"
+        },
+        "texto": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Texto",
+          "type": "string"
+        }
+      },
+      "required": [
+        "texto"
+      ],
+      "title": "Afirmacion",
+      "type": "object"
+    },
+    "AlcanceArchivos": {
+      "additionalProperties": false,
+      "properties": {
+        "permitidos": {
+          "items": {
+            "description": "Patrón glob relativo a la raíz del repositorio (sintaxis gitignore).",
+            "maxLength": 512,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+            "type": "string"
+          },
+          "title": "Permitidos",
+          "type": "array"
+        },
+        "prohibidos": {
+          "items": {
+            "description": "Patrón glob relativo a la raíz del repositorio (sintaxis gitignore).",
+            "maxLength": 512,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+            "type": "string"
+          },
+          "title": "Prohibidos",
+          "type": "array"
+        }
+      },
+      "title": "AlcanceArchivos",
+      "type": "object"
+    },
+    "AlcanceUnidad": {
+      "additionalProperties": false,
+      "description": "Espacio de nombres de una unidad.\n\nLa unidad cuelga del workspace, no de un repositorio, porque puede\nvincular N repositorios; cada snapshot dice a cuál pertenece. ``plan``\nagrupa unidades de un mismo mandato cuando lo hay.",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace",
+        "unidad"
+      ],
+      "title": "AlcanceUnidad",
+      "type": "object"
+    },
+    "Arnes": {
+      "enum": [
+        "claude-code",
+        "opencode",
+        "codex",
+        "copilot"
+      ],
+      "title": "Arnes",
+      "type": "string"
+    },
+    "Artefacto": {
+      "enum": [
+        "spec",
+        "plan",
+        "tasks"
+      ],
+      "title": "Artefacto",
+      "type": "string"
+    },
+    "BloqueoInstancia": {
+      "additionalProperties": false,
+      "description": "Una sesión por unidad y máquina (sucesor de instance_lock.py).",
+      "properties": {
+        "desde": {
+          "format": "date-time",
+          "title": "Desde",
+          "type": "string"
+        },
+        "host": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        },
+        "pid": {
+          "minimum": 1,
+          "title": "Pid",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "host",
+        "pid",
+        "desde"
+      ],
+      "title": "BloqueoInstancia",
+      "type": "object"
+    },
+    "Canal": {
+      "enum": [
+        "arnes",
+        "consola",
+        "ci",
+        "servidor"
+      ],
+      "title": "Canal",
+      "type": "string"
+    },
+    "CausaEscalado": {
+      "enum": [
+        "hallazgos-sin-resolver",
+        "sin-gobernanza",
+        "presupuesto-agotado",
+        "error-proveedor"
+      ],
+      "title": "CausaEscalado",
+      "type": "string"
+    },
+    "Checkpoint": {
+      "additionalProperties": false,
+      "description": "Decisión humana pendiente.\n\nSe resuelve por cualquier canal (elicitation en el arnés, ``unit.approve``\no la consola): gana la primera resolución que llegue y las siguientes se\nrechazan con ``checkpoint-ya-resuelto``.",
+      "properties": {
+        "abierto_en": {
+          "format": "date-time",
+          "title": "Abierto En",
+          "type": "string"
+        },
+        "artefacto_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artefacto Sha256"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "id": {
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "pregunta": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Pregunta",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoCheckpoint"
+        }
+      },
+      "required": [
+        "id",
+        "tipo",
+        "fase",
+        "pregunta",
+        "abierto_en"
+      ],
+      "title": "Checkpoint",
+      "type": "object"
+    },
+    "CheckpointResuelto": {
+      "additionalProperties": false,
+      "properties": {
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "checkpoint_id": {
+          "format": "uuid4",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "checkpoint.resuelto",
+          "default": "checkpoint.resuelto",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "canal"
+      ],
+      "title": "CheckpointResuelto",
+      "type": "object"
+    },
+    "CheckpointSolicitado": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "format": "uuid4",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "checkpoint.solicitado",
+          "default": "checkpoint.solicitado",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id"
+      ],
+      "title": "CheckpointSolicitado",
+      "type": "object"
+    },
+    "Cita": {
+      "additionalProperties": false,
+      "description": "Dónde está lo que el hallazgo señala.\n\nPara artefactos (spec, plan, tasks) basta ``seccion``; para código se\nexige ``ruta`` con rango de líneas.",
+      "properties": {
+        "linea_fin": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linea Fin"
+        },
+        "linea_inicio": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linea Inicio"
+        },
+        "ruta": {
+          "anyOf": [
+            {
+              "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+              "maxLength": 1024,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ruta"
+        },
+        "seccion": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seccion"
+        }
+      },
+      "title": "Cita",
+      "type": "object"
+    },
+    "CommitEmpujado": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "rama": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Rama",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "commit.empujado",
+          "default": "commit.empujado",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "rama",
+        "commit"
+      ],
+      "title": "CommitEmpujado",
+      "type": "object"
+    },
+    "Complejidad": {
+      "enum": [
+        "simple",
+        "complejo"
+      ],
+      "title": "Complejidad",
+      "type": "string"
+    },
+    "Consumo": {
+      "additionalProperties": false,
+      "properties": {
+        "costo_usd": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Costo Usd",
+          "type": "number"
+        },
+        "segundos": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Segundos",
+          "type": "integer"
+        },
+        "tokens": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "Consumo",
+      "type": "object"
+    },
+    "ContextoArmado": {
+      "additionalProperties": false,
+      "properties": {
+        "gobernanza": {
+          "items": {
+            "$ref": "#/$defs/ItemGobernanza"
+          },
+          "title": "Gobernanza",
+          "type": "array"
+        },
+        "gobernanza_consultada": {
+          "$ref": "#/$defs/GobernanzaConsultada"
+        },
+        "grafo": {
+          "items": {
+            "$ref": "#/$defs/NodoContexto"
+          },
+          "title": "Grafo",
+          "type": "array"
+        },
+        "hallazgos_previos": {
+          "description": "Hallazgos de la iteración anterior (gate_delta).",
+          "items": {
+            "$ref": "#/$defs/Hallazgo"
+          },
+          "title": "Hallazgos Previos",
+          "type": "array"
+        },
+        "insumos": {
+          "description": "Insumos del chat resueltos contra base_commit (R6).",
+          "items": {
+            "$ref": "#/$defs/InsumoResuelto"
+          },
+          "title": "Insumos",
+          "type": "array"
+        },
+        "notas": {
+          "anyOf": [
+            {
+              "maxLength": 8000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notas"
+        }
+      },
+      "required": [
+        "gobernanza_consultada"
+      ],
+      "title": "ContextoArmado",
+      "type": "object"
+    },
+    "ConversionModo": {
+      "additionalProperties": false,
+      "properties": {
+        "a": {
+          "$ref": "#/$defs/Modo"
+        },
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "de": {
+          "$ref": "#/$defs/Modo"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "motivo": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Motivo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "de",
+        "a",
+        "actor",
+        "en",
+        "motivo"
+      ],
+      "title": "ConversionModo",
+      "type": "object"
+    },
+    "Criterio": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Criterio de aceptación del spec, p. ej. CA-07.",
+          "pattern": "^CA-[0-9]{2,3}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "texto": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Texto",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "texto"
+      ],
+      "title": "Criterio",
+      "type": "object"
+    },
+    "Decision": {
+      "enum": [
+        "aprobado",
+        "cambios-solicitados",
+        "rechazado"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "Direccion": {
+      "enum": [
+        "local-a-remoto",
+        "remoto-a-local"
+      ],
+      "title": "Direccion",
+      "type": "string"
+    },
+    "Effort": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "title": "Effort",
+      "type": "string"
+    },
+    "EjecucionModelo": {
+      "additionalProperties": false,
+      "description": "Auditoría de qué modelo produjo cada contenido (antes modelo_ejecucion).",
+      "properties": {
+        "effort": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Effort"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "fase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fase"
+            },
+            {
+              "$ref": "#/$defs/GateFase"
+            }
+          ],
+          "title": "Fase"
+        },
+        "modelo": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Modelo",
+          "type": "string"
+        },
+        "nodo": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Nodo",
+          "type": "string"
+        },
+        "proveedor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Proveedor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "None si lo ejecutó el arnés."
+        },
+        "rol": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Rol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fase",
+        "rol",
+        "nodo",
+        "modelo",
+        "en"
+      ],
+      "title": "EjecucionModelo",
+      "type": "object"
+    },
+    "EstadoActualizado": {
+      "additionalProperties": false,
+      "properties": {
+        "estado": {
+          "$ref": "#/$defs/EstadoFase"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "tipo": {
+          "const": "estado.actualizado",
+          "default": "estado.actualizado",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "fase",
+        "estado"
+      ],
+      "title": "EstadoActualizado",
+      "type": "object"
+    },
+    "EstadoFase": {
+      "enum": [
+        "en-progreso",
+        "bloqueado",
+        "completado"
+      ],
+      "title": "EstadoFase",
+      "type": "string"
+    },
+    "EstadoUnidad": {
+      "additionalProperties": false,
+      "properties": {
+        "actualizado_en": {
+          "format": "date-time",
+          "title": "Actualizado En",
+          "type": "string"
+        },
+        "actualizado_por": {
+          "$ref": "#/$defs/Actor"
+        },
+        "arnes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Arnes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "None si la unidad nació en la consola."
+        },
+        "carril": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Carril"
+        },
+        "checkpoint_pendiente": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Checkpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "comando_validacion": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comando Validacion"
+        },
+        "consumo": {
+          "$ref": "#/$defs/Consumo"
+        },
+        "creado_en": {
+          "format": "date-time",
+          "title": "Creado En",
+          "type": "string"
+        },
+        "depende_de": {
+          "items": {
+            "description": "Identificador de unidad SDD con forma NNNN-slug.",
+            "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          },
+          "title": "Depende De",
+          "type": "array"
+        },
+        "dueno": {
+          "$ref": "#/$defs/Actor"
+        },
+        "estado": {
+          "$ref": "#/$defs/EstadoFase"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "gates": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ResultadoGate"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/GateFase"
+          },
+          "title": "Gates",
+          "type": "object"
+        },
+        "governance_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Governance Refs",
+          "type": "array"
+        },
+        "insumos": {
+          "items": {
+            "format": "uuid4",
+            "type": "string"
+          },
+          "title": "Insumos",
+          "type": "array"
+        },
+        "integracion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Integracion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "modelo_ejecucion": {
+          "items": {
+            "$ref": "#/$defs/EjecucionModelo"
+          },
+          "title": "Modelo Ejecucion",
+          "type": "array"
+        },
+        "modo": {
+          "$ref": "#/$defs/Modo"
+        },
+        "modo_conversion": {
+          "items": {
+            "$ref": "#/$defs/ConversionModo"
+          },
+          "title": "Modo Conversion",
+          "type": "array"
+        },
+        "orden_vigente": {
+          "anyOf": [
+            {
+              "format": "uuid4",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orden Vigente"
+        },
+        "perfil": {
+          "$ref": "#/$defs/Perfil"
+        },
+        "presupuesto": {
+          "$ref": "#/$defs/Presupuesto"
+        },
+        "repositorios": {
+          "items": {
+            "$ref": "#/$defs/RepositorioUnidad"
+          },
+          "minItems": 1,
+          "title": "Repositorios",
+          "type": "array"
+        },
+        "resoluciones": {
+          "items": {
+            "$ref": "#/$defs/ResolucionCheckpoint"
+          },
+          "title": "Resoluciones",
+          "type": "array"
+        },
+        "riesgo": {
+          "$ref": "#/$defs/Riesgo"
+        },
+        "secuencia_ordenes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Secuencia Ordenes",
+          "type": "integer"
+        },
+        "titulo": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Titulo",
+          "type": "string"
+        },
+        "unidad": {
+          "$ref": "#/$defs/AlcanceUnidad"
+        },
+        "version": {
+          "description": "Bloqueo optimista; +1 en cada escritura.",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "version_contrato": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Version Contrato",
+          "type": "string"
+        }
+      },
+      "required": [
+        "unidad",
+        "version",
+        "titulo",
+        "dueno",
+        "repositorios",
+        "fase",
+        "estado",
+        "modo",
+        "riesgo",
+        "perfil",
+        "creado_en",
+        "actualizado_en",
+        "actualizado_por"
+      ],
+      "title": "EstadoUnidad",
+      "type": "object"
+    },
+    "EventoSync": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "carga": {
+          "discriminator": {
+            "mapping": {
+              "checkpoint.resuelto": "#/$defs/CheckpointResuelto",
+              "checkpoint.solicitado": "#/$defs/CheckpointSolicitado",
+              "commit.empujado": "#/$defs/CommitEmpujado",
+              "estado.actualizado": "#/$defs/EstadoActualizado",
+              "orden.emitida": "#/$defs/OrdenEmitida",
+              "orden.reportada": "#/$defs/OrdenReportada",
+              "snapshot.subido": "#/$defs/SnapshotSubido",
+              "unidad.integrada": "#/$defs/UnidadIntegrada",
+              "veredicto.emitido": "#/$defs/VeredictoEmitido"
+            },
+            "propertyName": "tipo"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SnapshotSubido"
+            },
+            {
+              "$ref": "#/$defs/OrdenReportada"
+            },
+            {
+              "$ref": "#/$defs/CommitEmpujado"
+            },
+            {
+              "$ref": "#/$defs/OrdenEmitida"
+            },
+            {
+              "$ref": "#/$defs/VeredictoEmitido"
+            },
+            {
+              "$ref": "#/$defs/EstadoActualizado"
+            },
+            {
+              "$ref": "#/$defs/CheckpointSolicitado"
+            },
+            {
+              "$ref": "#/$defs/CheckpointResuelto"
+            },
+            {
+              "$ref": "#/$defs/UnidadIntegrada"
+            }
+          ],
+          "title": "Carga"
+        },
+        "causado_por": {
+          "anyOf": [
+            {
+              "format": "uuid4",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Evento que lo originó.",
+          "title": "Causado Por"
+        },
+        "direccion": {
+          "$ref": "#/$defs/Direccion"
+        },
+        "emitido_en": {
+          "format": "date-time",
+          "title": "Emitido En",
+          "type": "string"
+        },
+        "id": {
+          "description": "Clave de idempotencia.",
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "secuencia": {
+          "description": "Monótona por (unidad, dirección).",
+          "minimum": 1,
+          "title": "Secuencia",
+          "type": "integer"
+        },
+        "unidad": {
+          "$ref": "#/$defs/AlcanceUnidad"
+        },
+        "version_contrato": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Version Contrato",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "direccion",
+        "unidad",
+        "secuencia",
+        "emitido_en",
+        "actor",
+        "carga"
+      ],
+      "title": "EventoSync",
+      "type": "object"
+    },
+    "Fase": {
+      "enum": [
+        "research",
+        "spec",
+        "plan",
+        "tasks",
+        "aprobacion",
+        "implement",
+        "done"
+      ],
+      "title": "Fase",
+      "type": "string"
+    },
+    "GateFase": {
+      "enum": [
+        "spec",
+        "plan",
+        "tasks",
+        "codigo"
+      ],
+      "title": "GateFase",
+      "type": "string"
+    },
+    "GobernanzaConsultada": {
+      "enum": [
+        "si",
+        "parcial",
+        "no"
+      ],
+      "title": "GobernanzaConsultada",
+      "type": "string"
+    },
+    "Hallazgo": {
+      "additionalProperties": false,
+      "properties": {
+        "cita": {
+          "$ref": "#/$defs/Cita"
+        },
+        "criterio": {
+          "anyOf": [
+            {
+              "description": "Criterio de aceptación del spec, p. ej. CA-07.",
+              "pattern": "^CA-[0-9]{2,3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CA-NN afectado, si aplica.",
+          "title": "Criterio"
+        },
+        "evidencia": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Evidencia",
+          "type": "string"
+        },
+        "gate": {
+          "$ref": "#/$defs/GateFase"
+        },
+        "id": {
+          "description": "Identificador del hallazgo dentro del gate, p. ej. H-12.",
+          "pattern": "^H-[0-9]{1,4}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "lente": {
+          "description": "Lente del crítico que lo produjo.",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Lente",
+          "type": "string"
+        },
+        "propuesta": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Propuesta"
+        },
+        "refutado": {
+          "default": false,
+          "description": "True si el refutador lo descartó; un hallazgo refutado no bloquea.",
+          "title": "Refutado",
+          "type": "boolean"
+        },
+        "severidad": {
+          "$ref": "#/$defs/Severidad"
+        },
+        "titulo": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Titulo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "gate",
+        "lente",
+        "severidad",
+        "titulo",
+        "cita",
+        "evidencia"
+      ],
+      "title": "Hallazgo",
+      "type": "object"
+    },
+    "InsumoResuelto": {
+      "additionalProperties": false,
+      "description": "Lo que entra en ``contexto.insumos`` de una orden de trabajo.",
+      "properties": {
+        "hallazgos": {
+          "items": {
+            "$ref": "#/$defs/Afirmacion"
+          },
+          "title": "Hallazgos",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "objetivo": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Objetivo",
+          "type": "string"
+        },
+        "referencias": {
+          "items": {
+            "$ref": "#/$defs/ReferenciaResuelta"
+          },
+          "title": "Referencias",
+          "type": "array"
+        },
+        "restricciones": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Restricciones",
+          "type": "array"
+        },
+        "sha256": {
+          "description": "SHA-256 en hexadecimal.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sha256",
+        "objetivo"
+      ],
+      "title": "InsumoResuelto",
+      "type": "object"
+    },
+    "Integracion": {
+      "additionalProperties": false,
+      "description": "Estado posterior al cierre (R7): no condiciona el cierre de la unidad.",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "especificacion_viva": {
+          "description": "Dónde quedó consolidada la spec (ruta o id).",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Especificacion Viva",
+          "type": "string"
+        },
+        "pr_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "pattern": "^https://",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pr Url"
+        }
+      },
+      "required": [
+        "actor",
+        "en",
+        "especificacion_viva"
+      ],
+      "title": "Integracion",
+      "type": "object"
+    },
+    "ItemGobernanza": {
+      "additionalProperties": false,
+      "description": "Entrada de gobernanza aplicable (ADR, policy, principio).",
+      "properties": {
+        "hash_version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hash Version"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "resumen": {
+          "maxLength": 4000,
+          "title": "Resumen",
+          "type": "string"
+        },
+        "tipo": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Tipo",
+          "type": "string"
+        },
+        "titulo": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Titulo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tipo",
+        "titulo",
+        "resumen"
+      ],
+      "title": "ItemGobernanza",
+      "type": "object"
+    },
+    "Modo": {
+      "enum": [
+        "interactivo",
+        "semi-autonomo",
+        "supervisado",
+        "desatendido"
+      ],
+      "title": "Modo",
+      "type": "string"
+    },
+    "NodoContexto": {
+      "additionalProperties": false,
+      "description": "Nodo de la rebanada del grafo. Nunca lleva texto de código.",
+      "properties": {
+        "motivo": {
+          "description": "Por qué entra en la rebanada (impacto, llamada, prueba…).",
+          "maxLength": 300,
+          "title": "Motivo",
+          "type": "string"
+        },
+        "nombre": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Nombre",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "rol": {
+          "$ref": "#/$defs/RolRepositorio"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "simbolo": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Simbolo",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoSimbolo"
+        }
+      },
+      "required": [
+        "repositorio",
+        "rol",
+        "simbolo",
+        "nombre",
+        "tipo",
+        "ruta",
+        "motivo"
+      ],
+      "title": "NodoContexto",
+      "type": "object"
+    },
+    "OidcGithubActions": {
+      "additionalProperties": false,
+      "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+      "properties": {
+        "repositorio": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "workflow": {
+          "description": "Claim workflow_ref.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "workflow"
+      ],
+      "title": "OidcGithubActions",
+      "type": "object"
+    },
+    "OrdenEmitida": {
+      "additionalProperties": false,
+      "properties": {
+        "orden_id": {
+          "format": "uuid4",
+          "title": "Orden Id",
+          "type": "string"
+        },
+        "secuencia_orden": {
+          "minimum": 1,
+          "title": "Secuencia Orden",
+          "type": "integer"
+        },
+        "tipo": {
+          "const": "orden.emitida",
+          "default": "orden.emitida",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "orden_id",
+        "secuencia_orden"
+      ],
+      "title": "OrdenEmitida",
+      "type": "object"
+    },
+    "OrdenImplementar": {
+      "additionalProperties": false,
+      "description": "Implementar un grupo de tareas en el worktree de la unidad.",
+      "properties": {
+        "alcance": {
+          "$ref": "#/$defs/AlcanceArchivos"
+        },
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "comando_validacion": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comando Validacion"
+        },
+        "complejidad": {
+          "$ref": "#/$defs/Complejidad",
+          "default": "simple"
+        },
+        "contexto": {
+          "$ref": "#/$defs/ContextoArmado"
+        },
+        "criterios": {
+          "items": {
+            "$ref": "#/$defs/Criterio"
+          },
+          "title": "Criterios",
+          "type": "array"
+        },
+        "emitida_en": {
+          "format": "date-time",
+          "title": "Emitida En",
+          "type": "string"
+        },
+        "expira_en": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expira En"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "grupo": {
+          "description": "Grupo de tareas del plan, p. ej. G1.",
+          "pattern": "^G[0-9]{1,2}$",
+          "title": "Grupo",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "instrucciones": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Instrucciones",
+          "type": "string"
+        },
+        "presupuesto": {
+          "$ref": "#/$defs/Presupuesto"
+        },
+        "reporte_requerido": {
+          "$ref": "#/$defs/ReporteRequerido"
+        },
+        "repositorio": {
+          "description": "Repositorio primario donde se ejecuta la orden.",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "secuencia": {
+          "description": "Monótona por unidad; la vigente es la mayor.",
+          "minimum": 1,
+          "title": "Secuencia",
+          "type": "integer"
+        },
+        "tareas": {
+          "items": {
+            "$ref": "#/$defs/Tarea"
+          },
+          "minItems": 1,
+          "title": "Tareas",
+          "type": "array"
+        },
+        "tipo": {
+          "const": "implementar",
+          "default": "implementar",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "$ref": "#/$defs/AlcanceUnidad"
+        },
+        "version_contrato": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Version Contrato",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "secuencia",
+        "unidad",
+        "repositorio",
+        "base_commit",
+        "fase",
+        "emitida_en",
+        "instrucciones",
+        "contexto",
+        "grupo",
+        "tareas"
+      ],
+      "title": "OrdenImplementar",
+      "type": "object"
+    },
+    "OrdenRedactar": {
+      "additionalProperties": false,
+      "description": "Redactar un artefacto del protocolo (spec, plan o tasks).",
+      "properties": {
+        "alcance": {
+          "$ref": "#/$defs/AlcanceArchivos"
+        },
+        "artefacto": {
+          "$ref": "#/$defs/Artefacto"
+        },
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "comando_validacion": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comando Validacion"
+        },
+        "contexto": {
+          "$ref": "#/$defs/ContextoArmado"
+        },
+        "criterios": {
+          "items": {
+            "$ref": "#/$defs/Criterio"
+          },
+          "title": "Criterios",
+          "type": "array"
+        },
+        "delegable": {
+          "default": true,
+          "description": "Si el arnés puede pedir al servidor que redacte en su lugar.",
+          "title": "Delegable",
+          "type": "boolean"
+        },
+        "emitida_en": {
+          "format": "date-time",
+          "title": "Emitida En",
+          "type": "string"
+        },
+        "expira_en": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expira En"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "id": {
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "instrucciones": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Instrucciones",
+          "type": "string"
+        },
+        "plantilla": {
+          "maxLength": 40000,
+          "title": "Plantilla",
+          "type": "string"
+        },
+        "presupuesto": {
+          "$ref": "#/$defs/Presupuesto"
+        },
+        "reporte_requerido": {
+          "$ref": "#/$defs/ReporteRequerido"
+        },
+        "repositorio": {
+          "description": "Repositorio primario donde se ejecuta la orden.",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "ruta_artefacto": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta Artefacto",
+          "type": "string"
+        },
+        "secuencia": {
+          "description": "Monótona por unidad; la vigente es la mayor.",
+          "minimum": 1,
+          "title": "Secuencia",
+          "type": "integer"
+        },
+        "tipo": {
+          "const": "redactar",
+          "default": "redactar",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "$ref": "#/$defs/AlcanceUnidad"
+        },
+        "version_contrato": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Version Contrato",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "secuencia",
+        "unidad",
+        "repositorio",
+        "base_commit",
+        "fase",
+        "emitida_en",
+        "instrucciones",
+        "contexto",
+        "artefacto",
+        "ruta_artefacto",
+        "plantilla"
+      ],
+      "title": "OrdenRedactar",
+      "type": "object"
+    },
+    "OrdenRefinar": {
+      "additionalProperties": false,
+      "description": "Corregir un artefacto ya redactado según hallazgos del gate.",
+      "properties": {
+        "alcance": {
+          "$ref": "#/$defs/AlcanceArchivos"
+        },
+        "artefacto": {
+          "$ref": "#/$defs/Artefacto"
+        },
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "comando_validacion": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comando Validacion"
+        },
+        "contexto": {
+          "$ref": "#/$defs/ContextoArmado"
+        },
+        "criterios": {
+          "items": {
+            "$ref": "#/$defs/Criterio"
+          },
+          "title": "Criterios",
+          "type": "array"
+        },
+        "emitida_en": {
+          "format": "date-time",
+          "title": "Emitida En",
+          "type": "string"
+        },
+        "expira_en": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expira En"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "hallazgos": {
+          "items": {
+            "$ref": "#/$defs/Hallazgo"
+          },
+          "minItems": 1,
+          "title": "Hallazgos",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "instrucciones": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Instrucciones",
+          "type": "string"
+        },
+        "presupuesto": {
+          "$ref": "#/$defs/Presupuesto"
+        },
+        "reporte_requerido": {
+          "$ref": "#/$defs/ReporteRequerido"
+        },
+        "repositorio": {
+          "description": "Repositorio primario donde se ejecuta la orden.",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "ruta_artefacto": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta Artefacto",
+          "type": "string"
+        },
+        "secuencia": {
+          "description": "Monótona por unidad; la vigente es la mayor.",
+          "minimum": 1,
+          "title": "Secuencia",
+          "type": "integer"
+        },
+        "sha256_actual": {
+          "description": "SHA-256 en hexadecimal.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256 Actual",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "refinar",
+          "default": "refinar",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "$ref": "#/$defs/AlcanceUnidad"
+        },
+        "version_contrato": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Version Contrato",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "secuencia",
+        "unidad",
+        "repositorio",
+        "base_commit",
+        "fase",
+        "emitida_en",
+        "instrucciones",
+        "contexto",
+        "artefacto",
+        "ruta_artefacto",
+        "sha256_actual",
+        "hallazgos"
+      ],
+      "title": "OrdenRefinar",
+      "type": "object"
+    },
+    "OrdenReportada": {
+      "additionalProperties": false,
+      "properties": {
+        "orden_id": {
+          "format": "uuid4",
+          "title": "Orden Id",
+          "type": "string"
+        },
+        "secuencia_orden": {
+          "minimum": 1,
+          "title": "Secuencia Orden",
+          "type": "integer"
+        },
+        "tipo": {
+          "const": "orden.reportada",
+          "default": "orden.reportada",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "orden_id",
+        "secuencia_orden"
+      ],
+      "title": "OrdenReportada",
+      "type": "object"
+    },
+    "OrdenValidar": {
+      "additionalProperties": false,
+      "description": "Correr el comando de validación en local y reportar la salida.",
+      "properties": {
+        "alcance": {
+          "$ref": "#/$defs/AlcanceArchivos"
+        },
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "comando_validacion": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comando Validacion"
+        },
+        "contexto": {
+          "$ref": "#/$defs/ContextoArmado"
+        },
+        "criterios": {
+          "items": {
+            "$ref": "#/$defs/Criterio"
+          },
+          "title": "Criterios",
+          "type": "array"
+        },
+        "emitida_en": {
+          "format": "date-time",
+          "title": "Emitida En",
+          "type": "string"
+        },
+        "expira_en": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expira En"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "id": {
+          "format": "uuid4",
+          "title": "Id",
+          "type": "string"
+        },
+        "instrucciones": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Instrucciones",
+          "type": "string"
+        },
+        "presupuesto": {
+          "$ref": "#/$defs/Presupuesto"
+        },
+        "reporte_requerido": {
+          "$ref": "#/$defs/ReporteRequerido"
+        },
+        "repositorio": {
+          "description": "Repositorio primario donde se ejecuta la orden.",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "secuencia": {
+          "description": "Monótona por unidad; la vigente es la mayor.",
+          "minimum": 1,
+          "title": "Secuencia",
+          "type": "integer"
+        },
+        "tipo": {
+          "const": "validar",
+          "default": "validar",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "$ref": "#/$defs/AlcanceUnidad"
+        },
+        "version_contrato": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Version Contrato",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "secuencia",
+        "unidad",
+        "repositorio",
+        "base_commit",
+        "fase",
+        "emitida_en",
+        "instrucciones",
+        "contexto"
+      ],
+      "title": "OrdenValidar",
+      "type": "object"
+    },
+    "Perfil": {
+      "enum": [
+        "ligero",
+        "estandar",
+        "profundo"
+      ],
+      "title": "Perfil",
+      "type": "string"
+    },
+    "Presupuesto": {
+      "additionalProperties": false,
+      "description": "Tope aplicado por el servidor; al agotarse escala al humano.",
+      "properties": {
+        "costo_usd_max": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Costo Usd Max"
+        },
+        "segundos_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segundos Max"
+        },
+        "tokens_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Max"
+        }
+      },
+      "title": "Presupuesto",
+      "type": "object"
+    },
+    "Proveedor": {
+      "enum": [
+        "foundry",
+        "anthropic"
+      ],
+      "title": "Proveedor",
+      "type": "string"
+    },
+    "RefArchivo": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "linea_fin": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linea Fin"
+        },
+        "linea_inicio": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linea Inicio"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "archivo",
+          "default": "archivo",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "commit",
+        "ruta"
+      ],
+      "title": "RefArchivo",
+      "type": "object"
+    },
+    "RefCriterio": {
+      "additionalProperties": false,
+      "properties": {
+        "criterio": {
+          "description": "Criterio de aceptación del spec, p. ej. CA-07.",
+          "pattern": "^CA-[0-9]{2,3}$",
+          "title": "Criterio",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "criterio",
+          "default": "criterio",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "unidad",
+        "criterio"
+      ],
+      "title": "RefCriterio",
+      "type": "object"
+    },
+    "RefDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "decision",
+          "default": "decision",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "id"
+      ],
+      "title": "RefDecision",
+      "type": "object"
+    },
+    "RefGobernanza": {
+      "additionalProperties": false,
+      "properties": {
+        "hash_version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hash Version"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proveedor": {
+          "default": "pce",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Proveedor",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "gobernanza",
+          "default": "gobernanza",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "RefGobernanza",
+      "type": "object"
+    },
+    "RefNodoGrafo": {
+      "additionalProperties": false,
+      "description": "Nodo de la capa remota (cluster, proceso) que no es un símbolo.",
+      "properties": {
+        "clase": {
+          "enum": [
+            "cluster",
+            "proceso"
+          ],
+          "title": "Clase",
+          "type": "string"
+        },
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "nombre": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Nombre",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "nodo-grafo",
+          "default": "nodo-grafo",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "commit",
+        "clase",
+        "id",
+        "nombre"
+      ],
+      "title": "RefNodoGrafo",
+      "type": "object"
+    },
+    "RefSimbolo": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "nombre": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Nombre",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "simbolo": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Simbolo",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "simbolo",
+          "default": "simbolo",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "tipo_simbolo": {
+          "$ref": "#/$defs/TipoSimbolo"
+        }
+      },
+      "required": [
+        "repositorio",
+        "commit",
+        "simbolo",
+        "nombre",
+        "tipo_simbolo",
+        "ruta"
+      ],
+      "title": "RefSimbolo",
+      "type": "object"
+    },
+    "RefUnidad": {
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {
+          "const": "unidad",
+          "default": "unidad",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "unidad"
+      ],
+      "title": "RefUnidad",
+      "type": "object"
+    },
+    "ReferenciaResuelta": {
+      "additionalProperties": false,
+      "properties": {
+        "obsoleta": {
+          "default": false,
+          "description": "True si el objeto cambió entre el commit del insumo y el base de la orden.",
+          "title": "Obsoleta",
+          "type": "boolean"
+        },
+        "referencia": {
+          "discriminator": {
+            "mapping": {
+              "archivo": "#/$defs/RefArchivo",
+              "criterio": "#/$defs/RefCriterio",
+              "decision": "#/$defs/RefDecision",
+              "gobernanza": "#/$defs/RefGobernanza",
+              "nodo-grafo": "#/$defs/RefNodoGrafo",
+              "simbolo": "#/$defs/RefSimbolo",
+              "unidad": "#/$defs/RefUnidad"
+            },
+            "propertyName": "tipo"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RefSimbolo"
+            },
+            {
+              "$ref": "#/$defs/RefArchivo"
+            },
+            {
+              "$ref": "#/$defs/RefNodoGrafo"
+            },
+            {
+              "$ref": "#/$defs/RefUnidad"
+            },
+            {
+              "$ref": "#/$defs/RefCriterio"
+            },
+            {
+              "$ref": "#/$defs/RefGobernanza"
+            },
+            {
+              "$ref": "#/$defs/RefDecision"
+            }
+          ],
+          "title": "Referencia"
+        }
+      },
+      "required": [
+        "referencia"
+      ],
+      "title": "ReferenciaResuelta",
+      "type": "object"
+    },
+    "Rehabilitacion": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "motivo": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Motivo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "en",
+        "motivo"
+      ],
+      "title": "Rehabilitacion",
+      "type": "object"
+    },
+    "ReporteRequerido": {
+      "additionalProperties": false,
+      "properties": {
+        "artefacto": {
+          "default": false,
+          "title": "Artefacto",
+          "type": "boolean"
+        },
+        "snapshot": {
+          "default": true,
+          "title": "Snapshot",
+          "type": "boolean"
+        },
+        "validacion": {
+          "default": false,
+          "title": "Validacion",
+          "type": "boolean"
+        }
+      },
+      "title": "ReporteRequerido",
+      "type": "object"
+    },
+    "RepositorioUnidad": {
+      "additionalProperties": false,
+      "properties": {
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "rama": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rama"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "rol": {
+          "$ref": "#/$defs/RolRepositorio"
+        }
+      },
+      "required": [
+        "repositorio",
+        "rol",
+        "base_commit"
+      ],
+      "title": "RepositorioUnidad",
+      "type": "object"
+    },
+    "ResolucionCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "checkpoint": {
+          "format": "uuid4",
+          "title": "Checkpoint",
+          "type": "string"
+        },
+        "comentario": {
+          "anyOf": [
+            {
+              "maxLength": 4000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comentario"
+        },
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint",
+        "decision",
+        "actor",
+        "en"
+      ],
+      "title": "ResolucionCheckpoint",
+      "type": "object"
+    },
+    "ResultadoGate": {
+      "additionalProperties": false,
+      "properties": {
+        "causa": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CausaEscalado"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cerrado_en": {
+          "format": "date-time",
+          "title": "Cerrado En",
+          "type": "string"
+        },
+        "criticos": {
+          "description": "Lentes del panel.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Criticos",
+          "type": "array"
+        },
+        "gobernanza_consultada": {
+          "$ref": "#/$defs/GobernanzaConsultada"
+        },
+        "hallazgos": {
+          "description": "Los que quedaron sin resolver.",
+          "items": {
+            "$ref": "#/$defs/Hallazgo"
+          },
+          "title": "Hallazgos",
+          "type": "array"
+        },
+        "iteraciones": {
+          "minimum": 0,
+          "title": "Iteraciones",
+          "type": "integer"
+        },
+        "refutador": {
+          "default": false,
+          "title": "Refutador",
+          "type": "boolean"
+        },
+        "rehabilitado": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rehabilitacion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "veredicto": {
+          "$ref": "#/$defs/Veredicto"
+        }
+      },
+      "required": [
+        "veredicto",
+        "iteraciones",
+        "gobernanza_consultada",
+        "cerrado_en"
+      ],
+      "title": "ResultadoGate",
+      "type": "object"
+    },
+    "Riesgo": {
+      "enum": [
+        "bajo",
+        "medio",
+        "alto"
+      ],
+      "title": "Riesgo",
+      "type": "string"
+    },
+    "RolRepositorio": {
+      "enum": [
+        "primario",
+        "transversal"
+      ],
+      "title": "RolRepositorio",
+      "type": "string"
+    },
+    "Severidad": {
+      "enum": [
+        "alta",
+        "media",
+        "baja"
+      ],
+      "title": "Severidad",
+      "type": "string"
+    },
+    "SnapshotSubido": {
+      "additionalProperties": false,
+      "properties": {
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "hash_arbol": {
+          "description": "SHA-1 del árbol git del worktree incluyendo cambios sin commit (equivalente a `git add -A && git write-tree` en un índice temporal).",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Hash Arbol",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid4",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "snapshot.subido",
+          "default": "snapshot.subido",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "repositorio",
+        "base_commit",
+        "hash_arbol"
+      ],
+      "title": "SnapshotSubido",
+      "type": "object"
+    },
+    "Tarea": {
+      "additionalProperties": false,
+      "properties": {
+        "criterios": {
+          "items": {
+            "description": "Criterio de aceptación del spec, p. ej. CA-07.",
+            "pattern": "^CA-[0-9]{2,3}$",
+            "type": "string"
+          },
+          "title": "Criterios",
+          "type": "array"
+        },
+        "descripcion": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Descripcion",
+          "type": "string"
+        },
+        "id": {
+          "description": "Tarea de tasks.md, p. ej. T-03.",
+          "pattern": "^T-[0-9]{2,3}$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "descripcion"
+      ],
+      "title": "Tarea",
+      "type": "object"
+    },
+    "TipoActor": {
+      "enum": [
+        "humano",
+        "servicio",
+        "agente"
+      ],
+      "title": "TipoActor",
+      "type": "string"
+    },
+    "TipoCheckpoint": {
+      "enum": [
+        "aprobar-spec",
+        "aprobar-plan",
+        "paquete-aprobacion",
+        "parada",
+        "gate-escalado"
+      ],
+      "title": "TipoCheckpoint",
+      "type": "string"
+    },
+    "TipoSimbolo": {
+      "enum": [
+        "modulo",
+        "clase",
+        "interfaz",
+        "funcion",
+        "metodo",
+        "variable",
+        "otro"
+      ],
+      "title": "TipoSimbolo",
+      "type": "string"
+    },
+    "UnidadIntegrada": {
+      "additionalProperties": false,
+      "properties": {
+        "especificacion_viva": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Especificacion Viva",
+          "type": "string"
+        },
+        "pr_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pr Url"
+        },
+        "tipo": {
+          "const": "unidad.integrada",
+          "default": "unidad.integrada",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "especificacion_viva"
+      ],
+      "title": "UnidadIntegrada",
+      "type": "object"
+    },
+    "Veredicto": {
+      "enum": [
+        "aprobado",
+        "refinado",
+        "escalado"
+      ],
+      "title": "Veredicto",
+      "type": "string"
+    },
+    "VeredictoEmitido": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "$ref": "#/$defs/GateFase"
+        },
+        "tipo": {
+          "const": "veredicto.emitido",
+          "default": "veredicto.emitido",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "veredicto": {
+          "$ref": "#/$defs/Veredicto"
+        }
+      },
+      "required": [
+        "gate",
+        "veredicto"
+      ],
+      "title": "VeredictoEmitido",
+      "type": "object"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/estado-local.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Archivo ``.railspec/estado-local.json`` del worktree de la unidad.",
+  "properties": {
+    "base_commit": {
+      "description": "SHA-1 completo de un commit git.",
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Base Commit",
+      "type": "string"
+    },
+    "bloqueo": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BloqueoInstancia"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "cola_pendiente": {
+      "description": "Eventos local→remoto sin confirmar, en orden.",
+      "items": {
+        "$ref": "#/$defs/EventoSync"
+      },
+      "title": "Cola Pendiente",
+      "type": "array"
+    },
+    "espejo_remoto": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EstadoUnidad"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Copia de solo lectura; el remoto gana siempre."
+    },
+    "orden_en_curso": {
+      "anyOf": [
+        {
+          "discriminator": {
+            "mapping": {
+              "implementar": "#/$defs/OrdenImplementar",
+              "redactar": "#/$defs/OrdenRedactar",
+              "refinar": "#/$defs/OrdenRefinar",
+              "validar": "#/$defs/OrdenValidar"
+            },
+            "propertyName": "tipo"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OrdenRedactar"
+            },
+            {
+              "$ref": "#/$defs/OrdenRefinar"
+            },
+            {
+              "$ref": "#/$defs/OrdenImplementar"
+            },
+            {
+              "$ref": "#/$defs/OrdenValidar"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Orden En Curso"
+    },
+    "rama": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Rama",
+      "type": "string"
+    },
+    "repositorio": {
+      "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Repositorio",
+      "type": "string"
+    },
+    "ultima_secuencia_confirmada": {
+      "default": 0,
+      "description": "Último evento local→remoto que el servidor confirmó.",
+      "minimum": 0,
+      "title": "Ultima Secuencia Confirmada",
+      "type": "integer"
+    },
+    "ultima_secuencia_recibida": {
+      "default": 0,
+      "description": "Último evento remoto→local aplicado.",
+      "minimum": 0,
+      "title": "Ultima Secuencia Recibida",
+      "type": "integer"
+    },
+    "unidad": {
+      "$ref": "#/$defs/AlcanceUnidad"
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    },
+    "worktree": {
+      "description": "Ruta absoluta local.",
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Worktree",
+      "type": "string"
+    }
+  },
+  "required": [
+    "unidad",
+    "repositorio",
+    "worktree",
+    "rama",
+    "base_commit"
+  ],
+  "title": "EstadoLocal",
+  "type": "object"
+}

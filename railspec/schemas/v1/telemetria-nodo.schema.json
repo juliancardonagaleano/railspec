@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "Fase": {
+      "enum": [
+        "research",
+        "spec",
+        "plan",
+        "tasks",
+        "aprobacion",
+        "implement",
+        "done"
+      ],
+      "title": "Fase",
+      "type": "string"
+    },
+    "GateFase": {
+      "enum": [
+        "spec",
+        "plan",
+        "tasks",
+        "codigo"
+      ],
+      "title": "GateFase",
+      "type": "string"
+    },
+    "Proveedor": {
+      "enum": [
+        "foundry",
+        "anthropic"
+      ],
+      "title": "Proveedor",
+      "type": "string"
+    },
+    "Riesgo": {
+      "enum": [
+        "bajo",
+        "medio",
+        "alto"
+      ],
+      "title": "Riesgo",
+      "type": "string"
+    },
+    "Veredicto": {
+      "enum": [
+        "aprobado",
+        "refinado",
+        "escalado"
+      ],
+      "title": "Veredicto",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/telemetria-nodo.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "conversacion": {
+      "anyOf": [
+        {
+          "format": "uuid4",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conversacion"
+    },
+    "costo_usd": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Costo Usd",
+      "type": "number"
+    },
+    "duracion_ms": {
+      "minimum": 0,
+      "title": "Duracion Ms",
+      "type": "integer"
+    },
+    "en": {
+      "format": "date-time",
+      "title": "En",
+      "type": "string"
+    },
+    "fase": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Fase"
+        },
+        {
+          "$ref": "#/$defs/GateFase"
+        },
+        {
+          "const": "chat",
+          "type": "string"
+        }
+      ],
+      "title": "Fase"
+    },
+    "id": {
+      "format": "uuid4",
+      "title": "Id",
+      "type": "string"
+    },
+    "modelo": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modelo"
+    },
+    "nodo": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Nodo",
+      "type": "string"
+    },
+    "org": {
+      "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Org",
+      "type": "string"
+    },
+    "proveedor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Proveedor"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "repositorio": {
+      "anyOf": [
+        {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Repositorio"
+    },
+    "tier": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Riesgo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "tokens_cache_escritura": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Tokens Cache Escritura",
+      "type": "integer"
+    },
+    "tokens_cache_lectura": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Tokens Cache Lectura",
+      "type": "integer"
+    },
+    "tokens_entrada": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Tokens Entrada",
+      "type": "integer"
+    },
+    "tokens_salida": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Tokens Salida",
+      "type": "integer"
+    },
+    "unidad": {
+      "anyOf": [
+        {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unidad"
+    },
+    "veredicto": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Veredicto"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    },
+    "workspace": {
+      "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Workspace",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "org",
+    "workspace",
+    "nodo",
+    "fase",
+    "duracion_ms",
+    "en"
+  ],
+  "title": "TelemetriaNodo",
+  "type": "object"
+}

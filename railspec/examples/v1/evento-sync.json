@@ -1,0 +1,26 @@
+{
+  "actor": {
+    "canal": "arnes",
+    "github_id": 83125327,
+    "login": "juliancardonagaleano",
+    "proveedor_identidad": "github",
+    "tipo": "humano"
+  },
+  "carga": {
+    "base_commit": "4063ae9000000000000000000000000000000000",
+    "hash_arbol": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repositorio": "certificados-api",
+    "snapshot_id": "00000000-0000-4000-8000-000000000002",
+    "tipo": "snapshot.subido"
+  },
+  "direccion": "local-a-remoto",
+  "emitido_en": "2026-09-30T19:00:00Z",
+  "id": "00000000-0000-4000-8000-000000000003",
+  "secuencia": 7,
+  "unidad": {
+    "org": "acme",
+    "unidad": "0001-emitir-pdf",
+    "workspace": "certificados"
+  },
+  "version_contrato": "1.0"
+}

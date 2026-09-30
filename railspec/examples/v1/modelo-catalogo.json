@@ -1,0 +1,20 @@
+{
+  "capacidades": {
+    "contexto_max_tokens": 200000,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "structured_outputs": true,
+    "thinking": true
+  },
+  "despliegue": "sonnet-55-eastus2",
+  "hosting": "azure",
+  "leido_en": "2026-09-30T18:00:00Z",
+  "modelo": "claude-sonnet-5-5",
+  "org": "acme",
+  "proveedor": "foundry",
+  "region": "eastus2",
+  "version_contrato": "1.0"
+}

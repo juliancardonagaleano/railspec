@@ -1,0 +1,55 @@
+{
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "exploradores": {
+    "alto": 2,
+    "bajo": 1,
+    "medio": 1
+  },
+  "gate": {
+    "alto": {
+      "adversarial": true,
+      "criticos": 2,
+      "iteraciones": 2
+    },
+    "bajo": {
+      "adversarial": false,
+      "criticos": 1,
+      "iteraciones": 1
+    },
+    "medio": {
+      "adversarial": false,
+      "criticos": 1,
+      "iteraciones": 1
+    }
+  },
+  "nombre": "estandar",
+  "org": "acme",
+  "roles": {
+    "critico-profundo": {
+      "effort": "high",
+      "modelo": {
+        "foundry": "sonnet-55-eastus2"
+      },
+      "structured_outputs": true
+    }
+  },
+  "version": 1,
+  "version_contrato": "1.0"
+}

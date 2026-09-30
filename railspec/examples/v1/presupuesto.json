@@ -1,0 +1,28 @@
+{
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "org": "acme",
+  "por_fase": {},
+  "por_unidad": {
+    "costo_usd_max": 25.0,
+    "tokens_max": 2000000
+  },
+  "version": 1,
+  "version_contrato": "1.0"
+}

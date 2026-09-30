@@ -1,0 +1,552 @@
+{
+  "$defs": {
+    "AlcanceUnidad": {
+      "additionalProperties": false,
+      "description": "Espacio de nombres de una unidad.\n\nLa unidad cuelga del workspace, no de un repositorio, porque puede\nvincular N repositorios; cada snapshot dice a cuál pertenece. ``plan``\nagrupa unidades de un mismo mandato cuando lo hay.",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace",
+        "unidad"
+      ],
+      "title": "AlcanceUnidad",
+      "type": "object"
+    },
+    "Arista": {
+      "additionalProperties": false,
+      "properties": {
+        "destino": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Destino",
+          "type": "string"
+        },
+        "origen": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Origen",
+          "type": "string"
+        },
+        "relacion": {
+          "$ref": "#/$defs/Relacion"
+        }
+      },
+      "required": [
+        "origen",
+        "destino",
+        "relacion"
+      ],
+      "title": "Arista",
+      "type": "object"
+    },
+    "CambioArchivo": {
+      "additionalProperties": false,
+      "properties": {
+        "estado": {
+          "$ref": "#/$defs/EstadoArchivo"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "ruta_anterior": {
+          "anyOf": [
+            {
+              "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+              "maxLength": 1024,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ruta Anterior"
+        },
+        "sha256_antes": {
+          "anyOf": [
+            {
+              "description": "SHA-256 en hexadecimal.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256 Antes"
+        },
+        "sha256_despues": {
+          "anyOf": [
+            {
+              "description": "SHA-256 en hexadecimal.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256 Despues"
+        }
+      },
+      "required": [
+        "ruta",
+        "estado"
+      ],
+      "title": "CambioArchivo",
+      "type": "object"
+    },
+    "DeltaIndice": {
+      "additionalProperties": false,
+      "description": "Delta del índice local entre el commit base y el árbol de trabajo.",
+      "properties": {
+        "aristas_agregadas": {
+          "items": {
+            "$ref": "#/$defs/Arista"
+          },
+          "title": "Aristas Agregadas",
+          "type": "array"
+        },
+        "aristas_borradas": {
+          "items": {
+            "$ref": "#/$defs/Arista"
+          },
+          "title": "Aristas Borradas",
+          "type": "array"
+        },
+        "embeddings": {
+          "items": {
+            "$ref": "#/$defs/Embedding"
+          },
+          "title": "Embeddings",
+          "type": "array"
+        },
+        "motor": {
+          "$ref": "#/$defs/MotorIndice"
+        },
+        "simbolos_borrados": {
+          "items": {
+            "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Simbolos Borrados",
+          "type": "array"
+        },
+        "simbolos_upsert": {
+          "items": {
+            "$ref": "#/$defs/Simbolo"
+          },
+          "title": "Simbolos Upsert",
+          "type": "array"
+        }
+      },
+      "required": [
+        "motor"
+      ],
+      "title": "DeltaIndice",
+      "type": "object"
+    },
+    "Embedding": {
+      "additionalProperties": false,
+      "properties": {
+        "cuantizacion": {
+          "const": "int8",
+          "default": "int8",
+          "title": "Cuantizacion",
+          "type": "string"
+        },
+        "dimensiones": {
+          "const": 768,
+          "default": 768,
+          "title": "Dimensiones",
+          "type": "integer"
+        },
+        "modelo": {
+          "const": "nomic-embed-code",
+          "default": "nomic-embed-code",
+          "title": "Modelo",
+          "type": "string"
+        },
+        "simbolo": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Simbolo",
+          "type": "string"
+        },
+        "vector_b64": {
+          "description": "Vector int8 codificado en base64 estándar; 768 bytes decodificados.",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+          "title": "Vector B64",
+          "type": "string"
+        }
+      },
+      "required": [
+        "simbolo",
+        "vector_b64"
+      ],
+      "title": "Embedding",
+      "type": "object"
+    },
+    "EscaneoSecretos": {
+      "additionalProperties": false,
+      "properties": {
+        "hallazgos": {
+          "description": "Siempre 0: el proxy no sube snapshots con secretos detectados.",
+          "maximum": 0,
+          "minimum": 0,
+          "title": "Hallazgos",
+          "type": "integer"
+        },
+        "herramienta": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Herramienta",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "herramienta",
+        "version",
+        "hallazgos"
+      ],
+      "title": "EscaneoSecretos",
+      "type": "object"
+    },
+    "EstadoArchivo": {
+      "enum": [
+        "agregado",
+        "modificado",
+        "borrado",
+        "renombrado"
+      ],
+      "title": "EstadoArchivo",
+      "type": "string"
+    },
+    "Fragmento": {
+      "additionalProperties": false,
+      "description": "Texto de código; solo permitido en niveles ``interno`` y ``abierto``.",
+      "properties": {
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 en hexadecimal.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "simbolo": {
+          "anyOf": [
+            {
+              "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Simbolo"
+        },
+        "texto": {
+          "maxLength": 200000,
+          "title": "Texto",
+          "type": "string",
+          "x-railspec-clase": "codigo_interno"
+        }
+      },
+      "required": [
+        "ruta",
+        "sha256",
+        "texto"
+      ],
+      "title": "Fragmento",
+      "type": "object"
+    },
+    "ModoDelta": {
+      "enum": [
+        "completo",
+        "solo-hashes"
+      ],
+      "title": "ModoDelta",
+      "type": "string"
+    },
+    "MotorIndice": {
+      "additionalProperties": false,
+      "properties": {
+        "nombre": {
+          "const": "codebase-memory-mcp",
+          "default": "codebase-memory-mcp",
+          "title": "Nombre",
+          "type": "string"
+        },
+        "version": {
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+].+)?$",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "MotorIndice",
+      "type": "object"
+    },
+    "NivelCodigo": {
+      "description": "Política de código propietario aprobada el 2026-09-30.",
+      "enum": [
+        "restringido",
+        "interno",
+        "abierto"
+      ],
+      "title": "NivelCodigo",
+      "type": "string"
+    },
+    "Relacion": {
+      "enum": [
+        "llama",
+        "importa",
+        "hereda",
+        "implementa",
+        "define",
+        "prueba"
+      ],
+      "title": "Relacion",
+      "type": "string"
+    },
+    "Simbolo": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "linea_fin": {
+          "minimum": 1,
+          "title": "Linea Fin",
+          "type": "integer"
+        },
+        "linea_inicio": {
+          "minimum": 1,
+          "title": "Linea Inicio",
+          "type": "integer"
+        },
+        "nombre": {
+          "description": "Nombre calificado.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Nombre",
+          "type": "string"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "Hash del texto del fragmento; el texto no viaja aquí.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoSimbolo"
+        }
+      },
+      "required": [
+        "id",
+        "nombre",
+        "tipo",
+        "ruta",
+        "linea_inicio",
+        "linea_fin",
+        "sha256"
+      ],
+      "title": "Simbolo",
+      "type": "object"
+    },
+    "TipoSimbolo": {
+      "enum": [
+        "modulo",
+        "clase",
+        "interfaz",
+        "funcion",
+        "metodo",
+        "variable",
+        "otro"
+      ],
+      "title": "TipoSimbolo",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/snapshot.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "archivos": {
+      "items": {
+        "$ref": "#/$defs/CambioArchivo"
+      },
+      "title": "Archivos",
+      "type": "array"
+    },
+    "base_commit": {
+      "description": "SHA-1 completo de un commit git.",
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Base Commit",
+      "type": "string"
+    },
+    "creado_en": {
+      "format": "date-time",
+      "title": "Creado En",
+      "type": "string"
+    },
+    "delta_indice": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeltaIndice"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "diff": {
+      "anyOf": [
+        {
+          "maxLength": 2000000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Diff unificado base..árbol; prohibido en nivel restringido.",
+      "title": "Diff",
+      "x-railspec-clase": "codigo_interno"
+    },
+    "escaneo_secretos": {
+      "$ref": "#/$defs/EscaneoSecretos"
+    },
+    "fragmentos": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/Fragmento"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Texto acotado a símbolos tocados; prohibido en restringido.",
+      "title": "Fragmentos"
+    },
+    "hash_arbol": {
+      "description": "SHA-1 del árbol git del worktree incluyendo cambios sin commit (equivalente a `git add -A && git write-tree` en un índice temporal).",
+      "pattern": "^[0-9a-f]{40}$",
+      "title": "Hash Arbol",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid4",
+      "title": "Id",
+      "type": "string"
+    },
+    "modo_delta": {
+      "$ref": "#/$defs/ModoDelta"
+    },
+    "nivel_codigo": {
+      "$ref": "#/$defs/NivelCodigo"
+    },
+    "repositorio": {
+      "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Repositorio",
+      "type": "string"
+    },
+    "unidad": {
+      "$ref": "#/$defs/AlcanceUnidad"
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "unidad",
+    "repositorio",
+    "base_commit",
+    "hash_arbol",
+    "creado_en",
+    "nivel_codigo",
+    "modo_delta",
+    "archivos",
+    "escaneo_secretos"
+  ],
+  "title": "Snapshot",
+  "type": "object"
+}

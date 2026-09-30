@@ -1,0 +1,21 @@
+{
+  "costo_usd": 0.08,
+  "duracion_ms": 21000,
+  "en": "2026-09-30T18:00:00Z",
+  "fase": "spec",
+  "id": "00000000-0000-4000-8000-000000000007",
+  "modelo": "claude-sonnet-5-5",
+  "nodo": "critico-profundo",
+  "org": "acme",
+  "proveedor": "foundry",
+  "repositorio": "certificados-api",
+  "tier": "medio",
+  "tokens_cache_escritura": 0,
+  "tokens_cache_lectura": 15000,
+  "tokens_entrada": 18000,
+  "tokens_salida": 1200,
+  "unidad": "0001-emitir-pdf",
+  "veredicto": "refinado",
+  "version_contrato": "1.0",
+  "workspace": "certificados"
+}

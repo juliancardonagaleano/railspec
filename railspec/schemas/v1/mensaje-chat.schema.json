@@ -1,0 +1,854 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+      "properties": {
+        "agente": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nodo o rol del agente, si tipo=agente.",
+          "title": "Agente"
+        },
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "en_nombre_de": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "github_id del humano por quien actúa un agente.",
+          "title": "En Nombre De"
+        },
+        "github_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github Id"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "description": "Login de GitHub; informativo, la identidad es github_id.",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcGithubActions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proveedor_identidad": {
+          "default": "github",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "title": "Proveedor Identidad",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoActor"
+        }
+      },
+      "required": [
+        "tipo",
+        "canal"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "Afirmacion": {
+      "additionalProperties": false,
+      "properties": {
+        "referencias": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "archivo": "#/$defs/RefArchivo",
+                "criterio": "#/$defs/RefCriterio",
+                "decision": "#/$defs/RefDecision",
+                "gobernanza": "#/$defs/RefGobernanza",
+                "nodo-grafo": "#/$defs/RefNodoGrafo",
+                "simbolo": "#/$defs/RefSimbolo",
+                "unidad": "#/$defs/RefUnidad"
+              },
+              "propertyName": "tipo"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RefSimbolo"
+              },
+              {
+                "$ref": "#/$defs/RefArchivo"
+              },
+              {
+                "$ref": "#/$defs/RefNodoGrafo"
+              },
+              {
+                "$ref": "#/$defs/RefUnidad"
+              },
+              {
+                "$ref": "#/$defs/RefCriterio"
+              },
+              {
+                "$ref": "#/$defs/RefGobernanza"
+              },
+              {
+                "$ref": "#/$defs/RefDecision"
+              }
+            ]
+          },
+          "maxItems": 20,
+          "title": "Referencias",
+          "type": "array"
+        },
+        "texto": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Texto",
+          "type": "string"
+        }
+      },
+      "required": [
+        "texto"
+      ],
+      "title": "Afirmacion",
+      "type": "object"
+    },
+    "AlcanceWorkspace": {
+      "additionalProperties": false,
+      "description": "Espacio de nombres mínimo: todo dato persistido lo lleva.",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace"
+      ],
+      "title": "AlcanceWorkspace",
+      "type": "object"
+    },
+    "Canal": {
+      "enum": [
+        "arnes",
+        "consola",
+        "ci",
+        "servidor"
+      ],
+      "title": "Canal",
+      "type": "string"
+    },
+    "EvaluacionRegla": {
+      "additionalProperties": false,
+      "properties": {
+        "huellas_coincidentes": {
+          "description": "Hashes de las huellas que coincidieron; nunca texto.",
+          "items": {
+            "description": "SHA-256 en hexadecimal.",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Huellas Coincidentes",
+          "type": "array"
+        },
+        "referencias_eliminadas": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Referencias Eliminadas",
+          "type": "integer"
+        },
+        "regla": {
+          "$ref": "#/$defs/ReglaGate"
+        },
+        "resultado": {
+          "$ref": "#/$defs/ResultadoRegla"
+        }
+      },
+      "required": [
+        "regla",
+        "resultado"
+      ],
+      "title": "EvaluacionRegla",
+      "type": "object"
+    },
+    "LlamadaTool": {
+      "additionalProperties": false,
+      "properties": {
+        "duracion_ms": {
+          "minimum": 0,
+          "title": "Duracion Ms",
+          "type": "integer"
+        },
+        "entrada_sha256": {
+          "description": "SHA-256 en hexadecimal.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Entrada Sha256",
+          "type": "string"
+        },
+        "fragmentos_leidos": {
+          "default": 0,
+          "description": "Solo code.read; se guardan huellas, no texto.",
+          "minimum": 0,
+          "title": "Fragmentos Leidos",
+          "type": "integer"
+        },
+        "tool": {
+          "pattern": "^[a-z]+\\.[a-z_]+$",
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "entrada_sha256",
+        "duracion_ms"
+      ],
+      "title": "LlamadaTool",
+      "type": "object"
+    },
+    "OidcGithubActions": {
+      "additionalProperties": false,
+      "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+      "properties": {
+        "repositorio": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "workflow": {
+          "description": "Claim workflow_ref.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "workflow"
+      ],
+      "title": "OidcGithubActions",
+      "type": "object"
+    },
+    "Proveedor": {
+      "enum": [
+        "foundry",
+        "anthropic"
+      ],
+      "title": "Proveedor",
+      "type": "string"
+    },
+    "RefArchivo": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "linea_fin": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linea Fin"
+        },
+        "linea_inicio": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linea Inicio"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "archivo",
+          "default": "archivo",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "commit",
+        "ruta"
+      ],
+      "title": "RefArchivo",
+      "type": "object"
+    },
+    "RefCriterio": {
+      "additionalProperties": false,
+      "properties": {
+        "criterio": {
+          "description": "Criterio de aceptación del spec, p. ej. CA-07.",
+          "pattern": "^CA-[0-9]{2,3}$",
+          "title": "Criterio",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "criterio",
+          "default": "criterio",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "unidad",
+        "criterio"
+      ],
+      "title": "RefCriterio",
+      "type": "object"
+    },
+    "RefDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "decision",
+          "default": "decision",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "id"
+      ],
+      "title": "RefDecision",
+      "type": "object"
+    },
+    "RefGobernanza": {
+      "additionalProperties": false,
+      "properties": {
+        "hash_version": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hash Version"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proveedor": {
+          "default": "pce",
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Proveedor",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "gobernanza",
+          "default": "gobernanza",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "RefGobernanza",
+      "type": "object"
+    },
+    "RefNodoGrafo": {
+      "additionalProperties": false,
+      "description": "Nodo de la capa remota (cluster, proceso) que no es un símbolo.",
+      "properties": {
+        "clase": {
+          "enum": [
+            "cluster",
+            "proceso"
+          ],
+          "title": "Clase",
+          "type": "string"
+        },
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "nombre": {
+          "maxLength": 300,
+          "minLength": 1,
+          "title": "Nombre",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "nodo-grafo",
+          "default": "nodo-grafo",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "commit",
+        "clase",
+        "id",
+        "nombre"
+      ],
+      "title": "RefNodoGrafo",
+      "type": "object"
+    },
+    "RefSimbolo": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "nombre": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Nombre",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "ruta": {
+          "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+          "title": "Ruta",
+          "type": "string"
+        },
+        "simbolo": {
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Simbolo",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "simbolo",
+          "default": "simbolo",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "tipo_simbolo": {
+          "$ref": "#/$defs/TipoSimbolo"
+        }
+      },
+      "required": [
+        "repositorio",
+        "commit",
+        "simbolo",
+        "nombre",
+        "tipo_simbolo",
+        "ruta"
+      ],
+      "title": "RefSimbolo",
+      "type": "object"
+    },
+    "RefUnidad": {
+      "additionalProperties": false,
+      "properties": {
+        "tipo": {
+          "const": "unidad",
+          "default": "unidad",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "unidad"
+      ],
+      "title": "RefUnidad",
+      "type": "object"
+    },
+    "ReglaGate": {
+      "enum": [
+        "esquema",
+        "huella-contexto",
+        "normalizacion",
+        "forma-codigo",
+        "secretos",
+        "alcance",
+        "presupuesto-fuga"
+      ],
+      "title": "ReglaGate",
+      "type": "string"
+    },
+    "RespuestaChat": {
+      "additionalProperties": false,
+      "description": "Lo único que el modelo del chat puede devolver.",
+      "properties": {
+        "afirmaciones": {
+          "items": {
+            "$ref": "#/$defs/Afirmacion"
+          },
+          "maxItems": 30,
+          "minItems": 1,
+          "title": "Afirmaciones",
+          "type": "array"
+        },
+        "preguntas_abiertas": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Preguntas Abiertas",
+          "type": "array"
+        }
+      },
+      "required": [
+        "afirmaciones"
+      ],
+      "title": "RespuestaChat",
+      "type": "object"
+    },
+    "ResultadoRegla": {
+      "enum": [
+        "pasa",
+        "recorta",
+        "bloquea"
+      ],
+      "title": "ResultadoRegla",
+      "type": "string"
+    },
+    "RolMensaje": {
+      "enum": [
+        "usuario",
+        "asistente"
+      ],
+      "title": "RolMensaje",
+      "type": "string"
+    },
+    "TipoActor": {
+      "enum": [
+        "humano",
+        "servicio",
+        "agente"
+      ],
+      "title": "TipoActor",
+      "type": "string"
+    },
+    "TipoSimbolo": {
+      "enum": [
+        "modulo",
+        "clase",
+        "interfaz",
+        "funcion",
+        "metodo",
+        "variable",
+        "otro"
+      ],
+      "title": "TipoSimbolo",
+      "type": "string"
+    },
+    "VeredictoGateSalida": {
+      "additionalProperties": false,
+      "properties": {
+        "evaluado_en": {
+          "format": "date-time",
+          "title": "Evaluado En",
+          "type": "string"
+        },
+        "permitido": {
+          "title": "Permitido",
+          "type": "boolean"
+        },
+        "reglas": {
+          "items": {
+            "$ref": "#/$defs/EvaluacionRegla"
+          },
+          "minItems": 7,
+          "title": "Reglas",
+          "type": "array"
+        },
+        "version_gate": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Version Gate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_gate",
+        "permitido",
+        "reglas",
+        "evaluado_en"
+      ],
+      "title": "VeredictoGateSalida",
+      "type": "object"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/mensaje-chat.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "alcance": {
+      "$ref": "#/$defs/AlcanceWorkspace"
+    },
+    "autor": {
+      "$ref": "#/$defs/Actor"
+    },
+    "aviso_bloqueo": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/ReglaGate"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Si el gate bloqueó: reglas que fallaron (sustituye a respuesta).",
+      "title": "Aviso Bloqueo"
+    },
+    "conservar_en_insumo": {
+      "default": false,
+      "title": "Conservar En Insumo",
+      "type": "boolean"
+    },
+    "conversacion": {
+      "format": "uuid4",
+      "title": "Conversacion",
+      "type": "string"
+    },
+    "creado_en": {
+      "format": "date-time",
+      "title": "Creado En",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid4",
+      "title": "Id",
+      "type": "string"
+    },
+    "llamadas_tool": {
+      "items": {
+        "$ref": "#/$defs/LlamadaTool"
+      },
+      "title": "Llamadas Tool",
+      "type": "array"
+    },
+    "modelo": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modelo"
+    },
+    "pregunta": {
+      "anyOf": [
+        {
+          "maxLength": 8000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pregunta"
+    },
+    "proveedor": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Proveedor"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "respuesta": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RespuestaChat"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rol": {
+      "$ref": "#/$defs/RolMensaje"
+    },
+    "veredicto_gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VeredictoGateSalida"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "conversacion",
+    "alcance",
+    "rol",
+    "autor",
+    "creado_en"
+  ],
+  "title": "MensajeChat",
+  "type": "object"
+}
