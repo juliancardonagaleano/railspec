@@ -2,7 +2,7 @@
 
 El token del desarrollador (GitHub OAuth) viaja como ``Authorization:
 Bearer``; el servidor deriva el actor de él. La sesión MCP se abre al primer
-uso y se reabre si la conexión se cae.
+uso, en una tarea propia, y se reabre si la conexión se cae.
 """
 
 from __future__ import annotations
@@ -35,15 +35,18 @@ class TransporteMcpHttp:
         self.timeout_s = timeout_s
         self._cliente: Client | None = None
         self._tarea: asyncio.Task[None] | None = None
+        self._listo: asyncio.Future[Client] | None = None
         self._fin: asyncio.Event | None = None
 
     async def _abrir(self) -> Client:
         if self._cliente is not None:
             return self._cliente
-        listo: asyncio.Future[Client] = asyncio.get_running_loop().create_future()
-        self._fin = asyncio.Event()
-        self._tarea = asyncio.create_task(self._sostener(listo, self._fin))
-        return await listo
+        if self._listo is None or (self._listo.done() and self._cliente is None):
+            # Una sola apertura aunque lleguen varias tools a la vez; la primera la lanza.
+            self._listo = asyncio.get_running_loop().create_future()
+            self._fin = asyncio.Event()
+            self._tarea = asyncio.create_task(self._sostener(self._listo, self._fin))
+        return await asyncio.shield(self._listo)
 
     async def _sostener(self, listo: asyncio.Future[Client], fin: asyncio.Event) -> None:
         cabeceras = {"Authorization": f"Bearer {self.token}"} if self.token else {}
@@ -61,11 +64,15 @@ class TransporteMcpHttp:
             if not listo.done():
                 listo.set_exception(SinConexion(f"No se pudo conectar con {self.url}: {exc}"))
         finally:
-            self._cliente = None
+            if self._listo is listo:
+                self._cliente = None
+            if not listo.done():
+                # Cancelada antes de abrir: quien espera no se queda colgado.
+                listo.set_exception(SinConexion(f"Se canceló la conexión con {self.url}"))
 
     async def cerrar(self) -> None:
         tarea, fin = self._tarea, self._fin
-        self._cliente = self._tarea = self._fin = None
+        self._cliente = self._tarea = self._listo = self._fin = None
         if tarea is not None and fin is not None:
             fin.set()
             with contextlib.suppress(Exception):
