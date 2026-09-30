@@ -62,17 +62,40 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Anthropic directo (solo nivel `abierto`). |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Gobernanza por MCP. Sin ella, todo gate escala con `sin-gobernanza`. |
 | `RAILSPEC_FALKORDB_URL` | Grafo central (`railspec-graph`, extra `grafo`). |
+| `RAILSPEC_OIDC_AUDIENCIA` | Audiencia de los tokens OIDC de GitHub Actions (por defecto `railspec`, la misma que usa el workflow de reindexado). Vacía desactiva la identidad de servicio. |
+| `RAILSPEC_OIDC_EMISOR` | Emisor y JWKS (por defecto `https://token.actions.githubusercontent.com`). |
+| `RAILSPEC_OIDC_REPOSITORIOS` | Lista `owner/repo` separada por comas que puede presentar tokens OIDC. Vacía: cualquiera, siempre que coincida con el vínculo. |
 | `RAILSPEC_TOKENS_DESARROLLO` | `token=login:github_id,…` para desarrollo sin GitHub App. |
 | `RAILSPEC_HOST`, `RAILSPEC_PUERTO` | Escucha HTTP (por defecto `0.0.0.0:8080`). |
 
 Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
 `railspec-server`.
 
+## Reindexado del canónico (`graph.index`)
+
+- Identidad: un token cuyo `iss` es el emisor de GitHub Actions se verifica
+  como OIDC (firma contra el JWKS, `iss`, `aud`, caducidad y, si hay lista,
+  `repository`) y da un actor de servicio con canal `ci`. Cualquier otro token
+  sigue la identidad humana.
+- La tool comprueba además que `repository` sea el repositorio de la URL del
+  vínculo y que el workflow corriera en su rama por defecto (el `@ref` de
+  `workflow_ref`).
+- Los lotes se guardan en el grafo de preparación del commit y el canónico
+  avanza al llegar el último (`IndexadorCanonico` de `railspec-graph`). Un
+  delta cuya base no es el canónico vigente responde `base-commit-distinto`
+  (409) y el cliente repite con índice completo.
+
+## Sondas
+
+- `GET /healthz` (disponibilidad): comprueba Mongo (`ping`) y FalkorDB con un
+  tope de 2 s por sonda; 503 con el detalle si alguna falla.
+- `GET /livez` (vida): solo que el proceso atiende. La sonda de vida del
+  despliegue debe usar esta, para no reiniciar réplicas por una caída de la
+  base.
+
 ## Pendiente
 
-- Identidad OIDC de GitHub Actions (actor de servicio) y la tool
-  `graph.index`.
-- Manejadores de `insumo.get` y `code.read` (`graph.query` ya se enchufa con el grafo): el registro los
+- Manejadores de `insumo.get` y `code.read` (`graph.query` y `graph.index` ya se enchufan con el grafo): el registro los
   acepta enchufados y no los anuncia mientras falten.
 - Roles por equipo de GitHub: hoy solo se resuelven asignaciones de usuario.
 - La forma de la respuesta de PCE no está verificada contra el servicio real.

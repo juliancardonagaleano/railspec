@@ -22,6 +22,8 @@ motor = [
   "mcp>=2.2,<3",
   "fastapi>=0.115",
   "uvicorn>=0.30",
+  # Tokens OIDC de GitHub Actions (actor de servicio de graph.index).
+  "pyjwt[crypto]>=2.8,<3",
 ]
 # Grafo central (FalkorDB) para el impacto en el gate de código.
 grafo = ["railspec-graph==0.1.0"]
@@ -32,6 +34,8 @@ test-motor = [
   "mcp>=2.2,<3",
   "fastapi>=0.115",
   "pymongo>=4.8,<5",
+  "pyjwt[crypto]>=2.8,<3",
+  "railspec-graph==0.1.0",
 ]
 
 [project.scripts]
