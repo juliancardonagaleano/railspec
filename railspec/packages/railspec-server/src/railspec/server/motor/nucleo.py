@@ -169,28 +169,53 @@ class Nucleo:
             ahora = self.reloj()
             self.almacen.registrar_telemetria(
                 TelemetriaNodo(
-                    id=self.nuevo_id(), org=estado.unidad.org, workspace=estado.unidad.workspace,
-                    repositorio=repo, unidad=estado.unidad.unidad, nodo=ll.nodo[:120], fase=fase,
-                    tier=estado.riesgo, proveedor=r.proveedor, modelo=r.modelo,
-                    tokens_entrada=r.uso.tokens_entrada, tokens_salida=r.uso.tokens_salida,
+                    id=self.nuevo_id(),
+                    org=estado.unidad.org,
+                    workspace=estado.unidad.workspace,
+                    repositorio=repo,
+                    unidad=estado.unidad.unidad,
+                    nodo=ll.nodo[:120],
+                    fase=fase,
+                    tier=estado.riesgo,
+                    proveedor=r.proveedor,
+                    modelo=r.modelo,
+                    tokens_entrada=r.uso.tokens_entrada,
+                    tokens_salida=r.uso.tokens_salida,
                     tokens_cache_lectura=r.uso.tokens_cache_lectura,
-                    tokens_cache_escritura=r.uso.tokens_cache_escritura, costo_usd=r.uso.costo_usd,
-                    duracion_ms=r.uso.duracion_ms, veredicto=veredicto, en=ahora,
+                    tokens_cache_escritura=r.uso.tokens_cache_escritura,
+                    costo_usd=r.uso.costo_usd,
+                    duracion_ms=r.uso.duracion_ms,
+                    veredicto=veredicto,
+                    en=ahora,
                 )
             )
             self.almacen.registrar_auditoria(
                 RegistroAuditoria(
                     id=self.nuevo_id(),
                     alcance=AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace),
-                    evento=EventoAuditoria.llamada_modelo, actor=ACTOR_SERVIDOR, en=ahora,
-                    repositorio=repo, unidad=estado.unidad.unidad, nivel_codigo=nivel,
-                    proveedor=r.proveedor, modelo=r.modelo, region=r.region or "global",
-                    sha256_enviado=ll.sha256_enviado, detalle={"nodo": ll.nodo[:120], "rol": ll.rol},
+                    evento=EventoAuditoria.llamada_modelo,
+                    actor=ACTOR_SERVIDOR,
+                    en=ahora,
+                    repositorio=repo,
+                    unidad=estado.unidad.unidad,
+                    nivel_codigo=nivel,
+                    proveedor=r.proveedor,
+                    modelo=r.modelo,
+                    region=r.region or "global",
+                    sha256_enviado=ll.sha256_enviado,
+                    detalle={"nodo": ll.nodo[:120], "rol": ll.rol},
                 )
             )
             ejecuciones.append(
-                EjecucionModelo(fase=fase, rol=ll.rol, nodo=ll.nodo[:120], proveedor=r.proveedor,
-                                modelo=r.modelo, effort=ll.effort, en=ahora)
+                EjecucionModelo(
+                    fase=fase,
+                    rol=ll.rol,
+                    nodo=ll.nodo[:120],
+                    proveedor=r.proveedor,
+                    modelo=r.modelo,
+                    effort=ll.effort,
+                    en=ahora,
+                )
             )
             consumo = Consumo(
                 tokens=consumo.tokens + r.uso.tokens,

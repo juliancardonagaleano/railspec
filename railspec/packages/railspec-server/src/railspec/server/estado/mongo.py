@@ -21,12 +21,12 @@ from typing import Any
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError
-
 from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.eventos import Direccion, EventoSync
 from railspec.contracts.orden import OrdenDeTrabajo
+from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import (
     AsignacionRol,
     PerfilConfig,
@@ -36,7 +36,6 @@ from railspec.contracts.repositorio import (
     TelemetriaNodo,
     VinculoRepositorio,
 )
-from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.snapshot import Snapshot
 from railspec.contracts.tools import (
     FilaTelemetria,
@@ -184,7 +183,10 @@ class AlmacenMongo:
             claves = d["_id"] or {}
             filas.append(
                 FilaTelemetria(
-                    claves={c: (None if claves.get(c) is None else str(claves.get(c))) for c in consulta.agrupar_por},
+                    claves={
+                        c: (None if claves.get(c) is None else str(claves.get(c)))
+                        for c in consulta.agrupar_por
+                    },
                     llamadas=d["llamadas"],
                     tokens_entrada=d["tokens_entrada"],
                     tokens_salida=d["tokens_salida"],
@@ -286,9 +288,9 @@ class AlmacenMongo:
         return True
 
     def entradas_pendientes(self, alcance: AlcanceUnidad) -> list[EntradaPendiente]:
-        cursor = self.db.entradas.find(
-            {"_clave": _clave_unidad(alcance), **_filtro_unidad(alcance)}
-        ).sort("_recibida", ASCENDING)
+        cursor = self.db.entradas.find({"_clave": _clave_unidad(alcance), **_filtro_unidad(alcance)}).sort(
+            "_recibida", ASCENDING
+        )
         return [
             EntradaPendiente(
                 alcance=alcance,
@@ -301,7 +303,9 @@ class AlmacenMongo:
         ]
 
     def consumir_entrada(self, alcance: AlcanceUnidad, request_id: str) -> None:
-        self.db.entradas.delete_one({"_id": f"{_clave_unidad(alcance)}/{request_id}", **_filtro_unidad(alcance)})
+        self.db.entradas.delete_one(
+            {"_id": f"{_clave_unidad(alcance)}/{request_id}", **_filtro_unidad(alcance)}
+        )
 
     def tomar_turno(self, alcance: AlcanceUnidad, dueno: str, ahora: datetime, ttl_s: int) -> bool:
         clave = f"turno/{_clave_unidad(alcance)}"
@@ -325,7 +329,9 @@ class AlmacenMongo:
 
     def perfil(self, alcance: AlcanceWorkspace, nombre: Perfil) -> PerfilConfig | None:
         for workspace in (alcance.workspace, None):
-            doc = self.db.perfiles.find_one({"org": alcance.org, "workspace": workspace, "nombre": nombre.value})
+            doc = self.db.perfiles.find_one(
+                {"org": alcance.org, "workspace": workspace, "nombre": nombre.value}
+            )
             if doc:
                 return PerfilConfig.model_validate(_limpio(doc))
         return None
@@ -361,11 +367,15 @@ class AlmacenMongo:
                     {"org": e.org, "workspace": e.workspace, "nombre": e.nombre.value}, _doc(e), upsert=True
                 )
             elif isinstance(e, PresupuestoConfig):
-                self.db.presupuestos.replace_one({"org": e.org, "workspace": e.workspace}, _doc(e), upsert=True)
+                self.db.presupuestos.replace_one(
+                    {"org": e.org, "workspace": e.workspace}, _doc(e), upsert=True
+                )
             elif isinstance(e, VinculoRepositorio):
                 a = e.alcance
                 self.db.vinculos.replace_one(
-                    {"_id": f"{a.org}/{a.workspace}/{a.repositorio}"}, {"_id": f"{a.org}/{a.workspace}/{a.repositorio}", **_doc(e)}, upsert=True
+                    {"_id": f"{a.org}/{a.workspace}/{a.repositorio}"},
+                    {"_id": f"{a.org}/{a.workspace}/{a.repositorio}", **_doc(e)},
+                    upsert=True,
                 )
             elif isinstance(e, AsignacionRol):
                 if not isinstance(e.sujeto, SujetoUsuario):

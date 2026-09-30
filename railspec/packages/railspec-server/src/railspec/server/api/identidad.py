@@ -59,8 +59,10 @@ class IdentidadGithub:
             import httpx
 
             cliente = self._cliente or httpx.Client(timeout=10)
-            r = cliente.get(self.API, headers={"Authorization": f"Bearer {token}",
-                                               "Accept": "application/vnd.github+json"})
+            r = cliente.get(
+                self.API,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            )
             if r.status_code != 200:
                 raise TokenInvalido(f"GitHub rechazó el token ({r.status_code})")
             datos = r.json()

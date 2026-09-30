@@ -9,7 +9,6 @@ import uuid
 import httpx
 import pytest
 from apoyo_motor import ORG, WS, construir, entrada_start
-
 from railspec.contracts.comun import Actor, Canal, OidcGithubActions, TipoActor
 from railspec.contracts.repositorio import AsignacionRol, Auditoria, Rol, SujetoUsuario
 from railspec.contracts.tools import Superficie
@@ -62,7 +61,9 @@ def test_http_errores():
         _, _, app = montar()
         async with cliente(app) as c:
             assert (await c.post("/v1/tools/unit.start", json=cuerpo_start())).status_code == 401
-            r = await c.post("/v1/tools/unit.start", json=cuerpo_start(), headers={"Authorization": "Bearer otro"})
+            r = await c.post(
+                "/v1/tools/unit.start", json=cuerpo_start(), headers={"Authorization": "Bearer otro"}
+            )
             assert r.status_code == 401
             r = await c.post("/v1/tools/unit.start", json={"alcance": {"org": ORG}}, headers=CABECERA)
             assert r.status_code == 422 and r.json()["errores"]
@@ -73,8 +74,11 @@ def test_http_errores():
             unidad = {"org": ORG, "workspace": WS, "unidad": "9999-nada"}
             r = await c.post("/v1/tools/unit.status", json={"unidad": unidad}, headers=CABECERA)
             assert r.status_code == 404
-            r = await c.post("/v1/tools/unit.start",
-                             json=cuerpo_start() | {"version_contrato_cliente": "2.0"}, headers=CABECERA)
+            r = await c.post(
+                "/v1/tools/unit.start",
+                json=cuerpo_start() | {"version_contrato_cliente": "2.0"},
+                headers=CABECERA,
+            )
             assert r.status_code == 400 and r.json()["codigo"] == "version-contrato-no-soportada"
 
     asyncio.run(caso())
@@ -89,17 +93,23 @@ def _asignacion(github_id: int, rol: Rol, workspace: str | None) -> AsignacionRo
     return AsignacionRol(
         version=1,
         auditoria=Auditoria(creado_por=JULIAN, creado_en=ahora, actualizado_por=JULIAN, actualizado_en=ahora),
-        id=uuid.uuid4(), org=ORG, workspace=workspace, rol=rol, sujeto=SujetoUsuario(github_id=github_id),
+        id=uuid.uuid4(),
+        org=ORG,
+        workspace=workspace,
+        rol=rol,
+        sujeto=SujetoUsuario(github_id=github_id),
     )
 
 
 def test_roles_desde_asignaciones():
     async def caso():
         motor, _, app = montar(abierto=False)
-        motor.n.almacen.guardar_configuracion([
-            _asignacion(83125327, Rol.desarrollador, WS),
-            _asignacion(7, Rol.lector, WS),
-        ])
+        motor.n.almacen.guardar_configuracion(
+            [
+                _asignacion(83125327, Rol.desarrollador, WS),
+                _asignacion(7, Rol.lector, WS),
+            ]
+        )
         async with cliente(app) as c:
             r = await c.post("/v1/tools/unit.start", json=cuerpo_start(), headers=CABECERA)
             assert r.status_code == 200, r.text
@@ -119,13 +129,21 @@ def test_roles_desde_asignaciones():
 def test_superficie_y_tipo_de_actor():
     async def caso():
         motor, registro, _ = montar()
-        servicio = Actor(tipo=TipoActor.servicio, canal=Canal.servidor,
-                         oidc=OidcGithubActions(repositorio="acme/certificados-api", workflow="ci.yml"))
+        servicio = Actor(
+            tipo=TipoActor.servicio,
+            canal=Canal.servidor,
+            oidc=OidcGithubActions(repositorio="acme/certificados-api", workflow="ci.yml"),
+        )
         # Todas las tools del motor admiten humanos; un tipo de actor no admitido se rechaza.
         from railspec.contracts.tools import TOOLS
 
-        restringidas = [n for n, t in TOOLS.items() if getattr(t, "tipos_actor", None)
-                        and TipoActor.servicio not in t.tipos_actor and n in registro._manejadores]
+        restringidas = [
+            n
+            for n, t in TOOLS.items()
+            if getattr(t, "tipos_actor", None)
+            and TipoActor.servicio not in t.tipos_actor
+            and n in registro._manejadores
+        ]
         for nombre in restringidas:
             r = await registro.invocar(nombre, {}, servicio, Superficie.http)
             assert r.cuerpo["codigo"] == "fuera-de-alcance"
@@ -144,15 +162,16 @@ def test_registro_rechaza_manejadores_fuera_de_contrato():
 
 
 def test_mcp_lista_y_llama():
+    import httpx2
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
-    import httpx2
 
     async def caso():
         _, _, app = montar()
         async with app.router.lifespan_context(app):
-            http = httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app), base_url="http://railspec",
-                                      headers=CABECERA)
+            http = httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app), base_url="http://railspec", headers=CABECERA
+            )
             async with http, streamable_http_client("http://railspec/mcp/", http_client=http) as flujos:
                 lectura, escritura = flujos[0], flujos[1]
                 async with ClientSession(lectura, escritura) as sesion:
@@ -162,8 +181,9 @@ def test_mcp_lista_y_llama():
                     r = await sesion.call_tool("unit.start", cuerpo_start())
                     assert not r.is_error, r
                     assert r.structured_content["estado"]["fase"] == "spec"
-                    r = await sesion.call_tool("unit.status", {"unidad": {"org": ORG, "workspace": WS,
-                                                                          "unidad": "9999-nada"}})
+                    r = await sesion.call_tool(
+                        "unit.status", {"unidad": {"org": ORG, "workspace": WS, "unidad": "9999-nada"}}
+                    )
                     assert r.is_error and r.structured_content["codigo"] == "no-encontrado"
 
     asyncio.run(caso())

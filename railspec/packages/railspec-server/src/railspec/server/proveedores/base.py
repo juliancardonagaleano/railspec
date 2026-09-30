@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
-
 from railspec.contracts.comun import Effort, Proveedor
 
 T = TypeVar("T", bound=BaseModel)
@@ -108,5 +107,6 @@ def costo_estimado(modelo: str, uso: Uso) -> float:
         return 0.0
     entrada, salida, cache = precio
     return round(
-        (uso.tokens_entrada * entrada + uso.tokens_salida * salida + uso.tokens_cache_lectura * cache) / 1e6, 6
+        (uso.tokens_entrada * entrada + uso.tokens_salida * salida + uso.tokens_cache_lectura * cache) / 1e6,
+        6,
     )

@@ -19,7 +19,6 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ValidationError
-
 from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.comun import Actor, AlcanceUnidad, AlcanceWorkspace, TipoActor
 from railspec.contracts.repositorio import Rol
@@ -119,7 +118,9 @@ class Registro:
         self._autorizador = autorizador
 
     @classmethod
-    def del_motor(cls, motor: Motor, autorizador: Autorizador, extra: dict[str, Manejador] | None = None) -> Registro:
+    def del_motor(
+        cls, motor: Motor, autorizador: Autorizador, extra: dict[str, Manejador] | None = None
+    ) -> Registro:
         manejadores: dict[str, Manejador] = {
             "unit.start": motor.start,
             "unit.advance": motor.advance,
@@ -155,7 +156,10 @@ class Registro:
             return Resultado(False, {"detalle": str(exc)}, 422)
         rol = self._autorizador.rol(actor, org, workspace)
         if rol is None or _JERARQUIA.index(rol) < _JERARQUIA.index(tool.rol_minimo):
-            return _error(CodigoError.fuera_de_alcance, f"{nombre} exige rol {tool.rol_minimo.value} en {org}/{workspace}")
+            return _error(
+                CodigoError.fuera_de_alcance,
+                f"{nombre} exige rol {tool.rol_minimo.value} en {org}/{workspace}",
+            )
         try:
             salida = await self._manejadores[nombre](entrada, actor)
         except ErrorNegocio as exc:

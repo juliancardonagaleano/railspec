@@ -20,7 +20,6 @@ from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
-
 from railspec.contracts.comun import Proveedor
 
 from .base import ErrorProveedor, PeticionModelo, RespuestaModelo, T, Uso, costo_estimado
@@ -75,7 +74,9 @@ class AdaptadorChatMAF:
             duracion_ms=duracion,
         )
         uso = Uso(**{**uso.__dict__, "costo_usd": costo_estimado(peticion.modelo, uso)})
-        return RespuestaModelo(valor=valor, uso=uso, proveedor=self.proveedor, modelo=peticion.modelo, region=self.region)
+        return RespuestaModelo(
+            valor=valor, uso=uso, proveedor=self.proveedor, modelo=peticion.modelo, region=self.region
+        )
 
 
 def _valor(respuesta: Any, esquema: type[BaseModel]) -> Any:

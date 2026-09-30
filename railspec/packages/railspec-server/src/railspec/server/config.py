@@ -38,6 +38,8 @@ class Configuracion:
     foundry: ConfigFoundry | None = None
     anthropic: ConfigAnthropic | None = None
     pce_url: str | None = None
+    #: Grafo central (railspec-graph). Sin él, el gate de código no ve impacto de grafo.
+    falkordb_url: str | None = None
     pce_api_key: str | None = None
     #: Tokens de desarrollo ``token=login:github_id`` separados por coma. Solo
     #: para entornos sin GitHub App; en producción la identidad es GitHub.
@@ -70,6 +72,7 @@ class Configuracion:
             foundry=foundry,
             anthropic=anthropic,
             pce_url=env.get("RAILSPEC_PCE_URL") or None,
+            falkordb_url=env.get("RAILSPEC_FALKORDB_URL") or None,
             pce_api_key=env.get("RAILSPEC_PCE_API_KEY") or None,
             tokens_desarrollo=_tokens(env.get("RAILSPEC_TOKENS_DESARROLLO", "")),
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),

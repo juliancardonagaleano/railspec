@@ -23,9 +23,8 @@ from agent_framework._workflows._checkpoint_encoding import (  # API pública no
     encode_checkpoint_value,
 )
 from agent_framework.exceptions import WorkflowCheckpointException
-from pymongo import DESCENDING
+from pymongo import DESCENDING, ReturnDocument
 from pymongo.database import Database
-
 from railspec.contracts.comun import AlcanceUnidad
 
 PREFIJO = "railspec"
@@ -47,7 +46,10 @@ class CheckpointsMongo:
 
     def __init__(self, db: Database, *, tipos_permitidos: list[str] | None = None) -> None:
         self._col = db.checkpoints
-        self._col.create_index([("workflow_name", 1), ("timestamp", DESCENDING)])
+        self._contadores = db.contadores
+        # Mongo guarda milisegundos: dos checkpoints del mismo superpaso empatan en
+        # ``timestamp``. El orden lo da ``orden``, un contador atómico por workflow.
+        self._col.create_index([("workflow_name", 1), ("orden", DESCENDING)])
         self._permitidos = frozenset(tipos_permitidos or [])
 
     def _filtro(self, workflow_name: str) -> dict[str, Any]:
@@ -62,12 +64,24 @@ class CheckpointsMongo:
         codificado = encode_checkpoint_value(checkpoint.to_dict())
         # Falla al guardar, no al restaurar, si algún tipo no está permitido.
         decode_checkpoint_value(codificado, allowed_types=self._permitidos)
+        previo = self._col.find_one({"_id": checkpoint.checkpoint_id}, {"orden": 1})
+        orden = (
+            previo["orden"]
+            if previo
+            else self._contadores.find_one_and_update(
+                {"_id": f"checkpoints:{checkpoint.workflow_name}"},
+                {"$inc": {"n": 1}},
+                upsert=True,
+                return_document=ReturnDocument.AFTER,
+            )["n"]
+        )
         self._col.replace_one(
             {"_id": checkpoint.checkpoint_id},
             {
                 "_id": checkpoint.checkpoint_id,
                 **self._filtro(checkpoint.workflow_name),
                 "timestamp": datetime.fromisoformat(checkpoint.timestamp),
+                "orden": orden,
                 "previo": checkpoint.previous_checkpoint_id,
                 "datos": json.dumps(codificado),
             },
@@ -82,17 +96,17 @@ class CheckpointsMongo:
         return self._decodificar(doc)
 
     async def list_checkpoints(self, *, workflow_name: str) -> list[WorkflowCheckpoint]:
-        return [self._decodificar(d) for d in self._col.find(self._filtro(workflow_name)).sort("timestamp", 1)]
+        return [self._decodificar(d) for d in self._col.find(self._filtro(workflow_name)).sort("orden", 1)]
 
     async def delete(self, checkpoint_id: str) -> bool:
         return self._col.delete_one({"_id": checkpoint_id}).deleted_count == 1
 
     async def get_latest(self, *, workflow_name: str) -> WorkflowCheckpoint | None:
-        doc = self._col.find_one(self._filtro(workflow_name), sort=[("timestamp", DESCENDING)])
+        doc = self._col.find_one(self._filtro(workflow_name), sort=[("orden", DESCENDING)])
         return self._decodificar(doc) if doc else None
 
     async def list_checkpoint_ids(self, *, workflow_name: str) -> list[str]:
-        return [d["_id"] for d in self._col.find(self._filtro(workflow_name), {"_id": 1}).sort("timestamp", 1)]
+        return [d["_id"] for d in self._col.find(self._filtro(workflow_name), {"_id": 1}).sort("orden", 1)]
 
 
 __all__ = ["CheckpointsMongo", "InMemoryCheckpointStorage", "alcance_de_workflow", "nombre_workflow"]

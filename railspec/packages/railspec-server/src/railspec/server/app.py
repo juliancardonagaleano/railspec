@@ -30,12 +30,25 @@ def ensamblar(config: Configuracion, *, proveedores: Proveedores | None = None) 
         almacen = almacen_desde_uri(config.mongo_uri, config.mongo_db)
     if proveedores is None:
         proveedores = _proveedores(config)
-    gobernanza = GobernanzaPceMcp(config.pce_url, config.pce_api_key) if config.pce_url else GobernanzaNoConfigurada()
-    nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza)
+    gobernanza = (
+        GobernanzaPceMcp(config.pce_url, config.pce_api_key) if config.pce_url else GobernanzaNoConfigurada()
+    )
+    nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=_grafo(config))
     motor = Motor(nucleo, CheckpointsMongo(almacen.db))
-    identidad = IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
+    identidad = (
+        IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
+    )
     registro = Registro.del_motor(motor, AutorizadorRoles(almacen, abierto=config.modo_memoria))
     return motor, aplicacion(registro, identidad, host=config.host)
+
+
+def _grafo(config: Configuracion) -> Any:
+    if config.falkordb_url is None:
+        return None
+    from railspec.graph import AccesoGrafo, AlmacenGrafo
+    from railspec.graph.motor_falkordb import MotorFalkor
+
+    return AlmacenGrafo(AccesoGrafo(MotorFalkor.desde_url(config.falkordb_url)))
 
 
 def _proveedores(config: Configuracion) -> Proveedores:

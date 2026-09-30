@@ -25,6 +25,7 @@ import unicodedata
 import uuid
 from typing import Any
 
+from railspec.contracts import VERSION_CONTRATO
 from railspec.contracts.comun import (
     Actor,
     AlcanceRepositorio,
@@ -47,8 +48,8 @@ from railspec.contracts.estado import (
     ResolucionCheckpoint,
 )
 from railspec.contracts.eventos import CheckpointResuelto, OrdenReportada, SnapshotSubido, UnidadIntegrada
-from railspec.contracts.repositorio import EventoAuditoria, RegistroAuditoria
 from railspec.contracts.reporte import ReporteOrden, ResultadoOrden
+from railspec.contracts.repositorio import EventoAuditoria, RegistroAuditoria
 from railspec.contracts.tools import (
     AvanceCerrada,
     AvanceCheckpoint,
@@ -79,7 +80,7 @@ from .nucleo import Nucleo
 
 log = logging.getLogger("railspec.motor")
 
-VERSION_SERVIDOR = (1, 0)
+VERSION_SERVIDOR = tuple(int(x) for x in VERSION_CONTRATO.split("."))
 REINTENTAR_S = 5
 
 
@@ -96,8 +97,21 @@ class ErrorNegocio(Exception):
 # --- Triaje determinista ----------------------------------------------------------------
 
 _SENALES_ALTO = (
-    "seguridad", "autentic", "autoriz", "permiso", "pago", "factura", "migraci", "datos personales",
-    "cifr", "credencial", "secreto", "borrado", "eliminar datos", "producción", "esquema de base",
+    "seguridad",
+    "autentic",
+    "autoriz",
+    "permiso",
+    "pago",
+    "factura",
+    "migraci",
+    "datos personales",
+    "cifr",
+    "credencial",
+    "secreto",
+    "borrado",
+    "eliminar datos",
+    "producción",
+    "esquema de base",
 )
 _ORDEN_RIESGO = [Riesgo.bajo, Riesgo.medio, Riesgo.alto]
 
@@ -132,7 +146,9 @@ def negociar(version_cliente: str) -> str:
 
 
 class Motor:
-    def __init__(self, nucleo: Nucleo, checkpoints: Any, *, en_linea: bool = False, ttl_turno_s: int = 900) -> None:
+    def __init__(
+        self, nucleo: Nucleo, checkpoints: Any, *, en_linea: bool = False, ttl_turno_s: int = 900
+    ) -> None:
         self.n = nucleo
         self.checkpoints = checkpoints
         self.en_linea = en_linea
@@ -156,8 +172,12 @@ class Motor:
     def _auditar(self, alcance: AlcanceUnidad, evento: EventoAuditoria, actor: Actor, **detalle: Any) -> None:
         self.n.almacen.registrar_auditoria(
             RegistroAuditoria(
-                id=self.n.nuevo_id(), alcance=AlcanceWorkspace(org=alcance.org, workspace=alcance.workspace),
-                evento=evento, actor=actor, en=self.n.reloj(), unidad=alcance.unidad,
+                id=self.n.nuevo_id(),
+                alcance=AlcanceWorkspace(org=alcance.org, workspace=alcance.workspace),
+                evento=evento,
+                actor=actor,
+                en=self.n.reloj(),
+                unidad=alcance.unidad,
                 detalle={k: v for k, v in detalle.items() if v is not None},
             )
         )
@@ -193,7 +213,11 @@ class Motor:
                 respuestas: dict[str, Any] = {}
                 for e in entradas:
                     if e.request_id not in pendientes:
-                        log.warning("entrada %s sin petición pendiente en %s; se descarta", e.request_id, alcance.unidad)
+                        log.warning(
+                            "entrada %s sin petición pendiente en %s; se descarta",
+                            e.request_id,
+                            alcance.unidad,
+                        )
                         self.n.almacen.consumir_entrada(alcance, e.request_id)
                         continue
                     modelo = ReporteOrden if e.tipo == TipoEntrada.reporte else ResolucionCheckpoint
@@ -219,21 +243,40 @@ class Motor:
         negociada = negociar(e.version_contrato_cliente)
         self._humano(actor, "arrancar una unidad")
         numero = self.n.almacen.siguiente_numero_unidad(e.alcance)
-        alcance = AlcanceUnidad(org=e.alcance.org, workspace=e.alcance.workspace,
-                                unidad=f"{numero:04d}-{slug(e.titulo)}", plan=e.plan)
+        alcance = AlcanceUnidad(
+            org=e.alcance.org,
+            workspace=e.alcance.workspace,
+            unidad=f"{numero:04d}-{slug(e.titulo)}",
+            plan=e.plan,
+        )
         presupuesto = self.n.almacen.presupuesto(e.alcance)
         ahora = self.n.reloj()
         estado = EstadoUnidad(
-            unidad=alcance, version=1, titulo=e.titulo, dueno=actor, arnes=e.arnes,
+            unidad=alcance,
+            version=1,
+            titulo=e.titulo,
+            dueno=actor,
+            arnes=e.arnes,
             repositorios=[
-                RepositorioUnidad(repositorio=r.repositorio, rama=r.rama, base_commit=r.base_commit,
-                                  rol=RolRepositorio.primario if i == 0 else RolRepositorio.transversal)
+                RepositorioUnidad(
+                    repositorio=r.repositorio,
+                    rama=r.rama,
+                    base_commit=r.base_commit,
+                    rol=RolRepositorio.primario if i == 0 else RolRepositorio.transversal,
+                )
                 for i, r in enumerate(e.repositorios)
             ],
-            fase=Fase.spec, estado=EstadoFase.en_progreso, modo=Modo.interactivo, riesgo=triaje(e),
-            perfil=e.perfil or Perfil.estandar, insumos=list(e.insumos),
-            presupuesto=presupuesto.por_unidad if presupuesto else Presupuesto(), consumo=Consumo(),
-            creado_en=ahora, actualizado_en=ahora, actualizado_por=actor,
+            fase=Fase.spec,
+            estado=EstadoFase.en_progreso,
+            modo=Modo.interactivo,
+            riesgo=triaje(e),
+            perfil=e.perfil or Perfil.estandar,
+            insumos=list(e.insumos),
+            presupuesto=presupuesto.por_unidad if presupuesto else Presupuesto(),
+            consumo=Consumo(),
+            creado_en=ahora,
+            actualizado_en=ahora,
+            actualizado_por=actor,
         )
         self.n.almacen.guardar_estado(estado, None)
         # El primer tramo del DAG no llama modelos (solo emite la orden del spec): corre en línea.
@@ -257,7 +300,9 @@ class Motor:
         elif estado.estado == EstadoFase.bloqueado:
             avance = AvanceEspera(motivo="unidad rechazada; no hay más trabajo", reintentar_en_s=3600)
         else:
-            avance = AvanceEspera(motivo="el motor está evaluando (gate o transición)", reintentar_en_s=REINTENTAR_S)
+            avance = AvanceEspera(
+                motivo="el motor está evaluando (gate o transición)", reintentar_en_s=REINTENTAR_S
+            )
         return UnitAdvanceSalida(version_estado=estado.version, avance=avance)
 
     # --- unit.report -------------------------------------------------------------------------
@@ -265,31 +310,49 @@ class Motor:
     async def report(self, r: ReporteOrden, actor: Actor) -> UnitReportSalida:
         estado = self._estado(r.unidad)
         if estado.orden_vigente is None or estado.orden_vigente != r.orden_id:
-            raise ErrorNegocio(CodigoError.orden_no_vigente, "el reporte no corresponde a la orden vigente",
-                               estado.version)
+            raise ErrorNegocio(
+                CodigoError.orden_no_vigente, "el reporte no corresponde a la orden vigente", estado.version
+            )
         orden = self.n.almacen.obtener_orden(r.unidad, str(r.orden_id))
         if orden is None or orden.secuencia != r.secuencia:
-            raise ErrorNegocio(CodigoError.orden_no_vigente, "secuencia distinta de la orden vigente", estado.version)
+            raise ErrorNegocio(
+                CodigoError.orden_no_vigente, "secuencia distinta de la orden vigente", estado.version
+            )
         if r.base_commit != orden.base_commit:
-            raise ErrorNegocio(CodigoError.base_commit_distinto, "base_commit distinto del de la orden", estado.version)
+            raise ErrorNegocio(
+                CodigoError.base_commit_distinto, "base_commit distinto del de la orden", estado.version
+            )
         self._exigencias(orden, r, estado)
 
         self.n.almacen.guardar_reporte(r)
         self.n.emitir(r.unidad, OrdenReportada(orden_id=r.orden_id, secuencia_orden=r.secuencia), actor)
         if r.snapshot is not None:
             s = r.snapshot
-            vinculo = self.n.almacen.vinculo(AlcanceRepositorio(org=r.unidad.org, workspace=r.unidad.workspace,
-                                                                repositorio=s.repositorio))
+            vinculo = self.n.almacen.vinculo(
+                AlcanceRepositorio(org=r.unidad.org, workspace=r.unidad.workspace, repositorio=s.repositorio)
+            )
             if vinculo:
                 self.n.almacen.guardar_snapshot(s, vinculo.retencion_snapshots_dias)
             else:
                 self.n.almacen.guardar_snapshot(s)
-            self.n.emitir(r.unidad, SnapshotSubido(snapshot_id=s.id, repositorio=s.repositorio,
-                                                   base_commit=s.base_commit, hash_arbol=s.hash_arbol), actor)
+            self.n.emitir(
+                r.unidad,
+                SnapshotSubido(
+                    snapshot_id=s.id,
+                    repositorio=s.repositorio,
+                    base_commit=s.base_commit,
+                    hash_arbol=s.hash_arbol,
+                ),
+                actor,
+            )
             if self.n.grafo is not None and s.delta_indice is not None:
                 self.n.grafo.aplicar_delta(
-                    AlcanceRepositorio(org=r.unidad.org, workspace=r.unidad.workspace, repositorio=s.repositorio),
-                    s.base_commit, s.delta_indice, r.unidad.unidad,
+                    AlcanceRepositorio(
+                        org=r.unidad.org, workspace=r.unidad.workspace, repositorio=s.repositorio
+                    ),
+                    s.base_commit,
+                    s.delta_indice,
+                    r.unidad.unidad,
                 )
 
         def cerrar_orden(e: EstadoUnidad) -> dict[str, Any] | None:
@@ -299,11 +362,18 @@ class Motor:
 
         nuevo = self.n.escribir(r.unidad, cerrar_orden, actor)
         self.n.almacen.registrar_entrada(
-            EntradaPendiente(alcance=r.unidad, request_id=str(r.orden_id), tipo=TipoEntrada.reporte,
-                             carga=r.model_dump(mode="json"), recibida_en=self.n.reloj())
+            EntradaPendiente(
+                alcance=r.unidad,
+                request_id=str(r.orden_id),
+                tipo=TipoEntrada.reporte,
+                carga=r.model_dump(mode="json"),
+                recibida_en=self.n.reloj(),
+            )
         )
         await self._reanudar(r.unidad)
-        return UnitReportSalida(version_estado=self._estado(r.unidad).version if self.en_linea else nuevo.version)
+        return UnitReportSalida(
+            version_estado=self._estado(r.unidad).version if self.en_linea else nuevo.version
+        )
 
     def _exigencias(self, orden: Any, r: ReporteOrden, estado: EstadoUnidad) -> None:
         req = orden.reporte_requerido
@@ -311,20 +381,28 @@ class Motor:
             if req.snapshot and r.snapshot is None:
                 raise ErrorNegocio(CodigoError.snapshot_invalido, "la orden exige snapshot", estado.version)
             if req.artefacto and (r.artefacto is None or r.artefacto.tipo != orden.artefacto):
-                raise ErrorNegocio(CodigoError.snapshot_invalido,
-                                   f"la orden exige el artefacto {orden.artefacto.value}", estado.version)
+                raise ErrorNegocio(
+                    CodigoError.snapshot_invalido,
+                    f"la orden exige el artefacto {orden.artefacto.value}",
+                    estado.version,
+                )
             if req.validacion and r.validacion is None:
-                raise ErrorNegocio(CodigoError.snapshot_invalido, "la orden exige la salida de validación",
-                                   estado.version)
+                raise ErrorNegocio(
+                    CodigoError.snapshot_invalido, "la orden exige la salida de validación", estado.version
+                )
         if r.snapshot is not None:
             if r.snapshot.repositorio not in {x.repositorio for x in estado.repositorios}:
-                raise ErrorNegocio(CodigoError.snapshot_invalido, "snapshot de un repositorio ajeno a la unidad",
-                                   estado.version)
+                raise ErrorNegocio(
+                    CodigoError.snapshot_invalido,
+                    "snapshot de un repositorio ajeno a la unidad",
+                    estado.version,
+                )
             esperado = self.n.nivel(estado, r.snapshot.repositorio)
             if r.snapshot.nivel_codigo != esperado:
                 raise ErrorNegocio(
                     CodigoError.snapshot_invalido,
-                    f"el vínculo fija nivel {esperado.value}; el snapshot declara {r.snapshot.nivel_codigo.value}",
+                    f"el vínculo fija nivel {esperado.value}; "
+                    f"el snapshot declara {r.snapshot.nivel_codigo.value}",
                     estado.version,
                 )
 
@@ -332,15 +410,21 @@ class Motor:
 
     async def approve(self, e: UnitApproveEntrada, actor: Actor) -> EstadoSalida:
         self._humano(actor, "resolver un checkpoint")
-        resolucion = ResolucionCheckpoint(checkpoint=e.checkpoint, decision=e.decision, actor=actor,
-                                          en=self.n.reloj(), comentario=e.comentario)
+        resolucion = ResolucionCheckpoint(
+            checkpoint=e.checkpoint,
+            decision=e.decision,
+            actor=actor,
+            en=self.n.reloj(),
+            comentario=e.comentario,
+        )
 
         def resolver(estado: EstadoUnidad) -> dict[str, Any]:
             cp = estado.checkpoint_pendiente
             if cp is None or cp.id != e.checkpoint:
                 if any(x.checkpoint == e.checkpoint for x in estado.resoluciones):
-                    raise ErrorNegocio(CodigoError.checkpoint_ya_resuelto, "otro canal lo resolvió primero",
-                                       estado.version)
+                    raise ErrorNegocio(
+                        CodigoError.checkpoint_ya_resuelto, "otro canal lo resolvió primero", estado.version
+                    )
                 raise ErrorNegocio(CodigoError.no_encontrado, "checkpoint desconocido", estado.version)
             return {
                 "checkpoint_pendiente": None,
@@ -351,11 +435,22 @@ class Motor:
         self._estado(e.unidad)
         nuevo = self.n.escribir(e.unidad, resolver, actor)
         self.n.emitir(e.unidad, CheckpointResuelto(checkpoint_id=e.checkpoint, canal=actor.canal), actor)
-        self._auditar(e.unidad, EventoAuditoria.resolucion_checkpoint, actor,
-                      checkpoint=str(e.checkpoint), decision=e.decision.value, canal=actor.canal.value)
+        self._auditar(
+            e.unidad,
+            EventoAuditoria.resolucion_checkpoint,
+            actor,
+            checkpoint=str(e.checkpoint),
+            decision=e.decision.value,
+            canal=actor.canal.value,
+        )
         self.n.almacen.registrar_entrada(
-            EntradaPendiente(alcance=e.unidad, request_id=str(e.checkpoint), tipo=TipoEntrada.resolucion,
-                             carga=resolucion.model_dump(mode="json"), recibida_en=self.n.reloj())
+            EntradaPendiente(
+                alcance=e.unidad,
+                request_id=str(e.checkpoint),
+                tipo=TipoEntrada.resolucion,
+                carga=resolucion.model_dump(mode="json"),
+                recibida_en=self.n.reloj(),
+            )
         )
         await self._reanudar(e.unidad)
         return EstadoSalida(estado=self._estado(e.unidad) if self.en_linea else nuevo)
@@ -364,26 +459,40 @@ class Motor:
 
     async def integrate(self, e: UnitIntegrateEntrada, actor: Actor) -> EstadoSalida:
         self._humano(actor, "integrar una unidad")
-        integracion = Integracion(actor=actor, en=self.n.reloj(), especificacion_viva=e.especificacion_viva,
-                                  pr_url=e.pr_url)
+        integracion = Integracion(
+            actor=actor, en=self.n.reloj(), especificacion_viva=e.especificacion_viva, pr_url=e.pr_url
+        )
 
         def integrar(estado: EstadoUnidad) -> dict[str, Any]:
             if estado.fase != Fase.done:
-                raise ErrorNegocio(CodigoError.unidad_no_cerrada, "solo se integra una unidad cerrada", estado.version)
+                raise ErrorNegocio(
+                    CodigoError.unidad_no_cerrada, "solo se integra una unidad cerrada", estado.version
+                )
             return {"integracion": integracion}
 
         self._estado(e.unidad)
         nuevo = self.n.escribir(e.unidad, integrar, actor)
-        self.n.emitir(e.unidad, UnidadIntegrada(especificacion_viva=e.especificacion_viva, pr_url=e.pr_url), actor)
-        self._auditar(e.unidad, EventoAuditoria.integracion, actor, especificacion_viva=e.especificacion_viva,
-                      pr_url=e.pr_url)
+        self.n.emitir(
+            e.unidad, UnidadIntegrada(especificacion_viva=e.especificacion_viva, pr_url=e.pr_url), actor
+        )
+        self._auditar(
+            e.unidad,
+            EventoAuditoria.integracion,
+            actor,
+            especificacion_viva=e.especificacion_viva,
+            pr_url=e.pr_url,
+        )
         return EstadoSalida(estado=nuevo)
 
     # --- lecturas ---------------------------------------------------------------------------------------
 
     async def status(self, e: UnitStatusEntrada, actor: Actor) -> UnitStatusSalida:
         estado = self._estado(e.unidad)
-        orden = self.n.almacen.obtener_orden(e.unidad, str(estado.orden_vigente)) if estado.orden_vigente else None
+        orden = (
+            self.n.almacen.obtener_orden(e.unidad, str(estado.orden_vigente))
+            if estado.orden_vigente
+            else None
+        )
         return UnitStatusSalida(estado=estado, orden_vigente=orden)
 
     async def list(self, e: UnitListEntrada, actor: Actor) -> UnitListSalida:
@@ -391,10 +500,18 @@ class Motor:
         return UnitListSalida(
             unidades=[
                 ResumenUnidad(
-                    unidad=s.unidad.unidad, titulo=s.titulo, fase=s.fase, estado=s.estado, modo=s.modo,
+                    unidad=s.unidad.unidad,
+                    titulo=s.titulo,
+                    fase=s.fase,
+                    estado=s.estado,
+                    modo=s.modo,
                     riesgo=s.riesgo,
-                    repositorio_primario=next(r.repositorio for r in s.repositorios if r.rol == RolRepositorio.primario),
-                    dueno_login=s.dueno.login, integrada=s.integracion is not None, actualizado_en=s.actualizado_en,
+                    repositorio_primario=next(
+                        r.repositorio for r in s.repositorios if r.rol == RolRepositorio.primario
+                    ),
+                    dueno_login=s.dueno.login,
+                    integrada=s.integracion is not None,
+                    actualizado_en=s.actualizado_en,
                 )
                 for s in estados
             ],

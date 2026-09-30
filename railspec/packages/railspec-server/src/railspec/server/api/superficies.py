@@ -15,7 +15,6 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-
 from railspec.contracts.comun import Actor
 from railspec.contracts.tools import Superficie
 
@@ -52,7 +51,9 @@ def servidor_mcp(registro: Registro, identidad: Any):
         try:
             actor = _actor(identidad, cabecera, "arnes")
         except TokenInvalido as exc:
-            return types.CallToolResult(content=[types.TextContent(type="text", text=str(exc))], is_error=True)
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text=str(exc))], is_error=True
+            )
         r = await registro.invocar(params.name, params.arguments or {}, actor, Superficie.mcp)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=json.dumps(r.cuerpo, ensure_ascii=False))],

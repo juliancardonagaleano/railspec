@@ -13,7 +13,6 @@ from apoyo_motor import (
     entrada_start,
     reporte,
 )
-
 from railspec.contracts.comun import EstadoFase, Fase, GateFase, Veredicto
 from railspec.contracts.estado import TipoCheckpoint
 from railspec.contracts.eventos import Direccion
@@ -80,11 +79,21 @@ def test_checkpoints_por_modo_semi_autonomo():
         from railspec.contracts.comun import Modo
         from railspec.contracts.estado import ConversionModo
 
-        motor.n.escribir(alcance, lambda e: {
-            "modo": Modo.semi_autonomo,
-            "modo_conversion": [ConversionModo(de=Modo.interactivo, a=Modo.semi_autonomo, actor=JULIAN_CONSOLA,
-                                               en=e.actualizado_en, motivo="triaje")],
-        })
+        motor.n.escribir(
+            alcance,
+            lambda e: {
+                "modo": Modo.semi_autonomo,
+                "modo_conversion": [
+                    ConversionModo(
+                        de=Modo.interactivo,
+                        a=Modo.semi_autonomo,
+                        actor=JULIAN_CONSOLA,
+                        en=e.actualizado_en,
+                        motivo="triaje",
+                    )
+                ],
+            },
+        )
         tipos = []
         for _ in range(20):
             av = await avanzar(motor, alcance)

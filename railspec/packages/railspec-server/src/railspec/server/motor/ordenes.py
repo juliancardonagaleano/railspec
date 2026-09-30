@@ -47,7 +47,9 @@ def _base(estado: EstadoUnidad, id_: uuid.UUID, ahora: datetime) -> dict:
 
 
 _GUIA = {
-    Artefacto.spec: "Redacta el spec: QUÉ y POR QUÉ, sin solución técnica. Cada criterio CA-NN debe ser verificable.",
+    Artefacto.spec: (
+        "Redacta el spec: QUÉ y POR QUÉ, sin solución técnica. Cada criterio CA-NN debe ser verificable."
+    ),
     Artefacto.plan: (
         "Redacta el plan técnico a partir del spec aprobado: enfoque, reutilización, grupos con sus "
         "archivos (globs relativos), riesgos y un comando de validación local."
@@ -127,7 +129,9 @@ def implementar(
     permitidos: list[Glob] | None = None,
 ) -> OrdenImplementar:
     citados = {c for t in grupo_tareas.tareas for c in t.criterios}
-    instrucciones = f"Implementa el grupo {grupo_plan.id} ({grupo_plan.nombre}) del plan: sus tareas, nada más."
+    instrucciones = (
+        f"Implementa el grupo {grupo_plan.id} ({grupo_plan.nombre}) del plan: sus tareas, nada más."
+    )
     if hallazgos:
         instrucciones = (
             f"Corrige la implementación según los hallazgos del gate de código (grupo {grupo_plan.id}). "
@@ -143,17 +147,26 @@ def implementar(
         criterios=[c for c in criterios if c.id in citados],
         comando_validacion=comando_validacion,
         grupo=grupo_plan.id,
-        tareas=[Tarea(id=t.id, descripcion=t.descripcion, criterios=t.criterios) for t in grupo_tareas.tareas],
+        tareas=[
+            Tarea(id=t.id, descripcion=t.descripcion, criterios=t.criterios) for t in grupo_tareas.tareas
+        ],
     )
 
 
 def validar(
-    estado: EstadoUnidad, comando: str, contexto: ContextoArmado, criterios: list[Criterio], id_: uuid.UUID, ahora: datetime
+    estado: EstadoUnidad,
+    comando: str,
+    contexto: ContextoArmado,
+    criterios: list[Criterio],
+    id_: uuid.UUID,
+    ahora: datetime,
 ) -> OrdenValidar:
     return OrdenValidar(
         **_base(estado, id_, ahora),
         fase=Fase.implement,
-        instrucciones="Corre el comando de validación en el worktree de la unidad y reporta la salida tal cual.",
+        instrucciones=(
+            "Corre el comando de validación en el worktree de la unidad y reporta la salida tal cual."
+        ),
         contexto=contexto,
         criterios=criterios,
         comando_validacion=comando,

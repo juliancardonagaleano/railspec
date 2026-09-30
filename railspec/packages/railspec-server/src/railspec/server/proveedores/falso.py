@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from pydantic import BaseModel
-
 from railspec.contracts.comun import Proveedor
 
 from .base import ErrorProveedor, PeticionModelo, RespuestaModelo, T, Uso
+
+USO_FIJO = Uso(tokens_entrada=1000, tokens_salida=200, costo_usd=0.01, duracion_ms=5)
 
 Guion = Callable[[PeticionModelo], BaseModel | Exception]
 
@@ -21,7 +22,7 @@ class ProveedorGuionado:
         guion: Guion,
         proveedor: Proveedor = Proveedor.foundry,
         region: str | None = "eastus2",
-        uso: Uso = Uso(tokens_entrada=1000, tokens_salida=200, costo_usd=0.01, duracion_ms=5),
+        uso: Uso = USO_FIJO,
     ) -> None:
         self.proveedor = proveedor
         self.region = region

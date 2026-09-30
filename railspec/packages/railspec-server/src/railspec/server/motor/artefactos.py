@@ -13,7 +13,6 @@ import re
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, Field
-
 from railspec.contracts.comun import Criterio, GateFase, Severidad
 from railspec.contracts.hallazgos import Cita, Hallazgo
 from railspec.contracts.orden import Artefacto, Tarea
@@ -79,7 +78,8 @@ _GRUPO_TASKS = re.compile(r"^##\s+(G\d{1,2})\s*[—:-]\s*(.+?)\s*$", re.MULTILIN
 _ARCHIVOS = re.compile(r"^\s*Archivos\s*:\s*(.+?)\s*$", re.MULTILINE | re.IGNORECASE)
 _COMANDO = re.compile(r"^\s*Comando\s*:\s*`([^`]+)`\s*$", re.MULTILINE | re.IGNORECASE)
 _TAREA = re.compile(
-    r"^\s*[-*]\s+\[[ xX]\]\s+(T-\d{2,3})\s*[:.—-]\s*(.+?)(?:\s*\(((?:CA-\d{2,3})(?:\s*,\s*CA-\d{2,3})*)\))?\s*$",
+    r"^\s*[-*]\s+\[[ xX]\]\s+(T-\d{2,3})\s*[:.—-]\s*(.+?)"
+    r"(?:\s*\(((?:CA-\d{2,3})(?:\s*,\s*CA-\d{2,3})*)\))?\s*$",
     re.MULTILINE,
 )
 _GLOB = re.compile(r"`([^`]+)`")
@@ -180,7 +180,9 @@ def _validar_plan(texto: str, v: Validacion) -> None:
             v.problemas.append((f"Grupos/{gid}", "falta la línea 'Archivos: `ruta`' con al menos una ruta"))
         for a in malos:
             v.problemas.append((f"Grupos/{gid}", f"ruta no relativa al repositorio: {a}"))
-        grupos.append(GrupoPlan(id=gid, nombre=m.group(2)[:200], archivos=[a for a in archivos if a not in malos]))
+        grupos.append(
+            GrupoPlan(id=gid, nombre=m.group(2)[:200], archivos=[a for a in archivos if a not in malos])
+        )
     if not grupos:
         v.problemas.append(("Grupos", "no hay grupos con forma '### G1 — nombre'"))
     comando = _COMANDO.search(texto)

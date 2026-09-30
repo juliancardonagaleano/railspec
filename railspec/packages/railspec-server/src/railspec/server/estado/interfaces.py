@@ -15,12 +15,11 @@ from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import TypeAdapter
-
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.orden import OrdenDeTrabajo
-from railspec.contracts.repositorio import AsignacionRol, PerfilConfig, PresupuestoConfig, VinculoRepositorio
 from railspec.contracts.reporte import ReporteOrden
+from railspec.contracts.repositorio import AsignacionRol, PerfilConfig, PresupuestoConfig, VinculoRepositorio
 from railspec.contracts.snapshot import Snapshot
 from railspec.contracts.tools import UnitListEntrada
 
@@ -55,9 +54,7 @@ class AlmacenMotor(Protocol):
     def siguiente_numero_unidad(self, alcance: AlcanceWorkspace) -> int:
         """Contador atómico por workspace para el prefijo NNNN del id de unidad."""
 
-    def listar_estados(
-        self, consulta: UnitListEntrada
-    ) -> tuple[list[EstadoUnidad], str | None]: ...
+    def listar_estados(self, consulta: UnitListEntrada) -> tuple[list[EstadoUnidad], str | None]: ...
 
     # --- órdenes, reportes y snapshots --------------------------------------------
     def guardar_orden(self, orden: OrdenDeTrabajo) -> None: ...

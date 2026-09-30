@@ -25,6 +25,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import inspect
+import logging
 import sys
 from typing import Any, Never
 
@@ -38,7 +39,6 @@ from agent_framework import (
     response_handler,
 )
 from pydantic import BaseModel, Field
-
 from railspec.contracts.comun import (
     AlcanceUnidad,
     CausaEscalado,
@@ -69,7 +69,7 @@ from railspec.contracts.orden import (
     OrdenRefinar,
     OrdenValidar,
 )
-from railspec.contracts.reporte import ResultadoOrden, ResultadoValidacion, ReporteOrden
+from railspec.contracts.reporte import ReporteOrden, ResultadoOrden, ResultadoValidacion
 from railspec.contracts.snapshot import Snapshot
 
 from ..estado.checkpoints import nombre_workflow
@@ -78,6 +78,8 @@ from .artefactos import Extraido, GrupoPlan, hallazgos_estructura, validar
 from .gate import Accion, EntradaGate, decidir, evaluar_panel
 from .nucleo import Nucleo, presupuesto_agotado
 from .perfiles import ACTOR_SERVIDOR, tope_gate
+
+log = logging.getLogger("railspec.motor")
 
 # --- Mensajes entre nodos ------------------------------------------------------------
 
@@ -153,10 +155,24 @@ class DatosUnidad(BaseModel):
 
 SalidaGate = RefinarArtefacto | RefinarCodigo | GateSuperado | GateEscalado
 CLAVE_DATOS = "railspec.datos"
-GATE_DE_ARTEFACTO = {Artefacto.spec: GateFase.spec, Artefacto.plan: GateFase.plan, Artefacto.tasks: GateFase.tasks}
+GATE_DE_ARTEFACTO = {
+    Artefacto.spec: GateFase.spec,
+    Artefacto.plan: GateFase.plan,
+    Artefacto.tasks: GateFase.tasks,
+}
 ARTEFACTO_DE_GATE = {v: k for k, v in GATE_DE_ARTEFACTO.items()}
-FASE_DE_GATE = {GateFase.spec: Fase.spec, GateFase.plan: Fase.plan, GateFase.tasks: Fase.tasks, GateFase.codigo: Fase.implement}
-CLASES_ORDEN = {"redactar": OrdenRedactar, "refinar": OrdenRefinar, "implementar": OrdenImplementar, "validar": OrdenValidar}
+FASE_DE_GATE = {
+    GateFase.spec: Fase.spec,
+    GateFase.plan: Fase.plan,
+    GateFase.tasks: Fase.tasks,
+    GateFase.codigo: Fase.implement,
+}
+CLASES_ORDEN = {
+    "redactar": OrdenRedactar,
+    "refinar": OrdenRefinar,
+    "implementar": OrdenImplementar,
+    "validar": OrdenValidar,
+}
 
 
 # --- Base de los nodos -------------------------------------------------------------------
@@ -191,17 +207,31 @@ class Nodo(Executor):
                 "estado": EstadoFase.en_progreso,
             },
         )
-        self.n.emitir(self.alcance, OrdenEmitida(orden_id=orden.id, secuencia_orden=orden.secuencia), ACTOR_SERVIDOR)
+        self.n.emitir(
+            self.alcance, OrdenEmitida(orden_id=orden.id, secuencia_orden=orden.secuencia), ACTOR_SERVIDOR
+        )
         datos = self.datos(ctx)
         datos.ultima_orden = orden.model_dump(mode="json")
         self.guardar(ctx, datos)
         await ctx.request_info(orden, ReporteOrden, request_id=str(orden.id))
 
     async def abrir_checkpoint(
-        self, ctx: WorkflowContext, tipo: TipoCheckpoint, fase: Fase, pregunta: str, bloquea: bool, sha: str | None = None
+        self,
+        ctx: WorkflowContext,
+        tipo: TipoCheckpoint,
+        fase: Fase,
+        pregunta: str,
+        bloquea: bool,
+        sha: str | None = None,
     ) -> None:
-        cp = Checkpoint(id=self.n.nuevo_id(), tipo=tipo, fase=fase, pregunta=pregunta[:2000],
-                        artefacto_sha256=sha, abierto_en=self.n.reloj())
+        cp = Checkpoint(
+            id=self.n.nuevo_id(),
+            tipo=tipo,
+            fase=fase,
+            pregunta=pregunta[:2000],
+            artefacto_sha256=sha,
+            abierto_en=self.n.reloj(),
+        )
         self.n.escribir(
             self.alcance,
             lambda e: {
@@ -219,7 +249,9 @@ class ConParadas(Nodo):
 
     async def parada(self, ctx: WorkflowContext, orden: Any, reporte: ReporteOrden) -> None:
         await self.abrir_checkpoint(
-            ctx, TipoCheckpoint.parada, orden.fase,
+            ctx,
+            TipoCheckpoint.parada,
+            orden.fase,
             f"El arnés reportó '{reporte.resultado.value}' en la orden {orden.tipo} #{orden.secuencia}: "
             f"{reporte.motivo}. ¿Reintentar?",
             bloquea=True,
@@ -278,8 +310,16 @@ class Redaccion(ConParadas):
         datos = self.datos(ctx)
         estado = self.n.leer(self.alcance)
         contexto = await self.contexto(GATE_DE_ARTEFACTO[msg.artefacto], datos)
-        orden = ordenes.redactar(estado, msg.artefacto, datos.pedido, contexto, datos.extraido.criterios,
-                                 self.n.nuevo_id(), self.n.reloj(), msg.nota)
+        orden = ordenes.redactar(
+            estado,
+            msg.artefacto,
+            datos.pedido,
+            contexto,
+            datos.extraido.criterios,
+            self.n.nuevo_id(),
+            self.n.reloj(),
+            msg.nota,
+        )
         await self.emitir_orden(ctx, orden)
 
     @handler
@@ -288,8 +328,16 @@ class Redaccion(ConParadas):
         estado = self.n.leer(self.alcance)
         contexto = await self.contexto(GATE_DE_ARTEFACTO[msg.artefacto], datos)
         actual = datos.artefactos.get(msg.artefacto.value, "")
-        orden = ordenes.refinar(estado, msg.artefacto, _sha(actual), msg.hallazgos, contexto,
-                                datos.extraido.criterios, self.n.nuevo_id(), self.n.reloj())
+        orden = ordenes.refinar(
+            estado,
+            msg.artefacto,
+            _sha(actual),
+            msg.hallazgos,
+            contexto,
+            datos.extraido.criterios,
+            self.n.nuevo_id(),
+            self.n.reloj(),
+        )
         await self.emitir_orden(ctx, orden)
 
     @response_handler
@@ -325,13 +373,29 @@ class Gate(Nodo):
 
         gob = await self.n.gobernanza.consultar(self.alcance, fase, _objeto(estado.titulo, datos))
         if gob.consultada != GobernanzaConsultada.si:
-            await self.escalar(ctx, datos, fase, CausaEscalado.sin_gobernanza, iteracion - 1, [], gob.consultada,
-                               f"gobernanza {gob.consultada.value}: {gob.detalle}")
+            await self.escalar(
+                ctx,
+                datos,
+                fase,
+                CausaEscalado.sin_gobernanza,
+                iteracion - 1,
+                [],
+                gob.consultada,
+                f"gobernanza {gob.consultada.value}: {gob.detalle}",
+            )
             return
         agotado = presupuesto_agotado(estado)
         if agotado:
-            await self.escalar(ctx, datos, fase, CausaEscalado.presupuesto_agotado, iteracion - 1, [],
-                               gob.consultada, f"presupuesto agotado ({agotado})")
+            await self.escalar(
+                ctx,
+                datos,
+                fase,
+                CausaEscalado.presupuesto_agotado,
+                iteracion - 1,
+                [],
+                gob.consultada,
+                f"presupuesto agotado ({agotado})",
+            )
             return
 
         # Capa determinista: sin tokens.
@@ -349,15 +413,32 @@ class Gate(Nodo):
         if deterministas:
             hallazgos = deterministas
         else:
-            entrada = EntradaGate(fase=fase, material=material, criterios=extraido.criterios,
-                                  gobernanza=gob.items, perfil=perfil, tope=tope, nivel=nivel,
-                                  hallazgos_previos=previos)
+            entrada = EntradaGate(
+                fase=fase,
+                material=material,
+                criterios=extraido.criterios,
+                gobernanza=gob.items,
+                perfil=perfil,
+                tope=tope,
+                nivel=nivel,
+                hallazgos_previos=previos,
+            )
             panel = await evaluar_panel(entrada, self.n.proveedores, datos.siguiente_hallazgo)
             if panel.llamadas:
-                self.n.escribir(self.alcance, lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas), anunciar=False)
+                self.n.escribir(
+                    self.alcance, lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas), anunciar=False
+                )
             if panel.error:
-                await self.escalar(ctx, datos, fase, CausaEscalado.error_proveedor, iteracion, [],
-                                   gob.consultada, f"proveedor: {panel.error}")
+                await self.escalar(
+                    ctx,
+                    datos,
+                    fase,
+                    CausaEscalado.error_proveedor,
+                    iteracion,
+                    [],
+                    gob.consultada,
+                    f"proveedor: {panel.error}",
+                )
                 return
             hallazgos, criticos, refutador = panel.hallazgos, panel.criticos, panel.refutador
         datos.siguiente_hallazgo += len(hallazgos)
@@ -371,8 +452,11 @@ class Gate(Nodo):
             self.guardar(ctx, datos)
             resultado = ResultadoGate(
                 veredicto=Veredicto.aprobado if iteracion == 1 else Veredicto.refinado,
-                iteraciones=iteracion, hallazgos=[h for h in hallazgos if h not in bloqueantes(hallazgos)],
-                gobernanza_consultada=gob.consultada, criticos=criticos, refutador=refutador,
+                iteraciones=iteracion,
+                hallazgos=[h for h in hallazgos if h not in bloqueantes(hallazgos)],
+                gobernanza_consultada=gob.consultada,
+                criticos=criticos,
+                refutador=refutador,
                 cerrado_en=self.n.reloj(),
             )
             self.cerrar_gate(fase, resultado)
@@ -385,34 +469,108 @@ class Gate(Nodo):
             if fase == GateFase.codigo:
                 await ctx.send_message(RefinarCodigo(hallazgos=abiertos), target_id="implementacion")
             else:
-                await ctx.send_message(RefinarArtefacto(artefacto=ARTEFACTO_DE_GATE[fase], hallazgos=abiertos),
-                                       target_id="redaccion")
+                await ctx.send_message(
+                    RefinarArtefacto(artefacto=ARTEFACTO_DE_GATE[fase], hallazgos=abiertos),
+                    target_id="redaccion",
+                )
         else:
-            await self.escalar(ctx, datos, fase, decision.causa or CausaEscalado.hallazgos_sin_resolver, iteracion,
-                               bloqueantes(hallazgos), gob.consultada, decision.motivo, criticos, refutador)
+            await self.escalar(
+                ctx,
+                datos,
+                fase,
+                decision.causa or CausaEscalado.hallazgos_sin_resolver,
+                iteracion,
+                bloqueantes(hallazgos),
+                gob.consultada,
+                decision.motivo,
+                criticos,
+                refutador,
+            )
 
     def cerrar_gate(self, fase: GateFase, resultado: ResultadoGate) -> None:
         self.n.escribir(self.alcance, lambda e: {"gates": {**e.gates, fase: resultado}})
-        self.n.emitir(self.alcance, VeredictoEmitido(gate=fase, veredicto=resultado.veredicto), ACTOR_SERVIDOR)
+        self.n.emitir(
+            self.alcance, VeredictoEmitido(gate=fase, veredicto=resultado.veredicto), ACTOR_SERVIDOR
+        )
 
-    async def escalar(self, ctx, datos, fase, causa, iteraciones, hallazgos, consultada, motivo,
-                      criticos=None, refutador=False) -> None:
+    async def escalar(
+        self,
+        ctx,
+        datos,
+        fase,
+        causa,
+        iteraciones,
+        hallazgos,
+        consultada,
+        motivo,
+        criticos=None,
+        refutador=False,
+    ) -> None:
         datos.iteraciones.pop(fase.value, None)
         datos.previos.pop(fase.value, None)
         self.guardar(ctx, datos)
         resultado = ResultadoGate(
-            veredicto=Veredicto.escalado, causa=causa, iteraciones=max(iteraciones, 0), hallazgos=hallazgos,
-            gobernanza_consultada=consultada, criticos=criticos or [], refutador=refutador,
+            veredicto=Veredicto.escalado,
+            causa=causa,
+            iteraciones=max(iteraciones, 0),
+            hallazgos=hallazgos,
+            gobernanza_consultada=consultada,
+            criticos=criticos or [],
+            refutador=refutador,
             cerrado_en=self.n.reloj(),
         )
         self.cerrar_gate(fase, resultado)
         await ctx.send_message(GateEscalado(fase=fase, motivo=motivo[:1500]), target_id="decision")
 
+    def impacto_grafo(self, estado) -> str:
+        """Impacto aguas arriba de la superposición de la unidad (railspec-graph), si hay grafo.
+
+        ``impacto_superposicion`` no es parte de ``GraphStore``: se usa si el
+        almacén de grafo lo ofrece. Un fallo del grafo no bloquea el gate.
+        """
+
+        impacto = getattr(self.n.grafo, "impacto_superposicion", None)
+        if impacto is None:
+            return ""
+        from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace
+        from railspec.contracts.tools import ConsultaResolve, GraphQueryEntrada
+
+        a = self.alcance
+        visibles = [
+            AlcanceRepositorio(org=a.org, workspace=a.workspace, repositorio=r.repositorio)
+            for r in estado.repositorios
+        ]
+        consulta = GraphQueryEntrada(
+            alcance=AlcanceWorkspace(org=a.org, workspace=a.workspace),
+            unidad=a.unidad,
+            consulta=ConsultaResolve(nombre="*"),
+        )
+        try:
+            tocados, alcanzados = impacto(consulta, visibles)
+        except Exception as exc:  # el grafo informa, no decide
+            log.warning("impacto de grafo no disponible para %s: %s", a.unidad, exc)
+            return ""
+        if not tocados:
+            return ""
+        riesgo = alcanzados[0].riesgo if alcanzados else "bajo"
+        lineas = [
+            f"Impacto en el grafo (riesgo {riesgo}): {len(tocados)} símbolos tocados, "
+            f"{len(alcanzados)} afectados aguas arriba."
+        ]
+        for r in alcanzados[:100]:
+            ref = r.ref
+            nombre = getattr(ref, "nombre", None) or getattr(ref, "ruta", None) or ref.tipo
+            rel = r.relacion.value if r.relacion else "?"
+            lineas.append(f"- {nombre} ({rel}, distancia {r.distancia})")
+        return "\n".join(lineas)
+
     def material_codigo(self, datos: DatosUnidad, nivel: NivelCodigo, estado) -> tuple[str, list[Hallazgo]]:
         """Resumen del cambio para los críticos; en ``restringido`` no hay texto de código."""
 
         snapshots: list[Snapshot] = [
-            s for s in (self.n.almacen.obtener_snapshot(self.alcance, i) for i in datos.snapshots) if s is not None
+            s
+            for s in (self.n.almacen.obtener_snapshot(self.alcance, i) for i in datos.snapshots)
+            if s is not None
         ]
         permitidos = sorted({a for g in datos.extraido.grupos_plan for a in g.archivos})
         archivos: dict[str, str] = {}
@@ -422,27 +580,49 @@ class Gate(Nodo):
             for a in s.archivos:
                 archivos[a.ruta] = a.estado.value
             if s.delta_indice:
-                simbolos += [f"{x.tipo.value} {x.nombre} ({x.ruta}:{x.linea_inicio})" for x in s.delta_indice.simbolos_upsert]
+                simbolos += [
+                    f"{x.tipo.value} {x.nombre} ({x.ruta}:{x.linea_inicio})"
+                    for x in s.delta_indice.simbolos_upsert
+                ]
             if s.diff and nivel != NivelCodigo.restringido:
                 diffs.append(s.diff[:60_000])
         n = datos.siguiente_hallazgo
         deterministas: list[Hallazgo] = []
         fuera = [r for r in archivos if permitidos and not any(fnmatch.fnmatch(r, g) for g in permitidos)]
         for r in sorted(fuera):
-            deterministas.append(_h(GateFase.codigo, n + len(deterministas), "encaje", f"archivo fuera del plan: {r}",
-                                    Cita(ruta=r), "El snapshot toca un archivo que ningún grupo del plan permite."))
+            deterministas.append(
+                _h(
+                    GateFase.codigo,
+                    n + len(deterministas),
+                    "encaje",
+                    f"archivo fuera del plan: {r}",
+                    Cita(ruta=r),
+                    "El snapshot toca un archivo que ningún grupo del plan permite.",
+                )
+            )
         v = datos.validacion
         if v is not None and v.codigo_salida != 0:
-            deterministas.append(_h(GateFase.codigo, n + len(deterministas), "validacion",
-                                    f"la validación falla (código {v.codigo_salida})", Cita(seccion="validación"),
-                                    f"{v.comando} → {v.salida[-3000:]}"))
+            deterministas.append(
+                _h(
+                    GateFase.codigo,
+                    n + len(deterministas),
+                    "validacion",
+                    f"la validación falla (código {v.codigo_salida})",
+                    Cita(seccion="validación"),
+                    f"{v.comando} → {v.salida[-3000:]}",
+                )
+            )
         partes = [
             f"Nivel de código: {nivel.value}.",
             "Tareas completadas: " + (", ".join(datos.tareas_completadas) or "(ninguna)"),
-            "Archivos del cambio:\n" + ("\n".join(f"- {e} {r}" for r, e in sorted(archivos.items())) or "- (ninguno)"),
+            "Archivos del cambio:\n"
+            + ("\n".join(f"- {e} {r}" for r, e in sorted(archivos.items())) or "- (ninguno)"),
         ]
         if simbolos:
             partes.append("Símbolos tocados:\n" + "\n".join(f"- {s}" for s in simbolos[:400]))
+        impacto = self.impacto_grafo(estado)
+        if impacto:
+            partes.append(impacto)
         if diffs:
             partes.append("Diff:\n" + "\n".join(diffs))
         if v is not None:
@@ -451,8 +631,15 @@ class Gate(Nodo):
 
 
 def _h(fase: GateFase, n: int, lente: str, titulo: str, cita: Cita, evidencia: str) -> Hallazgo:
-    return Hallazgo(id=f"H-{n}", gate=fase, lente=lente, severidad=Severidad.alta, titulo=titulo[:200],
-                    cita=cita, evidencia=evidencia[:4000])
+    return Hallazgo(
+        id=f"H-{n}",
+        gate=fase,
+        lente=lente,
+        severidad=Severidad.alta,
+        titulo=titulo[:200],
+        cita=cita,
+        evidencia=evidencia[:4000],
+    )
 
 
 class DecisionHumana(Nodo):
@@ -474,7 +661,11 @@ class DecisionHumana(Nodo):
         datos.checkpoint_gate = msg.fase
         self.guardar(ctx, datos)
         artefacto = ARTEFACTO_DE_GATE.get(msg.fase)
-        sha = _sha(datos.artefactos[artefacto.value]) if artefacto and artefacto.value in datos.artefactos else None
+        sha = (
+            _sha(datos.artefactos[artefacto.value])
+            if artefacto and artefacto.value in datos.artefactos
+            else None
+        )
         pregunta = {
             TipoCheckpoint.aprobar_spec: "¿Apruebas el spec?",
             TipoCheckpoint.aprobar_plan: "¿Apruebas el plan técnico?",
@@ -488,14 +679,19 @@ class DecisionHumana(Nodo):
         datos.checkpoint_gate = msg.fase
         self.guardar(ctx, datos)
         await self.abrir_checkpoint(
-            ctx, TipoCheckpoint.gate_escalado, FASE_DE_GATE[msg.fase],
-            f"El gate {msg.fase.value} escaló: {msg.motivo}. Aprobar lo rehabilita; pedir cambios reabre el refinamiento.",
+            ctx,
+            TipoCheckpoint.gate_escalado,
+            FASE_DE_GATE[msg.fase],
+            f"El gate {msg.fase.value} escaló: {msg.motivo}. "
+            "Aprobar lo rehabilita; pedir cambios reabre el refinamiento.",
             bloquea=True,
         )
 
     @response_handler
     async def resolver(
-        self, cp: Checkpoint, res: ResolucionCheckpoint,
+        self,
+        cp: Checkpoint,
+        res: ResolucionCheckpoint,
         ctx: WorkflowContext[Avanzar | RefinarArtefacto | RefinarCodigo | Rechazada],
     ) -> None:
         datos = self.datos(ctx)
@@ -505,18 +701,26 @@ class DecisionHumana(Nodo):
             return
         if res.decision == Decision.aprobado:
             if cp.tipo == TipoCheckpoint.gate_escalado:
-                reh = Rehabilitacion(actor=res.actor, en=res.en, motivo=res.comentario or "rehabilitado por decisión humana")
+                reh = Rehabilitacion(
+                    actor=res.actor, en=res.en, motivo=res.comentario or "rehabilitado por decisión humana"
+                )
                 self.n.escribir(
                     self.alcance,
-                    lambda e: {"gates": {**e.gates, fase: e.gates[fase].model_copy(update={"rehabilitado": reh})}},
+                    lambda e: {
+                        "gates": {**e.gates, fase: e.gates[fase].model_copy(update={"rehabilitado": reh})}
+                    },
                     res.actor,
                 )
             await ctx.send_message(Avanzar(desde=fase), target_id="avance")
             return
         # Cambios solicitados: el comentario humano entra como hallazgo y el gate empieza de cero.
         humano = Hallazgo(
-            id=f"H-{datos.siguiente_hallazgo}", gate=fase, lente="humano", severidad=Severidad.alta,
-            titulo="Cambios solicitados en revisión humana", cita=Cita(seccion="(revisión humana)"),
+            id=f"H-{datos.siguiente_hallazgo}",
+            gate=fase,
+            lente="humano",
+            severidad=Severidad.alta,
+            titulo="Cambios solicitados en revisión humana",
+            cita=Cita(seccion="(revisión humana)"),
             evidencia=res.comentario or "(sin comentario)",
         )
         datos.siguiente_hallazgo += 1
@@ -526,13 +730,16 @@ class DecisionHumana(Nodo):
         if fase == GateFase.codigo:
             await ctx.send_message(RefinarCodigo(hallazgos=[humano]), target_id="implementacion")
         else:
-            await ctx.send_message(RefinarArtefacto(artefacto=ARTEFACTO_DE_GATE[fase], hallazgos=[humano]),
-                                   target_id="redaccion")
+            await ctx.send_message(
+                RefinarArtefacto(artefacto=ARTEFACTO_DE_GATE[fase], hallazgos=[humano]), target_id="redaccion"
+            )
 
 
 class Avance(Nodo):
     @handler
-    async def avanzar(self, msg: Avanzar, ctx: WorkflowContext[Cerrar | IniciarRedaccion | IniciarImplementacion]) -> None:
+    async def avanzar(
+        self, msg: Avanzar, ctx: WorkflowContext[Cerrar | IniciarRedaccion | IniciarImplementacion]
+    ) -> None:
         if msg.desde == GateFase.codigo:
             await ctx.send_message(Cerrar(), target_id="cierre")
             return
@@ -546,7 +753,9 @@ class Avance(Nodo):
 class Implementacion(ConParadas):
     def _grupos(self, datos: DatosUnidad) -> list[tuple[GrupoPlan, Any]]:
         plan = {g.id: g for g in datos.extraido.grupos_plan}
-        return [(plan.get(g.id) or GrupoPlan(id=g.id, nombre=g.nombre), g) for g in datos.extraido.grupos_tareas]
+        return [
+            (plan.get(g.id) or GrupoPlan(id=g.id, nombre=g.nombre), g) for g in datos.extraido.grupos_tareas
+        ]
 
     async def _emitir_grupo(self, ctx: WorkflowContext, datos: DatosUnidad, hallazgos=None) -> None:
         estado = self.n.leer(self.alcance)
@@ -554,14 +763,34 @@ class Implementacion(ConParadas):
         contexto = await self.contexto(GateFase.codigo, datos)
         if hallazgos:
             gp, _ = grupos[-1]
-            todas = type(grupos[-1][1])(id=gp.id, nombre=gp.nombre, tareas=[t for _, g in grupos for t in g.tareas])
+            todas = type(grupos[-1][1])(
+                id=gp.id, nombre=gp.nombre, tareas=[t for _, g in grupos for t in g.tareas]
+            )
             permitidos = sorted({a for g, _ in grupos for a in g.archivos})
-            orden = ordenes.implementar(estado, gp, todas, datos.extraido.criterios, datos.extraido.comando_validacion,
-                                        contexto, self.n.nuevo_id(), self.n.reloj(), hallazgos, permitidos)
+            orden = ordenes.implementar(
+                estado,
+                gp,
+                todas,
+                datos.extraido.criterios,
+                datos.extraido.comando_validacion,
+                contexto,
+                self.n.nuevo_id(),
+                self.n.reloj(),
+                hallazgos,
+                permitidos,
+            )
         else:
             gp, gt = grupos[datos.grupo]
-            orden = ordenes.implementar(estado, gp, gt, datos.extraido.criterios, datos.extraido.comando_validacion,
-                                        contexto, self.n.nuevo_id(), self.n.reloj())
+            orden = ordenes.implementar(
+                estado,
+                gp,
+                gt,
+                datos.extraido.criterios,
+                datos.extraido.comando_validacion,
+                contexto,
+                self.n.nuevo_id(),
+                self.n.reloj(),
+            )
         await self.emitir_orden(ctx, orden)
 
     @handler
@@ -579,7 +808,9 @@ class Implementacion(ConParadas):
         await self._emitir_grupo(ctx, datos, msg.hallazgos)
 
     @response_handler
-    async def implementado(self, orden: OrdenImplementar, reporte: ReporteOrden, ctx: WorkflowContext[CodigoListo]) -> None:
+    async def implementado(
+        self, orden: OrdenImplementar, reporte: ReporteOrden, ctx: WorkflowContext[CodigoListo]
+    ) -> None:
         if reporte.resultado != ResultadoOrden.completado:
             await self.parada(ctx, orden, reporte)
             return
@@ -602,11 +833,15 @@ class Implementacion(ConParadas):
             return
         estado = self.n.leer(self.alcance)
         contexto = await self.contexto(GateFase.codigo, datos)
-        orden = ordenes.validar(estado, comando, contexto, datos.extraido.criterios, self.n.nuevo_id(), self.n.reloj())
+        orden = ordenes.validar(
+            estado, comando, contexto, datos.extraido.criterios, self.n.nuevo_id(), self.n.reloj()
+        )
         await self.emitir_orden(ctx, orden)
 
     @response_handler
-    async def validado(self, orden: OrdenValidar, reporte: ReporteOrden, ctx: WorkflowContext[CodigoListo]) -> None:
+    async def validado(
+        self, orden: OrdenValidar, reporte: ReporteOrden, ctx: WorkflowContext[CodigoListo]
+    ) -> None:
         if reporte.resultado == ResultadoOrden.bloqueado or reporte.validacion is None:
             await self.parada(ctx, orden, reporte)
             return
@@ -639,7 +874,9 @@ def construir(nucleo: Nucleo, alcance: AlcanceUnidad, almacen_checkpoints: Any) 
     a = Avance("avance", nucleo, alcance)
     i = Implementacion("implementacion", nucleo, alcance)
     c = Cierre("cierre", nucleo, alcance)
-    b = WorkflowBuilder(name=nombre_workflow(alcance), start_executor=t, checkpoint_storage=almacen_checkpoints)
+    b = WorkflowBuilder(
+        name=nombre_workflow(alcance), start_executor=t, checkpoint_storage=almacen_checkpoints
+    )
     for origen, destinos in (
         (t, (r,)),
         (r, (g, c)),
@@ -657,7 +894,6 @@ def _registrar_tipos() -> None:
     """Tipos que viajan dentro de los checkpoints (peticiones pendientes, mensajes)."""
 
     import pydantic_core
-
     import railspec.contracts as contratos
 
     modulos = [m for nombre, m in list(sys.modules.items()) if nombre.startswith(contratos.__name__ + ".")]

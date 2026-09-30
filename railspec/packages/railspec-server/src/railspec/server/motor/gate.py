@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, ValidationError
-
 from railspec.contracts.comun import CausaEscalado, Criterio, GateFase, NivelCodigo, Severidad
 from railspec.contracts.hallazgos import Cita, Hallazgo, bloqueantes
 from railspec.contracts.orden import ItemGobernanza
@@ -44,46 +43,88 @@ class Lente:
 
 LENTES: dict[GateFase, tuple[Lente, ...]] = {
     GateFase.spec: (
-        Lente("testeabilidad", "critico-profundo",
-              "Cada CA-NN describe un comportamiento observable con resultado verificable; sin "
-              "adjetivos vagos ni criterios que solo se comprueban leyendo código."),
-        Lente("ambiguedad", "critico-profundo",
-              "Omisiones y ambigüedades: casos límite, errores, actores y datos que el spec da por "
-              "supuestos; términos con dos lecturas razonables."),
-        Lente("alcance", "critico-profundo",
-              "El alcance es coherente con el problema, el 'fuera de alcance' es explícito y el spec "
-              "no prescribe solución técnica."),
-        Lente("gobernanza", "critico-profundo",
-              "El spec respeta los ADR, policies y principios aplicables listados en el contexto; "
-              "señala cualquiera que contradiga u omita."),
+        Lente(
+            "testeabilidad",
+            "critico-profundo",
+            "Cada CA-NN describe un comportamiento observable con resultado verificable; sin "
+            "adjetivos vagos ni criterios que solo se comprueban leyendo código.",
+        ),
+        Lente(
+            "ambiguedad",
+            "critico-profundo",
+            "Omisiones y ambigüedades: casos límite, errores, actores y datos que el spec da por "
+            "supuestos; términos con dos lecturas razonables.",
+        ),
+        Lente(
+            "alcance",
+            "critico-profundo",
+            "El alcance es coherente con el problema, el 'fuera de alcance' es explícito y el spec "
+            "no prescribe solución técnica.",
+        ),
+        Lente(
+            "gobernanza",
+            "critico-profundo",
+            "El spec respeta los ADR, policies y principios aplicables listados en el contexto; "
+            "señala cualquiera que contradiga u omita.",
+        ),
     ),
     GateFase.plan: (
-        Lente("reutilizacion", "critico-profundo",
-              "El plan reutiliza lo que el repositorio ya tiene en vez de reinventarlo."),
-        Lente("simplicidad", "critico-profundo",
-              "Sin abstracciones ni generalidad que ningún CA-NN pide (YAGNI)."),
-        Lente("riesgos", "critico-profundo",
-              "Riesgos reales identificados con mitigación; grupos ejecutables y con archivos acotados; "
-              "comando de validación que prueba los CA-NN."),
-        Lente("gobernanza-coherencia", "critico-profundo",
-              "Coherencia con el spec (todo CA-NN tiene camino en el plan) y con la gobernanza aplicable."),
+        Lente(
+            "reutilizacion",
+            "critico-profundo",
+            "El plan reutiliza lo que el repositorio ya tiene en vez de reinventarlo.",
+        ),
+        Lente(
+            "simplicidad",
+            "critico-profundo",
+            "Sin abstracciones ni generalidad que ningún CA-NN pide (YAGNI).",
+        ),
+        Lente(
+            "riesgos",
+            "critico-profundo",
+            "Riesgos reales identificados con mitigación; grupos ejecutables y con archivos acotados; "
+            "comando de validación que prueba los CA-NN.",
+        ),
+        Lente(
+            "gobernanza-coherencia",
+            "critico-profundo",
+            "Coherencia con el spec (todo CA-NN tiene camino en el plan) y con la gobernanza aplicable.",
+        ),
     ),
     GateFase.tasks: (
-        Lente("atomicidad", "critico-estructural",
-              "Cada tarea es atómica, verificable y del tamaño de un cambio revisable."),
-        Lente("orden", "critico-estructural",
-              "El orden y las dependencias entre tareas y grupos son ejecutables tal como están."),
-        Lente("fidelidad", "critico-estructural",
-              "Las tareas implementan exactamente el plan: nada que el plan no diga, nada del plan sin tarea."),
+        Lente(
+            "atomicidad",
+            "critico-estructural",
+            "Cada tarea es atómica, verificable y del tamaño de un cambio revisable.",
+        ),
+        Lente(
+            "orden",
+            "critico-estructural",
+            "El orden y las dependencias entre tareas y grupos son ejecutables tal como están.",
+        ),
+        Lente(
+            "fidelidad",
+            "critico-estructural",
+            "Las tareas implementan exactamente el plan: nada que el plan no diga, nada del plan sin tarea.",
+        ),
     ),
     GateFase.codigo: (
-        Lente("cumplimiento", "critico-cumplimiento",
-              "Cada CA-NN queda satisfecho por el cambio y por la validación reportada; señala el CA que no."),
-        Lente("correctitud", "critico-profundo",
-              "Errores lógicos, casos límite y regresiones visibles en el cambio."),
-        Lente("encaje", "critico-cumplimiento",
-              "El cambio encaja con las convenciones del repositorio y con la gobernanza aplicable, "
-              "y no toca archivos fuera del alcance de la orden."),
+        Lente(
+            "cumplimiento",
+            "critico-cumplimiento",
+            "Cada CA-NN queda satisfecho por el cambio y por la validación reportada; señala el CA que no.",
+        ),
+        Lente(
+            "correctitud",
+            "critico-profundo",
+            "Errores lógicos, casos límite y regresiones visibles en el cambio.",
+        ),
+        Lente(
+            "encaje",
+            "critico-cumplimiento",
+            "El cambio encaja con las convenciones del repositorio y con la gobernanza aplicable, "
+            "y no toca archivos fuera del alcance de la orden.",
+        ),
     ),
 }
 
@@ -182,11 +223,15 @@ def _sistema(fase: GateFase, lentes: list[Lente], gobernanza: list[ItemGobernanz
 def _contenido(entrada: EntradaGate) -> str:
     partes = []
     if entrada.criterios:
-        partes.append("Criterios de aceptación:\n" + "\n".join(f"- {c.id}: {c.texto}" for c in entrada.criterios))
+        partes.append(
+            "Criterios de aceptación:\n" + "\n".join(f"- {c.id}: {c.texto}" for c in entrada.criterios)
+        )
     if entrada.hallazgos_previos:
         partes.append(
             "Hallazgos de la iteración anterior (verifica si siguen abiertos):\n"
-            + "\n".join(f"- {h.id} [{h.lente}/{h.severidad.value}] {h.titulo}" for h in entrada.hallazgos_previos)
+            + "\n".join(
+                f"- {h.id} [{h.lente}/{h.severidad.value}] {h.titulo}" for h in entrada.hallazgos_previos
+            )
         )
     partes.append("Material a evaluar:\n" + entrada.material)
     return "\n\n".join(partes)
@@ -196,7 +241,9 @@ def _sha(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
-def _a_hallazgo(p: HallazgoPropuesto, fase: GateFase, n: int, lentes: set[str], criterios: set[str]) -> Hallazgo:
+def _a_hallazgo(
+    p: HallazgoPropuesto, fase: GateFase, n: int, lentes: set[str], criterios: set[str]
+) -> Hallazgo:
     lente = p.lente if p.lente in lentes else sorted(lentes)[0]
     try:
         cita = Cita(ruta=p.ruta, linea_inicio=p.linea_inicio, linea_fin=p.linea_fin, seccion=p.seccion)
@@ -215,7 +262,9 @@ def _a_hallazgo(p: HallazgoPropuesto, fase: GateFase, n: int, lentes: set[str], 
     )
 
 
-async def evaluar_panel(entrada: EntradaGate, proveedores: Proveedores, primer_id: int = 1) -> EvaluacionPanel:
+async def evaluar_panel(
+    entrada: EntradaGate, proveedores: Proveedores, primer_id: int = 1
+) -> EvaluacionPanel:
     """Corre el panel en paralelo y, si el tope lo pide, el refutador sobre los hallazgos alta."""
 
     lentes = LENTES[entrada.fase]
@@ -223,14 +272,23 @@ async def evaluar_panel(entrada: EntradaGate, proveedores: Proveedores, primer_i
     contenido = _contenido(entrada)
     llamadas: list[Llamada] = []
 
-    async def critico(i: int, grupo: list[Lente]) -> tuple[list[Lente], RespuestaModelo[SalidaCritico], Llamada]:
+    async def critico(
+        i: int, grupo: list[Lente]
+    ) -> tuple[list[Lente], RespuestaModelo[SalidaCritico], Llamada]:
         rol = grupo[0].rol
         req = requisito(entrada.perfil, rol)
         eleccion = proveedores.elegir(rol, req, entrada.nivel)
         sistema = _sistema(entrada.fase, grupo, entrada.gobernanza)
         r = await eleccion.proveedor.completar(
-            PeticionModelo(rol=rol, modelo=eleccion.modelo, sistema=sistema, contenido=contenido,
-                           esquema=SalidaCritico, effort=req.effort, etiqueta=f"critico-{i + 1}")
+            PeticionModelo(
+                rol=rol,
+                modelo=eleccion.modelo,
+                sistema=sistema,
+                contenido=contenido,
+                esquema=SalidaCritico,
+                effort=req.effort,
+                etiqueta=f"critico-{i + 1}",
+            )
         )
         nodo = f"gate-{entrada.fase.value}:" + "+".join(lente.id for lente in grupo)
         return grupo, r, Llamada(nodo, rol, r, _sha(sistema + "\n" + contenido), req.effort)
@@ -270,7 +328,9 @@ def _nombres(grupos: list[list[Lente]]) -> list[str]:
     return [lente.id for g in grupos for lente in g]
 
 
-async def _refutar(h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores) -> tuple[SalidaRefutador, Llamada]:
+async def _refutar(
+    h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores
+) -> tuple[SalidaRefutador, Llamada]:
     req = requisito(entrada.perfil, "refutador")
     eleccion = proveedores.elegir("refutador", req, entrada.nivel)
     sistema = (
@@ -282,10 +342,19 @@ async def _refutar(h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores) 
         + _contenido(entrada)
     )
     r = await eleccion.proveedor.completar(
-        PeticionModelo(rol="refutador", modelo=eleccion.modelo, sistema=sistema, contenido=contenido,
-                       esquema=SalidaRefutador, effort=req.effort, etiqueta=f"refutar-{h.id}")
+        PeticionModelo(
+            rol="refutador",
+            modelo=eleccion.modelo,
+            sistema=sistema,
+            contenido=contenido,
+            esquema=SalidaRefutador,
+            effort=req.effort,
+            etiqueta=f"refutar-{h.id}",
+        )
     )
-    return r.valor, Llamada(f"gate-{entrada.fase.value}:refutador", "refutador", r, _sha(sistema + contenido), req.effort)
+    return r.valor, Llamada(
+        f"gate-{entrada.fase.value}:refutador", "refutador", r, _sha(sistema + contenido), req.effort
+    )
 
 
 # --- Convergencia ---------------------------------------------------------------------
@@ -306,7 +375,8 @@ class Decision:
 
 def _misma_ubicacion(a: Hallazgo, b: Hallazgo) -> bool:
     return a.lente == b.lente and (
-        (a.cita.ruta, a.cita.linea_inicio, a.cita.seccion) == (b.cita.ruta, b.cita.linea_inicio, b.cita.seccion)
+        (a.cita.ruta, a.cita.linea_inicio, a.cita.seccion)
+        == (b.cita.ruta, b.cita.linea_inicio, b.cita.seccion)
         or (a.criterio is not None and a.criterio == b.criterio)
     )
 
@@ -321,12 +391,21 @@ def decidir(iteracion: int, tope: TopeGate, actuales: list[Hallazgo], previos: l
     if previos_bloq:
         reaparecen = [h for h in abiertos if any(_misma_ubicacion(h, p) for p in previos_bloq)]
         if reaparecen:
-            return Decision(Accion.escalar, CausaEscalado.hallazgos_sin_resolver,
-                            f"sin convergencia: reaparece {reaparecen[0].titulo}")
+            return Decision(
+                Accion.escalar,
+                CausaEscalado.hallazgos_sin_resolver,
+                f"sin convergencia: reaparece {reaparecen[0].titulo}",
+            )
         if len(abiertos) >= len(previos_bloq):
-            return Decision(Accion.escalar, CausaEscalado.hallazgos_sin_resolver,
-                            "sin convergencia: los hallazgos alta/media no bajan")
+            return Decision(
+                Accion.escalar,
+                CausaEscalado.hallazgos_sin_resolver,
+                "sin convergencia: los hallazgos alta/media no bajan",
+            )
     if iteracion >= tope.iteraciones:
-        return Decision(Accion.escalar, CausaEscalado.hallazgos_sin_resolver,
-                        f"tope de {tope.iteraciones} iteraciones con hallazgos abiertos")
+        return Decision(
+            Accion.escalar,
+            CausaEscalado.hallazgos_sin_resolver,
+            f"tope de {tope.iteraciones} iteraciones con hallazgos abiertos",
+        )
     return Decision(Accion.refinar)

@@ -14,10 +14,12 @@ from railspec.contracts.comun import (
     AlcanceWorkspace,
     Canal,
     NivelCodigo,
+    Proveedor,
     TipoActor,
 )
 from railspec.contracts.estado import Decision
 from railspec.contracts.orden import Artefacto
+from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, ResultadoValidacion
 from railspec.contracts.repositorio import (
     Auditoria,
     HostingChat,
@@ -25,7 +27,6 @@ from railspec.contracts.repositorio import (
     VinculoRepositorio,
     politica_chat_por_defecto,
 )
-from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, ResultadoValidacion
 from railspec.contracts.snapshot import CambioArchivo, EscaneoSecretos, EstadoArchivo, ModoDelta, Snapshot
 from railspec.contracts.tools import (
     RepositorioInicio,
@@ -39,7 +40,6 @@ from railspec.server.motor.gate import SalidaCritico
 from railspec.server.motor.gobernanza import GobernanzaFija
 from railspec.server.proveedores import Proveedores
 from railspec.server.proveedores.falso import ProveedorGuionado
-from railspec.contracts.comun import Proveedor
 
 ORG, WS, REPO = "acme", "certificados", "certificados-api"
 BASE = "4063ae9" + "0" * 33
@@ -170,15 +170,24 @@ def snapshot(orden, nivel: NivelCodigo = NivelCodigo.restringido, rutas=("src/pd
         nivel_codigo=nivel,
         modo_delta=ModoDelta.solo_hashes,
         archivos=[
-            CambioArchivo(ruta=r, estado=EstadoArchivo.agregado, sha256_despues=hashlib.sha256(r.encode()).hexdigest())
+            CambioArchivo(
+                ruta=r, estado=EstadoArchivo.agregado, sha256_despues=hashlib.sha256(r.encode()).hexdigest()
+            )
             for r in rutas
         ],
         escaneo_secretos=EscaneoSecretos(herramienta="gitleaks", version="8.21", hallazgos=0),
     )
 
 
-def reporte(orden, *, resultado=ResultadoOrden.completado, texto: str | None = None, codigo_salida=0,
-            rutas=("src/pdf.py",), motivo=None) -> ReporteOrden:
+def reporte(
+    orden,
+    *,
+    resultado=ResultadoOrden.completado,
+    texto: str | None = None,
+    codigo_salida=0,
+    rutas=("src/pdf.py",),
+    motivo=None,
+) -> ReporteOrden:
     base = dict(
         orden_id=orden.id,
         secuencia=orden.secuencia,
@@ -192,7 +201,8 @@ def reporte(orden, *, resultado=ResultadoOrden.completado, texto: str | None = N
         if orden.tipo in ("redactar", "refinar"):
             contenido = texto if texto is not None else TEXTOS[orden.artefacto]
             base["artefacto"] = ArtefactoRedactado(
-                tipo=orden.artefacto, contenido=contenido,
+                tipo=orden.artefacto,
+                contenido=contenido,
                 sha256=hashlib.sha256(contenido.encode()).hexdigest(),
             )
         elif orden.tipo == "implementar":
@@ -200,7 +210,9 @@ def reporte(orden, *, resultado=ResultadoOrden.completado, texto: str | None = N
             base["tareas_completadas"] = [t.id for t in orden.tareas]
         elif orden.tipo == "validar":
             base["validacion"] = ResultadoValidacion(
-                comando=orden.comando_validacion, codigo_salida=codigo_salida, duracion_ms=1200,
+                comando=orden.comando_validacion,
+                codigo_salida=codigo_salida,
+                duracion_ms=1200,
                 salida="2 passed" if codigo_salida == 0 else "1 failed",
             )
     return ReporteOrden(**base)
@@ -208,12 +220,19 @@ def reporte(orden, *, resultado=ResultadoOrden.completado, texto: str | None = N
 
 async def avanzar(motor: Motor, alcance, actor=JULIAN):
     estado = motor.n.almacen.obtener_estado(alcance)
-    return (await motor.advance(UnitAdvanceEntrada(unidad=alcance, version_vista=estado.version), actor)).avance
+    return (
+        await motor.advance(UnitAdvanceEntrada(unidad=alcance, version_vista=estado.version), actor)
+    ).avance
 
 
-async def aprobar(motor: Motor, alcance, checkpoint_id, decision=Decision.aprobado, comentario=None, actor=JULIAN):
+async def aprobar(
+    motor: Motor, alcance, checkpoint_id, decision=Decision.aprobado, comentario=None, actor=JULIAN
+):
     return await motor.approve(
-        UnitApproveEntrada(unidad=alcance, checkpoint=checkpoint_id, decision=decision, comentario=comentario), actor
+        UnitApproveEntrada(
+            unidad=alcance, checkpoint=checkpoint_id, decision=decision, comentario=comentario
+        ),
+        actor,
     )
 
 

@@ -23,6 +23,8 @@ motor = [
   "fastapi>=0.115",
   "uvicorn>=0.30",
 ]
+# Grafo central (FalkorDB) para el impacto en el gate de código.
+grafo = ["railspec-graph==0.1.0"]
 test-motor = [
   "pytest>=8",
   "mongomock>=4.3",
@@ -39,6 +41,3 @@ railspec-server = "railspec.server.app:main"
 where = ["src"]
 include = ["railspec.server*"]
 namespaces = true
-
-[tool.setuptools.package-data]
-"railspec.server.motor" = ["rubricas/*.md", "plantillas/*.md"]

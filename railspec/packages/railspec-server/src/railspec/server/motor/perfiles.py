@@ -11,7 +11,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, Effort, Perfil, Proveedor, Riesgo, TipoActor
+from railspec.contracts.comun import (
+    Actor,
+    AlcanceWorkspace,
+    Canal,
+    Effort,
+    Perfil,
+    Proveedor,
+    Riesgo,
+    TipoActor,
+)
 from railspec.contracts.repositorio import Auditoria, PerfilConfig, RequisitoRol, TopeGate
 
 #: Roles de modelo del motor. Los críticos siguen la tabla del kit
