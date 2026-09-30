@@ -2,6 +2,7 @@
 
 - ``railspec mcp``: servidor MCP por stdio para el arnés (lo lanza el arnés).
 - ``railspec instalar``: configura el repositorio y los adaptadores de arnés.
+- ``railspec desinstalar``: quita los adaptadores (y, si se pide, la configuración).
 - ``railspec insumo pull <id>``: trae un insumo del chat de la consola.
 - ``railspec estado`` y ``railspec sync``: estado local y envío de la cola.
 """
@@ -11,6 +12,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -51,12 +54,23 @@ def _cmd_mcp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dir_worktrees(raiz: Path) -> Path:
+    return Path(os.environ.get(config.ENV_WORKTREES) or config.dir_worktrees_por_defecto(raiz))
+
+
+#: Configuración por máquina que el adaptador de Claude Code escribe: nunca se versiona.
+EXCLUIR_ADAPTADORES = ["/.claude/settings.local.json"]
+
+
 def _cmd_instalar(args: argparse.Namespace) -> int:
     raiz = _raiz(args.repo)
     arneses = [Arnes(a) for a in (args.arnes or [])]
+    worktrees = _dir_worktrees(raiz)
     if args.verificar:
         existente = config.leer_config_repositorio(raiz)
-        deriva = {a.value: adaptadores.verificar(raiz, a) for a in arneses or [existente.arnes] if a}
+        deriva = {
+            a.value: adaptadores.verificar(raiz, a, worktrees) for a in arneses or [existente.arnes] if a
+        }
         _imprimir({"config": str(raiz / config.ARCHIVO_CONFIG), "deriva": deriva})
         return 1 if any(deriva.values()) else 0
     ruta_config = raiz / config.ARCHIVO_CONFIG
@@ -79,16 +93,55 @@ def _cmd_instalar(args: argparse.Namespace) -> int:
             arnes=arneses[0] if arneses else (previo.arnes if previo else None),
         )
         config.escribir_config_repositorio(raiz, repo)
-    git.excluir_localmente(raiz, EXCLUIR_DE_GIT)
-    cambios = {a.value: adaptadores.instalar(raiz, a) for a in arneses}
-    _imprimir(
-        {
-            "config": str(ruta_config),
-            "nivel_codigo": repo.nivel_codigo.value,
-            "cambios": cambios,
-            "siguiente": f"exporta {config.ENV_URL} y {config.ENV_TOKEN} y reinicia el arnés",
-        }
+    git.excluir_localmente(
+        raiz, EXCLUIR_DE_GIT + (EXCLUIR_ADAPTADORES if Arnes.claude_code in arneses else [])
     )
+    cambios = {a.value: adaptadores.instalar(raiz, a, worktrees) for a in arneses}
+    salida: dict[str, Any] = {
+        "config": str(ruta_config),
+        "nivel_codigo": repo.nivel_codigo.value,
+        "cambios": cambios,
+        "siguiente": f"exporta {config.ENV_URL} y {config.ENV_TOKEN} y reinicia el arnés",
+    }
+    avisos = _avisos(arneses, worktrees)
+    if avisos:
+        salida["avisos"] = avisos
+    _imprimir(salida)
+    return 0
+
+
+def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
+    avisos = []
+    if arneses and shutil.which(adaptadores.COMANDO_PROXY[0]) is None:
+        avisos.append(
+            f"`{adaptadores.COMANDO_PROXY[0]}` no está en el PATH: el arnés no podrá lanzar el proxy. "
+            "Instala railspec-local en un entorno cuyo PATH vea el arnés (pipx install railspec-local)."
+        )
+    if Arnes.opencode in arneses:
+        avisos.append(
+            f"OpenCode pedirá permiso la primera vez que toque {worktrees} (worktrees de las unidades): "
+            "respóndele que siempre."
+        )
+    return avisos
+
+
+def _cmd_desinstalar(args: argparse.Namespace) -> int:
+    raiz = _raiz(args.repo)
+    arneses = [Arnes(a) for a in args.arnes] if args.arnes else adaptadores.instalados(raiz)
+    worktrees = _dir_worktrees(raiz)
+    cambios = {a.value: adaptadores.desinstalar(raiz, a, worktrees) for a in arneses}
+    salida: dict[str, Any] = {"cambios": cambios}
+    ruta_config = raiz / config.ARCHIVO_CONFIG
+    if args.config and ruta_config.is_file():
+        ruta_config.unlink()
+        if ruta_config.parent.is_dir() and not any(ruta_config.parent.iterdir()):
+            ruta_config.parent.rmdir()
+        salida["config"] = f"{ruta_config} borrado"
+    unidades = git.worktrees(raiz)
+    if unidades:
+        # Las unidades y su estado local no son del adaptador: se dejan donde están.
+        salida["unidades_en_local"] = {u: str(r) for u, r in sorted(unidades.items())}
+    _imprimir(salida)
     return 0
 
 
@@ -129,6 +182,18 @@ def parser() -> argparse.ArgumentParser:
     )
     inst.add_argument("--verificar", action="store_true", help="Solo informa deriva; no escribe.")
     inst.set_defaults(fn=_cmd_instalar)
+
+    des = sub.add_parser(
+        "desinstalar", help="Quita los adaptadores de arnés; las unidades y sus worktrees se conservan."
+    )
+    des.add_argument(
+        "--arnes",
+        action="append",
+        choices=[a.value for a in adaptadores.ADAPTADORES],
+        help="Repetible. Por defecto, todos los que estén instalados.",
+    )
+    des.add_argument("--config", action="store_true", help=f"Borra también {config.ARCHIVO_CONFIG}.")
+    des.set_defaults(fn=_cmd_desinstalar)
 
     ins = sub.add_parser("insumo", help="Insumos exportados desde el chat de la consola.")
     ins_sub = ins.add_subparsers(dest="accion", required=True)
