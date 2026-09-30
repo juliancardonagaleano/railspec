@@ -37,6 +37,9 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_PCE_URL": ("", "URL MCP de la gobernanza (PCE)."),
     "RAILSPEC_ANTHROPIC_HABILITADO": ("false", "Anthropic directo (solo nivel abierto)."),
     "RAILSPEC_AZURE_CLIENT_ID": ("", "Client id de la identidad administrada para Workload Identity."),
+    "RAILSPEC_OIDC_AUDIENCIA": ("railspec", "Audiencia del token OIDC de CI; la del workflow de reindexado."),
+    "RAILSPEC_OIDC_EMISOR": ("https://token.actions.githubusercontent.com", "Emisor OIDC de CI."),
+    "RAILSPEC_OIDC_REPOSITORIOS": ("", "owner/repo separados por comas que pueden llamar graph.index."),
 }
 _MARCA = re.compile(r"\$\{([A-Z0-9_]+)\}")
 

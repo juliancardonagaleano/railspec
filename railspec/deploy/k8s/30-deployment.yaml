@@ -56,9 +56,11 @@ spec:
             # RAILSPEC_FOUNDRY_API_KEY, RAILSPEC_PCE_API_KEY, RAILSPEC_ANTHROPIC_API_KEY.
             - secretRef:
                 name: ${RAILSPEC_SECRETO}
+          # /livez: el proceso atiende. /healthz: además Mongo y FalkorDB responden
+          # (503 si no). Una caída de la base saca la réplica del Service sin reiniciarla.
           startupProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: http
             periodSeconds: 2
             failureThreshold: 30
@@ -67,11 +69,11 @@ spec:
               path: /healthz
               port: http
             periodSeconds: 10
-            timeoutSeconds: 3
+            timeoutSeconds: 5
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: http
             periodSeconds: 20
             timeoutSeconds: 3

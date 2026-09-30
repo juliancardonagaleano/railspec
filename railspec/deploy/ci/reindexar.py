@@ -39,9 +39,9 @@ from railspec.contracts.comun import AlcanceRepositorio
 from railspec.contracts.snapshot import DeltaIndice
 from railspec.contracts.tools import GraphIndexEntrada, GraphIndexSalida
 
-#: Códigos con los que el servidor puede rechazar un delta cuya base no es el
+#: Código con el que el servidor rechaza un delta cuya base no es el
 #: canónico vigente; entonces se reintenta con índice completo.
-CODIGOS_DESFASE = {"base-commit-distinto", "conflicto-version"}
+CODIGOS_DESFASE = {"base-commit-distinto"}
 CERO = "0" * 40
 
 

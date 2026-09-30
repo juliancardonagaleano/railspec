@@ -72,6 +72,9 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
 | `RAILSPEC_PCE_URL` | vacío | Gobernanza por MCP; sin ella todo gate escala con `sin-gobernanza`. |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | Anthropic directo. |
 | `RAILSPEC_AZURE_CLIENT_ID` | vacío | Identidad administrada para Workload Identity (Foundry por Entra ID). Activa la etiqueta del pod. |
+| `RAILSPEC_OIDC_AUDIENCIA` | `railspec` | Audiencia del token OIDC de CI; debe coincidir con la del workflow de reindexado. Vacía desactiva `graph.index`. |
+| `RAILSPEC_OIDC_EMISOR` | `https://token.actions.githubusercontent.com` | Emisor OIDC. |
+| `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista opcional `owner/repo,…` de repositorios que pueden llamar `graph.index`. |
 
 ## Desplegar
 
@@ -88,7 +91,10 @@ curl https://$RAILSPEC_DOMINIO/healthz
 ```
 
 El proxy local apunta a `https://<dominio>/mcp/` y la consola a
-`https://<dominio>/v1/tools`. Las sondas usan `GET /healthz`.
+`https://<dominio>/v1/tools`. Sondas: arranque y vida en `GET /livez` (200
+mientras el proceso atiende) y disponibilidad en `GET /healthz` (503 si Mongo
+o FalkorDB no responden), así una caída de la base saca la réplica del
+Service sin reiniciarla.
 
 ## Reindexado del canónico
 
@@ -100,28 +106,29 @@ defecto `railspec`) es la audiencia del token.
 
 - Delta entre `github.event.before` y el commit empujado; índice completo si
   no hay commit anterior utilizable (rama nueva, force-push) o si el servidor
-  responde que el canónico no está en esa base (`base-commit-distinto` o
-  `conflicto-version`). Un lanzamiento manual con `completo` fuerza el
-  completo.
+  responde 409 `base-commit-distinto` (el canónico no está en esa base). Un
+  lanzamiento manual con `completo` fuerza el completo.
+- Otros errores detienen el job sin reintentar: 401 token inválido, 403
+  `fuera-de-alcance` (repositorio o rama distintos de los del vínculo), 404
+  sin vínculo, 422 `snapshot-invalido` (lotes de un commit que no casan).
+  Los 5xx y 429 se reintentan hasta cuatro veces.
 - Las exclusiones de secretos son las del proxy (`.railspecignore` incluido)
   y el servidor las vuelve a aplicar.
 - Un solo reindexado a la vez; si se encola más de uno, GitHub descarta los
   intermedios y el siguiente cae en índice completo.
 
-Lo que el servidor debe verificar del token (es su lado del contrato): firma
-contra `https://token.actions.githubusercontent.com/.well-known/jwks`,
-`iss` igual a ese emisor, `aud` igual a la audiencia configurada,
-`repository` igual al repositorio del vínculo y `ref` igual a su rama por
-defecto.
+El servidor verifica el token: firma contra el JWKS del emisor, `iss`,
+`aud`, caducidad y, si se da, `RAILSPEC_OIDC_REPOSITORIOS`. La tool exige
+además que `repository` sea el de la URL del vínculo y que el `@ref` de
+`workflow_ref` sea `refs/heads/<rama por defecto>` del vínculo.
 
 ## Pendiente fuera de este directorio
 
-- `railspec-server` aún no tiene la identidad OIDC ni el manejador de
-  `graph.index` (`docs/motor.md` § Pendiente). Hasta entonces el workflow de
-  reindexado fallará con 401 o 404; mejor no definir `RAILSPEC_URL` todavía.
-- `/healthz` no comprueba Mongo ni FalkorDB: una réplica sin base de datos
-  sigue recibiendo tráfico. Una sonda de disponibilidad con ping a Mongo es
-  del hilo dueño del servidor.
+- La identidad OIDC, el manejador de `graph.index` y `/livez` llegan con el
+  cambio del hilo de integración, aún no en `master`. Hasta que llegue, no
+  definir `RAILSPEC_URL` (el reindexado daría 401 o 404) ni desplegar estos
+  manifiestos (la sonda de vida en `/livez` daría 404 y reiniciaría las
+  réplicas).
 - El indexador local por CLI de `codebase-memory-mcp` pagina de a unas 60 a
   180 filas y cada llamada cuesta unos 4 s de arranque, así que un índice
   completo de un repositorio mediano tarda decenas de minutos (el job tiene
