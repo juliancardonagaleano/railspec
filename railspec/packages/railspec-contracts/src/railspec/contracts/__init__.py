@@ -14,7 +14,7 @@ from .insumo import Insumo, InsumoResuelto
 from .orden import OrdenDeTrabajo, OrdenImplementar, OrdenRedactar, OrdenRefinar, OrdenValidar
 from .reporte import ReporteOrden
 from .snapshot import Snapshot
-from .tools import TOOLS, Superficie, ToolDef, tools_para
+from .tools import TOOLS, Superficie, ToolDef, nombre_mcp, resolver_tool, tools_para
 
 __version__ = "0.1.0"
 
@@ -48,5 +48,7 @@ __all__ = [
     "Superficie",
     "ToolDef",
     "VeredictoGateSalida",
+    "nombre_mcp",
+    "resolver_tool",
     "tools_para",
 ]
