@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+# railspec-server para el entorno de integración (con dobles de modelo y gobernanza).
+# Contexto de construcción: la raíz del repositorio.
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY railspec/packages/railspec-contracts railspec/packages/railspec-contracts
+COPY railspec/packages/railspec-graph railspec/packages/railspec-graph
+COPY railspec/packages/railspec-server railspec/packages/railspec-server
+# Tras un proxy corporativo con TLS propio: RAILSPEC_E2E_CA=/ruta/ca.pem (ver docker-compose.yml).
+RUN --mount=type=secret,id=ca \
+    if [ -s /run/secrets/ca ]; then export PIP_CERT=/run/secrets/ca; fi && \
+    pip install --no-cache-dir \
+      ./railspec/packages/railspec-contracts \
+      "./railspec/packages/railspec-graph[falkordb]" \
+      "./railspec/packages/railspec-server[motor,grafo]"
+COPY railspec/integracion/railspec_e2e railspec_e2e
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8080
+CMD ["python", "-m", "railspec_e2e.servidor"]

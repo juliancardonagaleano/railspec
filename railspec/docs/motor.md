@@ -36,6 +36,9 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 - El gate escala sin gastar tokens si la gobernanza no respondió o respondió
   a medias (`sin-gobernanza`) o si el presupuesto se agotó. Un fallo del
   proveedor escala con `error-proveedor`.
+- Los artefactos de la unidad (`.railspec/unidades/<unidad>/`) viven en su
+  worktree: la orden `implementar` los admite en `alcance.permitidos` y el gate
+  de código no los cuenta como archivos fuera del plan.
 - El gate de código revisa primero archivos fuera del plan y la validación
   fallida. Con `railspec-graph` configurado, suma a los críticos el impacto
   aguas arriba de la superposición de la unidad (`impacto_superposicion`).
