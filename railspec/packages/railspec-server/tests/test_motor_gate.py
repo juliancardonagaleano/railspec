@@ -137,7 +137,7 @@ def test_hallazgo_que_reaparece_escala():
         await hasta(motor, alcance, es_checkpoint(TipoCheckpoint.gate_escalado))
         gate = motor.n.almacen.obtener_estado(alcance).gates[GateFase.spec]
         assert gate.veredicto == Veredicto.escalado
-        assert gate.causa == CausaEscalado.hallazgos_sin_resolver and gate.hallazgos
+        assert gate.causa == CausaEscalado.sin_convergencia and gate.hallazgos
 
     correr(caso())
 
@@ -391,5 +391,61 @@ def test_plan_invalido_no_se_acepta():
         await motor.report(reporte(av.orden, texto=sin_validacion), JULIAN)
         av = await avanzar(motor, alcance)
         assert av.tipo == "orden" and av.orden.tipo == "refinar" and av.orden.artefacto.value == "plan"
+
+    correr(caso())
+
+
+def test_modo_inicial_y_pedido_quedan_en_el_estado():
+    async def caso():
+        from railspec.contracts.comun import Modo
+
+        motor, _ = construir()
+        salida = await motor.start(entrada_start(modo=Modo.semi_autonomo), JULIAN)
+        estado = salida.estado
+        assert estado.modo == Modo.semi_autonomo and estado.pedido == "Los certificados deben salir firmados."
+        assert [(c.de, c.a, c.tras) for c in estado.modo_conversion] == [
+            (Modo.interactivo, Modo.semi_autonomo, None)
+        ]
+        tipos = []
+        await hasta(
+            motor,
+            estado.unidad,
+            lambda av: (
+                av.tipo == "cerrada"
+                or (av.tipo == "checkpoint" and tipos.append(av.checkpoint.tipo) and False)
+            ),
+        )
+        assert tipos == [TipoCheckpoint.paquete_aprobacion]
+
+    correr(caso())
+
+
+def test_set_mode_solo_tras_el_checkpoint_del_spec():
+    from railspec.contracts.comun import Modo
+    from railspec.contracts.tools import UnitSetModeEntrada
+
+    def entrada(motor, alcance, modo=Modo.semi_autonomo, version=None):
+        v = version or motor.n.almacen.obtener_estado(alcance).version
+        return UnitSetModeEntrada(unidad=alcance, modo=modo, motivo="spec claro", version_vista=v)
+
+    async def caso():
+        motor, _ = construir()
+        alcance = await iniciar(motor)
+        with pytest.raises(ErrorNegocio) as exc:
+            await motor.set_mode(entrada(motor, alcance), JULIAN)
+        assert exc.value.codigo == CodigoError.conversion_no_permitida
+        av = await hasta(motor, alcance, es_checkpoint(TipoCheckpoint.aprobar_spec))
+        with pytest.raises(ErrorNegocio) as exc:
+            await motor.set_mode(entrada(motor, alcance, version=1), JULIAN)
+        assert exc.value.codigo == CodigoError.conflicto_version
+        estado = (await motor.set_mode(entrada(motor, alcance), JULIAN)).estado
+        assert estado.modo == Modo.semi_autonomo and estado.modo_conversion[-1].tras == Fase.spec
+        await aprobar(motor, alcance, av.checkpoint.id)
+        # Semi-autónomo desde aquí: sin checkpoint de plan, un paquete de aprobación tras las tareas.
+        av = await hasta(motor, alcance, lambda a: a.tipo == "checkpoint")
+        assert av.checkpoint.tipo == TipoCheckpoint.paquete_aprobacion
+        with pytest.raises(ErrorNegocio) as exc:
+            await motor.set_mode(entrada(motor, alcance, Modo.interactivo), JULIAN)
+        assert exc.value.codigo == CodigoError.conversion_no_permitida
 
     correr(caso())

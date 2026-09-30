@@ -39,6 +39,9 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 - El gate de código revisa primero archivos fuera del plan y la validación
   fallida. Con `railspec-graph` configurado, suma a los críticos el impacto
   aguas arriba de la superposición de la unidad (`impacto_superposicion`).
+- El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
+  tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
+  siguiente gate.
 - Las aprobaciones web son opcionales y gana la primera resolución; la
   segunda recibe `checkpoint-ya-resuelto`.
 
@@ -59,9 +62,6 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
 
 ## Pendiente
 
-- Huecos de contrato: no hay causa `sin-convergencia` (se usa
-  `hallazgos-sin-resolver`), no hay tool para cambiar el modo de una unidad
-  (nace `interactivo`) y `EstadoUnidad` no guarda el pedido original.
 - Identidad OIDC de GitHub Actions (actor de servicio) y la tool
   `graph.index`.
 - Manejadores de `insumo.get` y `code.read` (`graph.query` ya se enchufa con el grafo): el registro los

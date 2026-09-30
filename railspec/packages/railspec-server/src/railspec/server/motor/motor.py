@@ -33,6 +33,7 @@ from railspec.contracts.comun import (
     AlcanceWorkspace,
     EstadoFase,
     Fase,
+    GateFase,
     Modo,
     Perfil,
     Presupuesto,
@@ -42,10 +43,12 @@ from railspec.contracts.comun import (
 )
 from railspec.contracts.estado import (
     Consumo,
+    ConversionModo,
     EstadoUnidad,
     Integracion,
     RepositorioUnidad,
     ResolucionCheckpoint,
+    TipoCheckpoint,
 )
 from railspec.contracts.eventos import CheckpointResuelto, OrdenReportada, SnapshotSubido, UnidadIntegrada
 from railspec.contracts.reporte import ReporteOrden, ResultadoOrden
@@ -67,6 +70,7 @@ from railspec.contracts.tools import (
     UnitListEntrada,
     UnitListSalida,
     UnitReportSalida,
+    UnitSetModeEntrada,
     UnitStartEntrada,
     UnitStartSalida,
     UnitStatusEntrada,
@@ -140,6 +144,24 @@ def negociar(version_cliente: str) -> str:
             f"el servidor habla {VERSION_SERVIDOR[0]}.x; el cliente pidió {version_cliente}",
         )
     return f"{mayor}.{min(menor, VERSION_SERVIDOR[1])}"
+
+
+def _momento_de_conversion(estado: EstadoUnidad) -> Fase | None:
+    """Fase tras la que se admite convertir el modo ahora, o ``None`` si no se admite."""
+
+    if estado.fase == Fase.research:
+        return Fase.research
+    cp = estado.checkpoint_pendiente
+    if cp is not None and cp.tipo == TipoCheckpoint.aprobar_spec:
+        return Fase.spec
+    # Tras el gate del spec y antes de que el plan tenga veredicto.
+    if (
+        GateFase.spec in estado.gates
+        and GateFase.plan not in estado.gates
+        and estado.fase in (Fase.spec, Fase.plan)
+    ):
+        return Fase.spec
+    return None
 
 
 # --- Motor --------------------------------------------------------------------------------
@@ -251,6 +273,18 @@ class Motor:
         )
         presupuesto = self.n.almacen.presupuesto(e.alcance)
         ahora = self.n.reloj()
+        conversiones = []
+        if e.modo is not None and e.modo != Modo.interactivo:
+            conversiones.append(
+                ConversionModo(
+                    de=Modo.interactivo,
+                    a=e.modo,
+                    actor=actor,
+                    en=ahora,
+                    motivo="modo fijado en la petición inicial",
+                    tras=None,
+                )
+            )
         estado = EstadoUnidad(
             unidad=alcance,
             version=1,
@@ -268,7 +302,9 @@ class Motor:
             ],
             fase=Fase.spec,
             estado=EstadoFase.en_progreso,
-            modo=Modo.interactivo,
+            modo=conversiones[-1].a if conversiones else Modo.interactivo,
+            modo_conversion=conversiones,
+            pedido=e.pedido,
             riesgo=triaje(e),
             perfil=e.perfil or Perfil.estandar,
             insumos=list(e.insumos),
@@ -282,6 +318,46 @@ class Motor:
         # El primer tramo del DAG no llama modelos (solo emite la orden del spec): corre en línea.
         await self.procesar(alcance, pedido=e.pedido)
         return UnitStartSalida(estado=self._estado(alcance), version_contrato_negociada=negociada)
+
+    # --- unit.set_mode ---------------------------------------------------------------------
+
+    async def set_mode(self, e: UnitSetModeEntrada, actor: Actor) -> EstadoSalida:
+        """Conversión de modo tras research o tras el checkpoint del spec (protocolo del kit).
+
+        El DAG lee el modo al decidir cada checkpoint, así que la conversión
+        rige desde el siguiente gate sin tocar el workflow.
+        """
+
+        self._humano(actor, "convertir el modo")
+
+        def convertir(estado: EstadoUnidad) -> dict[str, Any]:
+            if estado.version != e.version_vista:
+                raise ErrorNegocio(
+                    CodigoError.conflicto_version,
+                    f"viste la versión {e.version_vista}; la vigente es {estado.version}",
+                    estado.version,
+                )
+            tras = _momento_de_conversion(estado)
+            if tras is None:
+                raise ErrorNegocio(
+                    CodigoError.conversion_no_permitida,
+                    "el modo solo se convierte tras research o tras el checkpoint del spec",
+                    estado.version,
+                )
+            if estado.modo == e.modo:
+                raise ErrorNegocio(
+                    CodigoError.conversion_no_permitida,
+                    f"la unidad ya está en {e.modo.value}",
+                    estado.version,
+                )
+            conversion = ConversionModo(
+                de=estado.modo, a=e.modo, actor=actor, en=self.n.reloj(), motivo=e.motivo, tras=tras
+            )
+            return {"modo": e.modo, "modo_conversion": [*estado.modo_conversion, conversion]}
+
+        self._estado(e.unidad)
+        nuevo = self.n.escribir(e.unidad, convertir, actor)
+        return EstadoSalida(estado=nuevo)
 
     # --- unit.advance ----------------------------------------------------------------------
 

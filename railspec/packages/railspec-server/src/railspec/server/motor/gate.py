@@ -393,13 +393,13 @@ def decidir(iteracion: int, tope: TopeGate, actuales: list[Hallazgo], previos: l
         if reaparecen:
             return Decision(
                 Accion.escalar,
-                CausaEscalado.hallazgos_sin_resolver,
+                CausaEscalado.sin_convergencia,
                 f"sin convergencia: reaparece {reaparecen[0].titulo}",
             )
         if len(abiertos) >= len(previos_bloq):
             return Decision(
                 Accion.escalar,
-                CausaEscalado.hallazgos_sin_resolver,
+                CausaEscalado.sin_convergencia,
                 "sin convergencia: los hallazgos alta/media no bajan",
             )
     if iteracion >= tope.iteraciones:

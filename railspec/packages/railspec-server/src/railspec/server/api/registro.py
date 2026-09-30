@@ -126,6 +126,7 @@ class Registro:
             "unit.advance": motor.advance,
             "unit.report": motor.report,
             "unit.approve": motor.approve,
+            "unit.set_mode": motor.set_mode,
             "unit.integrate": motor.integrate,
             "unit.status": motor.status,
             "unit.list": motor.list,
