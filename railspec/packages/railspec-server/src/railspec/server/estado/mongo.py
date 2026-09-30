@@ -250,6 +250,10 @@ class AlmacenMongo:
         doc = self.db.ordenes.find_one({"_id": str(orden_id), **_filtro_unidad(alcance)})
         return ADAPTADOR_ORDEN.validate_python(_limpio(doc)) if doc else None
 
+    def reporte_aceptado(self, alcance: AlcanceUnidad, orden_id: Any, secuencia: int) -> bool:
+        filtro = {"_id": str(orden_id), "_clave": _clave_unidad(alcance), "secuencia": secuencia}
+        return self.db.reportes.find_one(filtro, {"_id": 1}) is not None
+
     def guardar_reporte(self, reporte: ReporteOrden) -> None:
         doc = _doc(reporte.model_copy(update={"snapshot": None}))
         doc["snapshot_id"] = str(reporte.snapshot.id) if reporte.snapshot else None

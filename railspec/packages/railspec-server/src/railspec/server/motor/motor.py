@@ -438,6 +438,14 @@ class Motor:
     async def report(self, r: ReporteOrden, actor: Actor) -> UnitReportSalida:
         estado = self._estado(r.unidad)
         if estado.orden_vigente is None or estado.orden_vigente != r.orden_id:
+            if self.n.almacen.reporte_aceptado(r.unidad, r.orden_id, r.secuencia):
+                # Reenvío de un reporte ya aceptado (el proxy perdió la respuesta): lo decimos
+                # con un código propio para que el cliente lo dé por entregado.
+                raise ErrorNegocio(
+                    CodigoError.secuencia_duplicada,
+                    f"el reporte de la orden {r.orden_id} (secuencia {r.secuencia}) ya fue aceptado",
+                    estado.version,
+                )
             raise ErrorNegocio(
                 CodigoError.orden_no_vigente, "el reporte no corresponde a la orden vigente", estado.version
             )
