@@ -231,6 +231,7 @@ def estado_unidad() -> EstadoUnidad:
         unidad=ALCANCE_UNIDAD,
         version=12,
         titulo="Emitir certificados en PDF firmado",
+        pedido="Quiero que los certificados se emitan en PDF firmado digitalmente.",
         dueno=JULIAN,
         arnes=Arnes.claude_code,
         repositorios=[

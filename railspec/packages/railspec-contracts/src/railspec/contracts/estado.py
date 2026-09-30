@@ -15,6 +15,7 @@ from pydantic import UUID4, AwareDatetime, Field, model_validator
 
 from ._base import Contrato, Mensaje
 from .comun import (
+    MODOS_CON_MANDATO,
     Actor,
     AlcanceUnidad,
     Arnes,
@@ -78,6 +79,8 @@ class ResultadoGate(Contrato):
         if self.veredicto == Veredicto.escalado:
             if self.causa is None:
                 raise ValueError("un gate escalado necesita causa")
+            if self.causa == CausaEscalado.sin_convergencia and self.iteraciones < 1:
+                raise ValueError("sin-convergencia exige al menos una iteración de refinamiento")
         else:
             if self.causa is not None:
                 raise ValueError("solo un gate escalado lleva causa")
@@ -193,6 +196,20 @@ class ConversionModo(Contrato):
     actor: Actor
     en: AwareDatetime
     motivo: str = Field(min_length=1, max_length=2000)
+    tras: Fase | None = Field(
+        default=None,
+        description=(
+            "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). "
+            "None solo en la primera conversión, cuando el humano fija el modo en unit.start."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _reglas(self) -> ConversionModo:
+        _exigir_humano(self.actor, "convertir el modo de una unidad")
+        if self.de == self.a:
+            raise ValueError("una conversión de modo cambia el modo")
+        return self
 
 
 class Consumo(Contrato):
@@ -205,6 +222,11 @@ class EstadoUnidad(Mensaje):
     unidad: AlcanceUnidad
     version: int = Field(ge=1, description="Bloqueo optimista; +1 en cada escritura.")
     titulo: str = Field(min_length=1, max_length=200)
+    pedido: str | None = Field(
+        default=None,
+        max_length=20_000,
+        description="Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+    )
     dueno: Actor
     carril: str | None = Field(default=None, max_length=40)
     arnes: Arnes | None = Field(default=None, description="None si la unidad nació en la consola.")
@@ -259,8 +281,12 @@ class EstadoUnidad(Mensaje):
             for previa, siguiente in zip(self.modo_conversion, self.modo_conversion[1:], strict=False):
                 if previa.a != siguiente.de:
                     raise ValueError("conversiones de modo encadenadas incoherentes")
+            if any(c.tras is None for c in self.modo_conversion[1:]):
+                raise ValueError("solo la primera conversión (en unit.start) puede no tener fase")
         elif self.modo != Modo.interactivo:
             raise ValueError("una unidad que no es interactivo necesita su modo_conversion")
+        if self.modo in MODOS_CON_MANDATO and self.unidad.plan is None:
+            raise ValueError(f"modo {self.modo.value} exige un mandato (unidad.plan)")
         if (self.fase == Fase.done) != (self.estado == EstadoFase.completado):
             raise ValueError("fase done y estado completado van juntos")
         if self.fase == Fase.done:

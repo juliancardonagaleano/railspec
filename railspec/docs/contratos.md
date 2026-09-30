@@ -55,6 +55,7 @@ HTTP de la consola (R1).
 | `unit.report` | escritura | sí | no | no |
 | `unit.approve` | escritura | sí | sí | no |
 | `unit.integrate` | escritura | sí | sí | no |
+| `unit.set_mode` | escritura | sí (solo humano) | sí (solo humano) | no |
 | `unit.status` | lectura | sí | sí | sí |
 | `unit.list` | lectura | sí | sí | sí |
 | `graph.query` | lectura | sí | sí | sí |
@@ -90,8 +91,10 @@ su prueba negativa.
   refutar obligan a escalar); nunca critican de memoria (sin gobernanza, el
   gate escala con `sin-gobernanza`); un escalado siempre lleva causa y solo
   un humano lo rehabilita.
-- **Unidad.** Nace `interactivo` y todo cambio de modo queda en
-  `modo_conversion`; no tiene a la vez orden vigente y checkpoint pendiente;
+- **Unidad.** Nace `interactivo` salvo que el humano fije otro modo en
+  `unit.start`; todo cambio de modo lo hace un humano con `unit.set_mode`
+  (tras research o tras el checkpoint del spec) y queda en `modo_conversion`;
+  `supervisado` y `desatendido` exigen un mandato (`unidad.plan`); no tiene a la vez orden vigente y checkpoint pendiente;
   `done` exige el gate de código superado o rehabilitado; `integrado` solo
   existe tras el cierre y no lo condiciona.
 - **Checkpoints (R7).** Se resuelven por cualquier canal (elicitation,
@@ -125,7 +128,10 @@ su prueba negativa.
   conoce con `version-contrato-no-soportada`.
 - Historial: `1.0` (fase 1); `1.1` añade `vector_b64` y `modelo_embedding`
   opcionales en la búsqueda de `graph.query`, la tool `graph.index` para CI,
-  `repositorio_destino` en las aristas y `tipos_actor` en el registro.
+  `repositorio_destino` en las aristas y `tipos_actor` en el registro;
+  `1.2` añade la causa de escalado `sin-convergencia`, la tool
+  `unit.set_mode`, `modo` opcional en `unit.start`, `tras` en cada
+  conversión de modo y `pedido` en el estado de la unidad.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

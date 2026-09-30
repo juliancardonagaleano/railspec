@@ -14,6 +14,7 @@
           "secretos-detectados",
           "checkpoint-ya-resuelto",
           "perfil-insatisfacible",
+          "conversion-no-permitida",
           "unidad-no-cerrada",
           "presupuesto-agotado"
         ],
@@ -33,10 +34,11 @@
         "type": "string"
       },
       "version_contrato": {
-        "default": "1.1",
+        "default": "1.2",
         "enum": [
           "1.0",
-          "1.1"
+          "1.1",
+          "1.2"
         ],
         "title": "Version Contrato",
         "type": "string"
@@ -171,10 +173,11 @@
             "title": "Simbolo"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -251,10 +254,11 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -598,10 +602,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -639,10 +644,11 @@
             "type": "integer"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -935,10 +941,11 @@
             "title": "Unidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1267,10 +1274,11 @@
             "type": "boolean"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1337,10 +1345,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1675,10 +1684,11 @@
                 "$ref": "#/$defs/VeredictoGateSalida"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -2175,10 +2185,11 @@
             "$ref": "#/$defs/Insumo"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -2264,10 +2275,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -2382,10 +2394,11 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -2466,10 +2479,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -3332,10 +3346,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -3474,10 +3489,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -3620,10 +3636,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -3743,10 +3760,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -4299,10 +4317,11 @@
             "title": "Avance"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -4418,10 +4437,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -4598,7 +4618,8 @@
               "hallazgos-sin-resolver",
               "sin-gobernanza",
               "presupuesto-agotado",
-              "error-proveedor"
+              "error-proveedor",
+              "sin-convergencia"
             ],
             "title": "CausaEscalado",
             "type": "string"
@@ -4762,6 +4783,18 @@
                 "minLength": 1,
                 "title": "Motivo",
                 "type": "string"
+              },
+              "tras": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Fase"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). None solo en la primera conversión, cuando el humano fija el modo en unit.start."
               }
             },
             "required": [
@@ -5027,6 +5060,20 @@
                 "default": null,
                 "title": "Orden Vigente"
               },
+              "pedido": {
+                "anyOf": [
+                  {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+                "title": "Pedido"
+              },
               "perfil": {
                 "$ref": "#/$defs/Perfil"
               },
@@ -5073,10 +5120,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -5611,10 +5659,11 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -5715,10 +5764,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -5894,7 +5944,8 @@
               "hallazgos-sin-resolver",
               "sin-gobernanza",
               "presupuesto-agotado",
-              "error-proveedor"
+              "error-proveedor",
+              "sin-convergencia"
             ],
             "title": "CausaEscalado",
             "type": "string"
@@ -6058,6 +6109,18 @@
                 "minLength": 1,
                 "title": "Motivo",
                 "type": "string"
+              },
+              "tras": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Fase"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). None solo en la primera conversión, cuando el humano fija el modo en unit.start."
               }
             },
             "required": [
@@ -6323,6 +6386,20 @@
                 "default": null,
                 "title": "Orden Vigente"
               },
+              "pedido": {
+                "anyOf": [
+                  {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+                "title": "Pedido"
+              },
               "perfil": {
                 "$ref": "#/$defs/Perfil"
               },
@@ -6369,10 +6446,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -6907,10 +6985,11 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -7052,10 +7131,11 @@
             "title": "Repositorio"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -7201,10 +7281,11 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -7855,10 +7936,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -8044,10 +8126,11 @@
             "default": null
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -8082,10 +8165,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -8114,18 +8198,38 @@
     },
     {
       "codigo_interno": [],
-      "description": "Arranca una unidad SDD en un workspace; nace en modo interactivo.",
+      "description": "Convierte el modo de una unidad tras research o el checkpoint del spec.",
       "efecto": "escritura",
       "inputSchema": {
         "$defs": {
-          "AlcanceWorkspace": {
+          "AlcanceUnidad": {
             "additionalProperties": false,
-            "description": "Espacio de nombres mínimo: todo dato persistido lo lleva.",
+            "description": "Espacio de nombres de una unidad.\n\nLa unidad cuelga del workspace, no de un repositorio, porque puede\nvincular N repositorios; cada snapshot dice a cuál pertenece. ``plan``\nagrupa unidades de un mismo mandato cuando lo hay.",
             "properties": {
               "org": {
                 "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
                 "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
                 "title": "Org",
+                "type": "string"
+              },
+              "plan": {
+                "anyOf": [
+                  {
+                    "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Plan"
+              },
+              "unidad": {
+                "description": "Identificador de unidad SDD con forma NNNN-slug.",
+                "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Unidad",
                 "type": "string"
               },
               "workspace": {
@@ -8137,179 +8241,64 @@
             },
             "required": [
               "org",
-              "workspace"
+              "workspace",
+              "unidad"
             ],
-            "title": "AlcanceWorkspace",
+            "title": "AlcanceUnidad",
             "type": "object"
           },
-          "Arnes": {
+          "Modo": {
             "enum": [
-              "claude-code",
-              "opencode",
-              "codex",
-              "copilot"
+              "interactivo",
+              "semi-autonomo",
+              "supervisado",
+              "desatendido"
             ],
-            "title": "Arnes",
-            "type": "string"
-          },
-          "Perfil": {
-            "enum": [
-              "ligero",
-              "estandar",
-              "profundo"
-            ],
-            "title": "Perfil",
-            "type": "string"
-          },
-          "RepositorioInicio": {
-            "additionalProperties": false,
-            "properties": {
-              "base_commit": {
-                "description": "SHA-1 completo de un commit git.",
-                "pattern": "^[0-9a-f]{40}$",
-                "title": "Base Commit",
-                "type": "string"
-              },
-              "rama": {
-                "maxLength": 255,
-                "minLength": 1,
-                "title": "Rama",
-                "type": "string"
-              },
-              "repositorio": {
-                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
-                "title": "Repositorio",
-                "type": "string"
-              }
-            },
-            "required": [
-              "repositorio",
-              "rama",
-              "base_commit"
-            ],
-            "title": "RepositorioInicio",
-            "type": "object"
-          },
-          "Riesgo": {
-            "enum": [
-              "bajo",
-              "medio",
-              "alto"
-            ],
-            "title": "Riesgo",
+            "title": "Modo",
             "type": "string"
           }
         },
         "additionalProperties": false,
+        "description": "Desde 1.2: convierte el modo de una unidad; solo un humano.\n\nEl servidor solo la admite tras la fase research o tras el checkpoint\ndel spec, y la registra en ``modo_conversion``; en otro momento responde\n``conversion-no-permitida``.",
         "properties": {
-          "alcance": {
-            "$ref": "#/$defs/AlcanceWorkspace"
+          "modo": {
+            "$ref": "#/$defs/Modo"
           },
-          "arnes": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/Arnes"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "insumos": {
-            "description": "Insumos del chat (R6).",
-            "items": {
-              "format": "uuid4",
-              "type": "string"
-            },
-            "title": "Insumos",
-            "type": "array"
-          },
-          "pedido": {
-            "maxLength": 20000,
+          "motivo": {
+            "maxLength": 2000,
             "minLength": 1,
-            "title": "Pedido",
+            "title": "Motivo",
             "type": "string"
           },
-          "perfil": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/Perfil"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "plan": {
-            "anyOf": [
-              {
-                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
-                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Plan"
-          },
-          "repositorios": {
-            "description": "El primero es el primario donde se trabaja.",
-            "items": {
-              "$ref": "#/$defs/RepositorioInicio"
-            },
-            "minItems": 1,
-            "title": "Repositorios",
-            "type": "array"
-          },
-          "riesgo_sugerido": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/Riesgo"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "description": "El triaje del servidor decide."
-          },
-          "titulo": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Titulo",
-            "type": "string"
+          "unidad": {
+            "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
           },
-          "version_contrato_cliente": {
-            "pattern": "^[0-9]+\\.[0-9]+$",
-            "title": "Version Contrato Cliente",
-            "type": "string"
+          "version_vista": {
+            "minimum": 1,
+            "title": "Version Vista",
+            "type": "integer"
           }
         },
         "required": [
-          "alcance",
-          "repositorios",
-          "titulo",
-          "pedido",
-          "version_contrato_cliente"
+          "unidad",
+          "modo",
+          "motivo",
+          "version_vista"
         ],
-        "title": "UnitStartEntrada",
+        "title": "UnitSetModeEntrada",
         "type": "object"
       },
-      "name": "unit.start",
+      "name": "unit.set_mode",
       "outputSchema": {
         "$defs": {
           "Actor": {
@@ -8472,7 +8461,8 @@
               "hallazgos-sin-resolver",
               "sin-gobernanza",
               "presupuesto-agotado",
-              "error-proveedor"
+              "error-proveedor",
+              "sin-convergencia"
             ],
             "title": "CausaEscalado",
             "type": "string"
@@ -8636,6 +8626,18 @@
                 "minLength": 1,
                 "title": "Motivo",
                 "type": "string"
+              },
+              "tras": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Fase"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). None solo en la primera conversión, cuando el humano fija el modo en unit.start."
               }
             },
             "required": [
@@ -8901,6 +8903,20 @@
                 "default": null,
                 "title": "Orden Vigente"
               },
+              "pedido": {
+                "anyOf": [
+                  {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+                "title": "Pedido"
+              },
               "perfil": {
                 "$ref": "#/$defs/Perfil"
               },
@@ -8947,10 +8963,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -9485,10 +9502,1460 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
+            ],
+            "title": "Version Contrato",
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado"
+        ],
+        "title": "EstadoSalida",
+        "type": "object"
+      },
+      "rol_minimo": "desarrollador",
+      "superficies": [
+        "http",
+        "mcp"
+      ],
+      "tipos_actor": [
+        "humano"
+      ]
+    },
+    {
+      "codigo_interno": [],
+      "description": "Arranca una unidad SDD en un workspace; nace en modo interactivo.",
+      "efecto": "escritura",
+      "inputSchema": {
+        "$defs": {
+          "AlcanceWorkspace": {
+            "additionalProperties": false,
+            "description": "Espacio de nombres mínimo: todo dato persistido lo lleva.",
+            "properties": {
+              "org": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Org",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Workspace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "org",
+              "workspace"
+            ],
+            "title": "AlcanceWorkspace",
+            "type": "object"
+          },
+          "Arnes": {
+            "enum": [
+              "claude-code",
+              "opencode",
+              "codex",
+              "copilot"
+            ],
+            "title": "Arnes",
+            "type": "string"
+          },
+          "Modo": {
+            "enum": [
+              "interactivo",
+              "semi-autonomo",
+              "supervisado",
+              "desatendido"
+            ],
+            "title": "Modo",
+            "type": "string"
+          },
+          "Perfil": {
+            "enum": [
+              "ligero",
+              "estandar",
+              "profundo"
+            ],
+            "title": "Perfil",
+            "type": "string"
+          },
+          "RepositorioInicio": {
+            "additionalProperties": false,
+            "properties": {
+              "base_commit": {
+                "description": "SHA-1 completo de un commit git.",
+                "pattern": "^[0-9a-f]{40}$",
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "rama": {
+                "maxLength": 255,
+                "minLength": 1,
+                "title": "Rama",
+                "type": "string"
+              },
+              "repositorio": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Repositorio",
+                "type": "string"
+              }
+            },
+            "required": [
+              "repositorio",
+              "rama",
+              "base_commit"
+            ],
+            "title": "RepositorioInicio",
+            "type": "object"
+          },
+          "Riesgo": {
+            "enum": [
+              "bajo",
+              "medio",
+              "alto"
+            ],
+            "title": "Riesgo",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "alcance": {
+            "$ref": "#/$defs/AlcanceWorkspace"
+          },
+          "arnes": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Arnes"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "insumos": {
+            "description": "Insumos del chat (R6).",
+            "items": {
+              "format": "uuid4",
+              "type": "string"
+            },
+            "title": "Insumos",
+            "type": "array"
+          },
+          "modo": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Modo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Desde 1.2: modo que el humano fija en la petición inicial. El servidor lo registra como primera conversión desde interactivo, con tras=None."
+          },
+          "pedido": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Pedido",
+            "type": "string"
+          },
+          "perfil": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Perfil"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plan"
+          },
+          "repositorios": {
+            "description": "El primero es el primario donde se trabaja.",
+            "items": {
+              "$ref": "#/$defs/RepositorioInicio"
+            },
+            "minItems": 1,
+            "title": "Repositorios",
+            "type": "array"
+          },
+          "riesgo_sugerido": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Riesgo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "El triaje del servidor decide."
+          },
+          "titulo": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Titulo",
+            "type": "string"
+          },
+          "version_contrato": {
+            "default": "1.2",
+            "enum": [
+              "1.0",
+              "1.1",
+              "1.2"
+            ],
+            "title": "Version Contrato",
+            "type": "string"
+          },
+          "version_contrato_cliente": {
+            "pattern": "^[0-9]+\\.[0-9]+$",
+            "title": "Version Contrato Cliente",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alcance",
+          "repositorios",
+          "titulo",
+          "pedido",
+          "version_contrato_cliente"
+        ],
+        "title": "UnitStartEntrada",
+        "type": "object"
+      },
+      "name": "unit.start",
+      "outputSchema": {
+        "$defs": {
+          "Actor": {
+            "additionalProperties": false,
+            "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+            "properties": {
+              "agente": {
+                "anyOf": [
+                  {
+                    "maxLength": 120,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Nodo o rol del agente, si tipo=agente.",
+                "title": "Agente"
+              },
+              "canal": {
+                "$ref": "#/$defs/Canal"
+              },
+              "en_nombre_de": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "github_id del humano por quien actúa un agente.",
+                "title": "En Nombre De"
+              },
+              "github_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Github Id"
+              },
+              "login": {
+                "anyOf": [
+                  {
+                    "description": "Login de GitHub; informativo, la identidad es github_id.",
+                    "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Login"
+              },
+              "oidc": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/OidcGithubActions"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "proveedor_identidad": {
+                "default": "github",
+                "pattern": "^[a-z][a-z0-9-]{1,31}$",
+                "title": "Proveedor Identidad",
+                "type": "string"
+              },
+              "tipo": {
+                "$ref": "#/$defs/TipoActor"
+              }
+            },
+            "required": [
+              "tipo",
+              "canal"
+            ],
+            "title": "Actor",
+            "type": "object"
+          },
+          "AlcanceUnidad": {
+            "additionalProperties": false,
+            "description": "Espacio de nombres de una unidad.\n\nLa unidad cuelga del workspace, no de un repositorio, porque puede\nvincular N repositorios; cada snapshot dice a cuál pertenece. ``plan``\nagrupa unidades de un mismo mandato cuando lo hay.",
+            "properties": {
+              "org": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Org",
+                "type": "string"
+              },
+              "plan": {
+                "anyOf": [
+                  {
+                    "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Plan"
+              },
+              "unidad": {
+                "description": "Identificador de unidad SDD con forma NNNN-slug.",
+                "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Unidad",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Workspace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "org",
+              "workspace",
+              "unidad"
+            ],
+            "title": "AlcanceUnidad",
+            "type": "object"
+          },
+          "Arnes": {
+            "enum": [
+              "claude-code",
+              "opencode",
+              "codex",
+              "copilot"
+            ],
+            "title": "Arnes",
+            "type": "string"
+          },
+          "Canal": {
+            "enum": [
+              "arnes",
+              "consola",
+              "ci",
+              "servidor"
+            ],
+            "title": "Canal",
+            "type": "string"
+          },
+          "CausaEscalado": {
+            "enum": [
+              "hallazgos-sin-resolver",
+              "sin-gobernanza",
+              "presupuesto-agotado",
+              "error-proveedor",
+              "sin-convergencia"
+            ],
+            "title": "CausaEscalado",
+            "type": "string"
+          },
+          "Checkpoint": {
+            "additionalProperties": false,
+            "description": "Decisión humana pendiente.\n\nSe resuelve por cualquier canal (elicitation en el arnés, ``unit.approve``\no la consola): gana la primera resolución que llegue y las siguientes se\nrechazan con ``checkpoint-ya-resuelto``.",
+            "properties": {
+              "abierto_en": {
+                "format": "date-time",
+                "title": "Abierto En",
+                "type": "string"
+              },
+              "artefacto_sha256": {
+                "anyOf": [
+                  {
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Artefacto Sha256"
+              },
+              "fase": {
+                "$ref": "#/$defs/Fase"
+              },
+              "id": {
+                "format": "uuid4",
+                "title": "Id",
+                "type": "string"
+              },
+              "pregunta": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Pregunta",
+                "type": "string"
+              },
+              "tipo": {
+                "$ref": "#/$defs/TipoCheckpoint"
+              }
+            },
+            "required": [
+              "id",
+              "tipo",
+              "fase",
+              "pregunta",
+              "abierto_en"
+            ],
+            "title": "Checkpoint",
+            "type": "object"
+          },
+          "Cita": {
+            "additionalProperties": false,
+            "description": "Dónde está lo que el hallazgo señala.\n\nPara artefactos (spec, plan, tasks) basta ``seccion``; para código se\nexige ``ruta`` con rango de líneas.",
+            "properties": {
+              "linea_fin": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Linea Fin"
+              },
+              "linea_inicio": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Linea Inicio"
+              },
+              "ruta": {
+                "anyOf": [
+                  {
+                    "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+                    "maxLength": 1024,
+                    "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Ruta"
+              },
+              "seccion": {
+                "anyOf": [
+                  {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Seccion"
+              }
+            },
+            "title": "Cita",
+            "type": "object"
+          },
+          "Consumo": {
+            "additionalProperties": false,
+            "properties": {
+              "costo_usd": {
+                "default": 0.0,
+                "minimum": 0,
+                "title": "Costo Usd",
+                "type": "number"
+              },
+              "segundos": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Segundos",
+                "type": "integer"
+              },
+              "tokens": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Tokens",
+                "type": "integer"
+              }
+            },
+            "title": "Consumo",
+            "type": "object"
+          },
+          "ConversionModo": {
+            "additionalProperties": false,
+            "properties": {
+              "a": {
+                "$ref": "#/$defs/Modo"
+              },
+              "actor": {
+                "$ref": "#/$defs/Actor"
+              },
+              "de": {
+                "$ref": "#/$defs/Modo"
+              },
+              "en": {
+                "format": "date-time",
+                "title": "En",
+                "type": "string"
+              },
+              "motivo": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "title": "Motivo",
+                "type": "string"
+              },
+              "tras": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Fase"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). None solo en la primera conversión, cuando el humano fija el modo en unit.start."
+              }
+            },
+            "required": [
+              "de",
+              "a",
+              "actor",
+              "en",
+              "motivo"
+            ],
+            "title": "ConversionModo",
+            "type": "object"
+          },
+          "Decision": {
+            "enum": [
+              "aprobado",
+              "cambios-solicitados",
+              "rechazado"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "Effort": {
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "xhigh",
+              "max"
+            ],
+            "title": "Effort",
+            "type": "string"
+          },
+          "EjecucionModelo": {
+            "additionalProperties": false,
+            "description": "Auditoría de qué modelo produjo cada contenido (antes modelo_ejecucion).",
+            "properties": {
+              "effort": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Effort"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "en": {
+                "format": "date-time",
+                "title": "En",
+                "type": "string"
+              },
+              "fase": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Fase"
+                  },
+                  {
+                    "$ref": "#/$defs/GateFase"
+                  }
+                ],
+                "title": "Fase"
+              },
+              "modelo": {
+                "maxLength": 120,
+                "minLength": 1,
+                "title": "Modelo",
+                "type": "string"
+              },
+              "nodo": {
+                "maxLength": 120,
+                "minLength": 1,
+                "title": "Nodo",
+                "type": "string"
+              },
+              "proveedor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Proveedor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "None si lo ejecutó el arnés."
+              },
+              "rol": {
+                "maxLength": 80,
+                "minLength": 1,
+                "title": "Rol",
+                "type": "string"
+              }
+            },
+            "required": [
+              "fase",
+              "rol",
+              "nodo",
+              "modelo",
+              "en"
+            ],
+            "title": "EjecucionModelo",
+            "type": "object"
+          },
+          "EstadoFase": {
+            "enum": [
+              "en-progreso",
+              "bloqueado",
+              "completado"
+            ],
+            "title": "EstadoFase",
+            "type": "string"
+          },
+          "EstadoUnidad": {
+            "additionalProperties": false,
+            "properties": {
+              "actualizado_en": {
+                "format": "date-time",
+                "title": "Actualizado En",
+                "type": "string"
+              },
+              "actualizado_por": {
+                "$ref": "#/$defs/Actor"
+              },
+              "arnes": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Arnes"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "None si la unidad nació en la consola."
+              },
+              "carril": {
+                "anyOf": [
+                  {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Carril"
+              },
+              "checkpoint_pendiente": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Checkpoint"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "comando_validacion": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Comando Validacion"
+              },
+              "consumo": {
+                "$ref": "#/$defs/Consumo"
+              },
+              "creado_en": {
+                "format": "date-time",
+                "title": "Creado En",
+                "type": "string"
+              },
+              "depende_de": {
+                "items": {
+                  "description": "Identificador de unidad SDD con forma NNNN-slug.",
+                  "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+                  "type": "string"
+                },
+                "title": "Depende De",
+                "type": "array"
+              },
+              "dueno": {
+                "$ref": "#/$defs/Actor"
+              },
+              "estado": {
+                "$ref": "#/$defs/EstadoFase"
+              },
+              "fase": {
+                "$ref": "#/$defs/Fase"
+              },
+              "gates": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/ResultadoGate"
+                },
+                "propertyNames": {
+                  "$ref": "#/$defs/GateFase"
+                },
+                "title": "Gates",
+                "type": "object"
+              },
+              "governance_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Governance Refs",
+                "type": "array"
+              },
+              "insumos": {
+                "items": {
+                  "format": "uuid4",
+                  "type": "string"
+                },
+                "title": "Insumos",
+                "type": "array"
+              },
+              "integracion": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Integracion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "modelo_ejecucion": {
+                "items": {
+                  "$ref": "#/$defs/EjecucionModelo"
+                },
+                "title": "Modelo Ejecucion",
+                "type": "array"
+              },
+              "modo": {
+                "$ref": "#/$defs/Modo"
+              },
+              "modo_conversion": {
+                "items": {
+                  "$ref": "#/$defs/ConversionModo"
+                },
+                "title": "Modo Conversion",
+                "type": "array"
+              },
+              "orden_vigente": {
+                "anyOf": [
+                  {
+                    "format": "uuid4",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Orden Vigente"
+              },
+              "pedido": {
+                "anyOf": [
+                  {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+                "title": "Pedido"
+              },
+              "perfil": {
+                "$ref": "#/$defs/Perfil"
+              },
+              "presupuesto": {
+                "$ref": "#/$defs/Presupuesto"
+              },
+              "repositorios": {
+                "items": {
+                  "$ref": "#/$defs/RepositorioUnidad"
+                },
+                "minItems": 1,
+                "title": "Repositorios",
+                "type": "array"
+              },
+              "resoluciones": {
+                "items": {
+                  "$ref": "#/$defs/ResolucionCheckpoint"
+                },
+                "title": "Resoluciones",
+                "type": "array"
+              },
+              "riesgo": {
+                "$ref": "#/$defs/Riesgo"
+              },
+              "secuencia_ordenes": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Secuencia Ordenes",
+                "type": "integer"
+              },
+              "titulo": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Titulo",
+                "type": "string"
+              },
+              "unidad": {
+                "$ref": "#/$defs/AlcanceUnidad"
+              },
+              "version": {
+                "description": "Bloqueo optimista; +1 en cada escritura.",
+                "minimum": 1,
+                "title": "Version",
+                "type": "integer"
+              },
+              "version_contrato": {
+                "default": "1.2",
+                "enum": [
+                  "1.0",
+                  "1.1",
+                  "1.2"
+                ],
+                "title": "Version Contrato",
+                "type": "string"
+              }
+            },
+            "required": [
+              "unidad",
+              "version",
+              "titulo",
+              "dueno",
+              "repositorios",
+              "fase",
+              "estado",
+              "modo",
+              "riesgo",
+              "perfil",
+              "creado_en",
+              "actualizado_en",
+              "actualizado_por"
+            ],
+            "title": "EstadoUnidad",
+            "type": "object"
+          },
+          "Fase": {
+            "enum": [
+              "research",
+              "spec",
+              "plan",
+              "tasks",
+              "aprobacion",
+              "implement",
+              "done"
+            ],
+            "title": "Fase",
+            "type": "string"
+          },
+          "GateFase": {
+            "enum": [
+              "spec",
+              "plan",
+              "tasks",
+              "codigo"
+            ],
+            "title": "GateFase",
+            "type": "string"
+          },
+          "GobernanzaConsultada": {
+            "enum": [
+              "si",
+              "parcial",
+              "no"
+            ],
+            "title": "GobernanzaConsultada",
+            "type": "string"
+          },
+          "Hallazgo": {
+            "additionalProperties": false,
+            "properties": {
+              "cita": {
+                "$ref": "#/$defs/Cita"
+              },
+              "criterio": {
+                "anyOf": [
+                  {
+                    "description": "Criterio de aceptación del spec, p. ej. CA-07.",
+                    "pattern": "^CA-[0-9]{2,3}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "CA-NN afectado, si aplica.",
+                "title": "Criterio"
+              },
+              "evidencia": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "title": "Evidencia",
+                "type": "string"
+              },
+              "gate": {
+                "$ref": "#/$defs/GateFase"
+              },
+              "id": {
+                "description": "Identificador del hallazgo dentro del gate, p. ej. H-12.",
+                "pattern": "^H-[0-9]{1,4}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "lente": {
+                "description": "Lente del crítico que lo produjo.",
+                "maxLength": 80,
+                "minLength": 1,
+                "title": "Lente",
+                "type": "string"
+              },
+              "propuesta": {
+                "anyOf": [
+                  {
+                    "maxLength": 4000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Propuesta"
+              },
+              "refutado": {
+                "default": false,
+                "description": "True si el refutador lo descartó; un hallazgo refutado no bloquea.",
+                "title": "Refutado",
+                "type": "boolean"
+              },
+              "severidad": {
+                "$ref": "#/$defs/Severidad"
+              },
+              "titulo": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Titulo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "gate",
+              "lente",
+              "severidad",
+              "titulo",
+              "cita",
+              "evidencia"
+            ],
+            "title": "Hallazgo",
+            "type": "object"
+          },
+          "Integracion": {
+            "additionalProperties": false,
+            "description": "Estado posterior al cierre (R7): no condiciona el cierre de la unidad.",
+            "properties": {
+              "actor": {
+                "$ref": "#/$defs/Actor"
+              },
+              "en": {
+                "format": "date-time",
+                "title": "En",
+                "type": "string"
+              },
+              "especificacion_viva": {
+                "description": "Dónde quedó consolidada la spec (ruta o id).",
+                "maxLength": 512,
+                "minLength": 1,
+                "title": "Especificacion Viva",
+                "type": "string"
+              },
+              "pr_url": {
+                "anyOf": [
+                  {
+                    "maxLength": 512,
+                    "pattern": "^https://",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Pr Url"
+              }
+            },
+            "required": [
+              "actor",
+              "en",
+              "especificacion_viva"
+            ],
+            "title": "Integracion",
+            "type": "object"
+          },
+          "Modo": {
+            "enum": [
+              "interactivo",
+              "semi-autonomo",
+              "supervisado",
+              "desatendido"
+            ],
+            "title": "Modo",
+            "type": "string"
+          },
+          "OidcGithubActions": {
+            "additionalProperties": false,
+            "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+            "properties": {
+              "repositorio": {
+                "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+                "title": "Repositorio",
+                "type": "string"
+              },
+              "run_id": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Run Id"
+              },
+              "workflow": {
+                "description": "Claim workflow_ref.",
+                "maxLength": 512,
+                "minLength": 1,
+                "title": "Workflow",
+                "type": "string"
+              }
+            },
+            "required": [
+              "repositorio",
+              "workflow"
+            ],
+            "title": "OidcGithubActions",
+            "type": "object"
+          },
+          "Perfil": {
+            "enum": [
+              "ligero",
+              "estandar",
+              "profundo"
+            ],
+            "title": "Perfil",
+            "type": "string"
+          },
+          "Presupuesto": {
+            "additionalProperties": false,
+            "description": "Tope aplicado por el servidor; al agotarse escala al humano.",
+            "properties": {
+              "costo_usd_max": {
+                "anyOf": [
+                  {
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Costo Usd Max"
+              },
+              "segundos_max": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Segundos Max"
+              },
+              "tokens_max": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Tokens Max"
+              }
+            },
+            "title": "Presupuesto",
+            "type": "object"
+          },
+          "Proveedor": {
+            "enum": [
+              "foundry",
+              "anthropic"
+            ],
+            "title": "Proveedor",
+            "type": "string"
+          },
+          "Rehabilitacion": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "$ref": "#/$defs/Actor"
+              },
+              "en": {
+                "format": "date-time",
+                "title": "En",
+                "type": "string"
+              },
+              "motivo": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "title": "Motivo",
+                "type": "string"
+              }
+            },
+            "required": [
+              "actor",
+              "en",
+              "motivo"
+            ],
+            "title": "Rehabilitacion",
+            "type": "object"
+          },
+          "RepositorioUnidad": {
+            "additionalProperties": false,
+            "properties": {
+              "base_commit": {
+                "description": "SHA-1 completo de un commit git.",
+                "pattern": "^[0-9a-f]{40}$",
+                "title": "Base Commit",
+                "type": "string"
+              },
+              "rama": {
+                "anyOf": [
+                  {
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Rama"
+              },
+              "repositorio": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Repositorio",
+                "type": "string"
+              },
+              "rol": {
+                "$ref": "#/$defs/RolRepositorio"
+              }
+            },
+            "required": [
+              "repositorio",
+              "rol",
+              "base_commit"
+            ],
+            "title": "RepositorioUnidad",
+            "type": "object"
+          },
+          "ResolucionCheckpoint": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "$ref": "#/$defs/Actor"
+              },
+              "checkpoint": {
+                "format": "uuid4",
+                "title": "Checkpoint",
+                "type": "string"
+              },
+              "comentario": {
+                "anyOf": [
+                  {
+                    "maxLength": 4000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Comentario"
+              },
+              "decision": {
+                "$ref": "#/$defs/Decision"
+              },
+              "en": {
+                "format": "date-time",
+                "title": "En",
+                "type": "string"
+              }
+            },
+            "required": [
+              "checkpoint",
+              "decision",
+              "actor",
+              "en"
+            ],
+            "title": "ResolucionCheckpoint",
+            "type": "object"
+          },
+          "ResultadoGate": {
+            "additionalProperties": false,
+            "properties": {
+              "causa": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CausaEscalado"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "cerrado_en": {
+                "format": "date-time",
+                "title": "Cerrado En",
+                "type": "string"
+              },
+              "criticos": {
+                "description": "Lentes del panel.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Criticos",
+                "type": "array"
+              },
+              "gobernanza_consultada": {
+                "$ref": "#/$defs/GobernanzaConsultada"
+              },
+              "hallazgos": {
+                "description": "Los que quedaron sin resolver.",
+                "items": {
+                  "$ref": "#/$defs/Hallazgo"
+                },
+                "title": "Hallazgos",
+                "type": "array"
+              },
+              "iteraciones": {
+                "minimum": 0,
+                "title": "Iteraciones",
+                "type": "integer"
+              },
+              "refutador": {
+                "default": false,
+                "title": "Refutador",
+                "type": "boolean"
+              },
+              "rehabilitado": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Rehabilitacion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "veredicto": {
+                "$ref": "#/$defs/Veredicto"
+              }
+            },
+            "required": [
+              "veredicto",
+              "iteraciones",
+              "gobernanza_consultada",
+              "cerrado_en"
+            ],
+            "title": "ResultadoGate",
+            "type": "object"
+          },
+          "Riesgo": {
+            "enum": [
+              "bajo",
+              "medio",
+              "alto"
+            ],
+            "title": "Riesgo",
+            "type": "string"
+          },
+          "RolRepositorio": {
+            "enum": [
+              "primario",
+              "transversal"
+            ],
+            "title": "RolRepositorio",
+            "type": "string"
+          },
+          "Severidad": {
+            "enum": [
+              "alta",
+              "media",
+              "baja"
+            ],
+            "title": "Severidad",
+            "type": "string"
+          },
+          "TipoActor": {
+            "enum": [
+              "humano",
+              "servicio",
+              "agente"
+            ],
+            "title": "TipoActor",
+            "type": "string"
+          },
+          "TipoCheckpoint": {
+            "enum": [
+              "aprobar-spec",
+              "aprobar-plan",
+              "paquete-aprobacion",
+              "parada",
+              "gate-escalado"
+            ],
+            "title": "TipoCheckpoint",
+            "type": "string"
+          },
+          "Veredicto": {
+            "enum": [
+              "aprobado",
+              "refinado",
+              "escalado"
+            ],
+            "title": "Veredicto",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "$ref": "#/$defs/EstadoUnidad"
+          },
+          "version_contrato": {
+            "default": "1.2",
+            "enum": [
+              "1.0",
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -9575,10 +11042,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -9847,7 +11315,8 @@
               "hallazgos-sin-resolver",
               "sin-gobernanza",
               "presupuesto-agotado",
-              "error-proveedor"
+              "error-proveedor",
+              "sin-convergencia"
             ],
             "title": "CausaEscalado",
             "type": "string"
@@ -10075,6 +11544,18 @@
                 "minLength": 1,
                 "title": "Motivo",
                 "type": "string"
+              },
+              "tras": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Fase"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). None solo en la primera conversión, cuando el humano fija el modo en unit.start."
               }
             },
             "required": [
@@ -10363,6 +11844,20 @@
                 "default": null,
                 "title": "Orden Vigente"
               },
+              "pedido": {
+                "anyOf": [
+                  {
+                    "maxLength": 20000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+                "title": "Pedido"
+              },
               "perfil": {
                 "$ref": "#/$defs/Perfil"
               },
@@ -10409,10 +11904,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -10910,10 +12406,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -11052,10 +12549,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -11198,10 +12696,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -11321,10 +12820,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.1",
+                "default": "1.2",
                 "enum": [
                   "1.0",
-                  "1.1"
+                  "1.1",
+                  "1.2"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -12112,10 +13612,11 @@
             "title": "Orden Vigente"
           },
           "version_contrato": {
-            "default": "1.1",
+            "default": "1.2",
             "enum": [
               "1.0",
-              "1.1"
+              "1.1",
+              "1.2"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -12140,5 +13641,5 @@
       ]
     }
   ],
-  "version_contrato": "1.1"
+  "version_contrato": "1.2"
 }
