@@ -131,13 +131,16 @@ class Nucleo:
                 if "duplicate" not in str(exc).lower():
                     raise
                 continue
-            for oyente in self.oyentes:
-                try:
-                    oyente(evento)
-                except Exception:  # un oyente roto no frena el motor
-                    log.exception("oyente de eventos falló")
+            self.notificar(evento)
             return evento
         raise RuntimeError("no se pudo asignar secuencia al evento")
+
+    def notificar(self, evento: EventoSync) -> None:
+        for oyente in self.oyentes:
+            try:
+                oyente(evento)
+            except Exception:  # un oyente roto no frena el motor
+                log.exception("oyente de eventos falló")
 
     # --- configuración ------------------------------------------------------------------
 

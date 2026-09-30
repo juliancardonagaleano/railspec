@@ -177,12 +177,13 @@ def test_mcp_lista_y_llama():
                 async with ClientSession(lectura, escritura) as sesion:
                     await sesion.initialize()
                     tools = {t.name for t in (await sesion.list_tools()).tools}
-                    assert {"unit.start", "unit.report", "unit.advance"} <= tools
-                    r = await sesion.call_tool("unit.start", cuerpo_start())
+                    assert {"unit_start", "unit_report", "unit_advance", "sync_pull", "sync_push"} <= tools
+                    assert not any("." in t for t in tools)
+                    r = await sesion.call_tool("unit_start", cuerpo_start())
                     assert not r.is_error, r
                     assert r.structured_content["estado"]["fase"] == "spec"
                     r = await sesion.call_tool(
-                        "unit.status", {"unidad": {"org": ORG, "workspace": WS, "unidad": "9999-nada"}}
+                        "unit_status", {"unidad": {"org": ORG, "workspace": WS, "unidad": "9999-nada"}}
                     )
                     assert r.is_error and r.structured_content["codigo"] == "no-encontrado"
 

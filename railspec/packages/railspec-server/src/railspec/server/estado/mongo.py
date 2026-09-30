@@ -134,7 +134,13 @@ class AlmacenMongo:
             raise
         return True
 
-    def eventos_desde(self, alcance: AlcanceUnidad, direccion: Direccion, secuencia: int) -> list[EventoSync]:
+    def existe_evento(self, alcance: AlcanceUnidad, evento_id: Any) -> bool:
+        filtro = {"_id": str(evento_id), "_clave": _clave_unidad(alcance), **_filtro_unidad(alcance)}
+        return self.db.eventos.find_one(filtro, {"_id": 1}) is not None
+
+    def eventos_desde(
+        self, alcance: AlcanceUnidad, direccion: Direccion, secuencia: int, limite: int = 0
+    ) -> list[EventoSync]:
         cursor = self.db.eventos.find(
             {
                 "_clave": _clave_unidad(alcance),
@@ -143,6 +149,8 @@ class AlmacenMongo:
                 "secuencia": {"$gt": secuencia},
             }
         ).sort("secuencia", ASCENDING)
+        if limite:
+            cursor = cursor.limit(limite)
         return [EventoSync.model_validate(_limpio(d)) for d in cursor]
 
     def ultima_secuencia(self, alcance: AlcanceUnidad, direccion: Direccion) -> int:
