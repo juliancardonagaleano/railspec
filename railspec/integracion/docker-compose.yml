@@ -1,0 +1,50 @@
+# Entorno reproducible de la integración extremo a extremo de Railspec.
+#
+#   docker compose -f railspec/integracion/docker-compose.yml up -d --build
+#
+# Mongo y FalkorDB son los mismos motores que en AKS. El servidor corre
+# railspec-server con dobles de modelo y gobernanza (railspec_e2e.servidor):
+# ningún gate llama a Foundry ni a PCE, así que no hace falta ninguna credencial.
+name: railspec-e2e
+
+services:
+  mongo:
+    image: mongo:7
+    ports: ["${RAILSPEC_E2E_MONGO_PUERTO:-27017}:27017"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      retries: 30
+
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports: ["${RAILSPEC_E2E_FALKORDB_PUERTO:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  railspec-server:
+    build:
+      context: ../..
+      dockerfile: railspec/integracion/Dockerfile.servidor
+      secrets: [ca]
+    environment:
+      RAILSPEC_MONGO_URI: mongodb://mongo:27017
+      RAILSPEC_MONGO_DB: ${RAILSPEC_E2E_MONGO_DB:-railspec_e2e}
+      RAILSPEC_FALKORDB_URL: redis://falkordb:6379
+      RAILSPEC_TOKENS_DESARROLLO: ${RAILSPEC_E2E_TOKEN:-token-e2e}=juliancardonagaleano:83125327
+      RAILSPEC_PUERTO: "8080"
+    ports: ["${RAILSPEC_E2E_PUERTO:-8080}:8080"]
+    depends_on:
+      mongo: {condition: service_healthy}
+      falkordb: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"]
+      interval: 2s
+      retries: 30
+
+secrets:
+  # CA extra para pip dentro de la construcción (proxy corporativo); vacío por defecto.
+  ca:
+    file: ${RAILSPEC_E2E_CA:-/dev/null}

@@ -10,14 +10,20 @@ from railspec.contracts.comun import Proveedor
 from .config import Configuracion
 from .estado import CheckpointsMongo, almacen_desde_uri, almacen_en_memoria
 from .motor import Motor, Nucleo
-from .motor.gobernanza import GobernanzaNoConfigurada, GobernanzaPceMcp
+from .motor.gobernanza import GobernanzaNoConfigurada, GobernanzaPceMcp, ProveedorGobernanza
 from .proveedores import Proveedores
 
 log = logging.getLogger("railspec.server")
 
 
-def ensamblar(config: Configuracion, *, proveedores: Proveedores | None = None) -> tuple[Motor, Any]:
-    """Construye motor y app ASGI. ``proveedores`` permite inyectar dobles."""
+def ensamblar(
+    config: Configuracion,
+    *,
+    proveedores: Proveedores | None = None,
+    gobernanza: ProveedorGobernanza | None = None,
+) -> tuple[Motor, Any]:
+    """Construye motor y app ASGI. ``proveedores`` y ``gobernanza`` permiten inyectar dobles
+    (pruebas y entorno de integración sin credenciales)."""
 
     from .api.identidad import IdentidadDesarrollo, IdentidadGithub
     from .api.registro import AutorizadorRoles, Registro
@@ -30,9 +36,12 @@ def ensamblar(config: Configuracion, *, proveedores: Proveedores | None = None) 
         almacen = almacen_desde_uri(config.mongo_uri, config.mongo_db)
     if proveedores is None:
         proveedores = _proveedores(config)
-    gobernanza = (
-        GobernanzaPceMcp(config.pce_url, config.pce_api_key) if config.pce_url else GobernanzaNoConfigurada()
-    )
+    if gobernanza is None:
+        gobernanza = (
+            GobernanzaPceMcp(config.pce_url, config.pce_api_key)
+            if config.pce_url
+            else GobernanzaNoConfigurada()
+        )
     nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=_grafo(config))
     motor = Motor(nucleo, CheckpointsMongo(almacen.db))
     identidad = (

@@ -573,6 +573,7 @@ class Gate(Nodo):
             if s is not None
         ]
         permitidos = sorted({a for g in datos.extraido.grupos_plan for a in g.archivos})
+        permitidos.append(ordenes.glob_artefactos(estado))
         archivos: dict[str, str] = {}
         simbolos: list[str] = []
         diffs: list[str] = []

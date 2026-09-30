@@ -1,0 +1,128 @@
+# Construye la imagen de railspec-server y, fuera de los PR, la publica.
+#
+# Registro: Azure Container Registry con login OIDC (azure/login, sin secretos)
+# si la variable del repositorio RAILSPEC_ACR_NOMBRE está definida; si no,
+# GitHub Container Registry con el GITHUB_TOKEN del job.
+# Etiquetas: sha-<commit> siempre, master en la rama por defecto, y la etiqueta
+# git en tags railspec-server-v*. Despliegue: por digest (ver despliegue.md).
+name: railspec-imagen
+
+on:
+  pull_request:
+    paths:
+      - "railspec/packages/railspec-contracts/**"
+      - "railspec/packages/railspec-graph/**"
+      - "railspec/packages/railspec-server/**"
+      - "railspec/deploy/servidor/**"
+      - ".github/workflows/railspec-imagen.yml"
+  push:
+    branches: [master]
+    tags: ["railspec-server-v*"]
+    paths:
+      - "railspec/packages/railspec-contracts/**"
+      - "railspec/packages/railspec-graph/**"
+      - "railspec/packages/railspec-server/**"
+      - "railspec/deploy/servidor/**"
+      - ".github/workflows/railspec-imagen.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railspec-imagen-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  imagen:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # azure/login por OIDC
+      packages: write   # GHCR cuando no hay ACR
+    env:
+      PUBLICAR: ${{ github.event_name != 'pull_request' }}
+      ACR: ${{ vars.RAILSPEC_ACR_NOMBRE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Elegir registro
+        id: registro
+        run: |
+          if [ -n "$ACR" ]; then
+            echo "imagen=${ACR}.azurecr.io/railspec-server" >> "$GITHUB_OUTPUT"
+          else
+            echo "imagen=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/railspec-server" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Entrar en Azure (OIDC)
+        if: env.PUBLICAR == 'true' && env.ACR != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Entrar en ACR
+        if: env.PUBLICAR == 'true' && env.ACR != ''
+        run: az acr login --name "$ACR"
+
+      - name: Entrar en GHCR
+        if: env.PUBLICAR == 'true' && env.ACR == ''
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Etiquetas
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.registro.outputs.imagen }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=raw,value=master,enable=${{ github.ref == 'refs/heads/master' }}
+            type=match,pattern=railspec-server-v(.*),group=1
+
+      - name: Construir${{ github.event_name != 'pull_request' && ' y publicar' || '' }}
+        id: construir
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: railspec/deploy/servidor/Dockerfile
+          platforms: linux/amd64
+          push: ${{ env.PUBLICAR == 'true' }}
+          load: ${{ env.PUBLICAR != 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        env:
+          SOURCE_DATE_EPOCH: "0"
+
+      - name: Humo del contenedor (PR)
+        if: env.PUBLICAR != 'true'
+        env:
+          IMAGEN: ${{ steps.registro.outputs.imagen }}:sha-${{ github.sha }}
+        run: |
+          docker network create humo
+          docker run -d --name mongo --network humo mongo:7
+          docker run -d --name railspec --network humo --read-only --tmpfs /tmp -p 8080:8080 \
+            -e RAILSPEC_MONGO_URI=mongodb://mongo:27017 "$IMAGEN"
+          for _ in $(seq 1 30); do curl -fsS localhost:8080/healthz && break; sleep 2; done
+          curl -fsS localhost:8080/v1/tools > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/v1/tools/unit.start -d '{}')" = 401
+          docker logs railspec
+
+      - name: Resumen
+        if: env.PUBLICAR == 'true'
+        run: |
+          {
+            echo "### railspec-server"
+            echo ""
+            echo "RAILSPEC_IMAGEN=${{ steps.registro.outputs.imagen }}@${{ steps.construir.outputs.digest }}"
+          } >> "$GITHUB_STEP_SUMMARY"

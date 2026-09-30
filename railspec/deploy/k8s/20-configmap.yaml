@@ -1,0 +1,23 @@
+# Configuración no secreta. Los secretos van en el Secret ${RAILSPEC_SECRETO},
+# que se crea aparte (ver railspec/docs/despliegue.md); aquí solo se nombra.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: railspec-server
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-server
+    app.kubernetes.io/part-of: railspec
+data:
+  RAILSPEC_MONGO_DB: "${RAILSPEC_MONGO_DB}"
+  RAILSPEC_FOUNDRY_ENDPOINT: "${RAILSPEC_FOUNDRY_ENDPOINT}"
+  RAILSPEC_PCE_URL: "${RAILSPEC_PCE_URL}"
+  RAILSPEC_ANTHROPIC_HABILITADO: "${RAILSPEC_ANTHROPIC_HABILITADO}"
+  # Identidad de servicio de CI para graph.index. Audiencia vacía = OIDC desactivado.
+  RAILSPEC_OIDC_AUDIENCIA: "${RAILSPEC_OIDC_AUDIENCIA}"
+  RAILSPEC_OIDC_EMISOR: "${RAILSPEC_OIDC_EMISOR}"
+  RAILSPEC_OIDC_REPOSITORIOS: "${RAILSPEC_OIDC_REPOSITORIOS}"
+  RAILSPEC_HOST: "0.0.0.0"
+  RAILSPEC_PUERTO: "8080"
+  # uvicorn confía en X-Forwarded-* del ingress (esquema https en redirecciones).
+  FORWARDED_ALLOW_IPS: "*"
