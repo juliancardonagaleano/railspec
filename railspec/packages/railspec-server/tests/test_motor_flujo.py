@@ -108,3 +108,32 @@ def test_checkpoints_por_modo_semi_autonomo():
         assert tipos == [TipoCheckpoint.paquete_aprobacion]
 
     correr(caso())
+
+
+def test_artefactos_de_la_unidad_no_cuentan_como_fuera_del_plan():
+    """El arnés escribe spec, plan y tasks en el worktree: el snapshot de implementación
+    los lleva y ni el alcance de la orden ni el gate de código deben rechazarlos."""
+
+    async def caso():
+        motor, _ = construir()
+        alcance = (await motor.start(entrada_start(), JULIAN)).estado.unidad
+        artefactos = f".railspec/unidades/{alcance.unidad}"
+        for _ in range(20):
+            av = await avanzar(motor, alcance)
+            if av.tipo == "cerrada":
+                break
+            if av.tipo == "checkpoint":
+                await aprobar(motor, alcance, av.checkpoint.id, actor=JULIAN_CONSOLA)
+                continue
+            rutas = ("src/pdf.py",)
+            if av.orden.tipo == "implementar":
+                assert f"{artefactos}/*" in av.orden.alcance.permitidos
+                rutas = ("src/pdf.py", f"{artefactos}/spec.md", f"{artefactos}/plan.md")
+            await motor.report(reporte(av.orden, rutas=rutas), JULIAN_CONSOLA)
+        estado = motor.n.almacen.obtener_estado(alcance)
+        assert estado.fase == Fase.done
+        gate = estado.gates[GateFase.codigo]
+        assert gate.veredicto == Veredicto.aprobado
+        assert not any("fuera del plan" in h.titulo for h in gate.hallazgos)
+
+    correr(caso())

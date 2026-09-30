@@ -20,6 +20,7 @@ railspec/
   schemas/v1/             JSON Schema generados + manifiesto de tools
   examples/v1/            un ejemplo válido por mensaje
   docs/contratos.md       qué fija cada contrato y cómo se versiona
+  integracion/            entorno docker compose y pruebas extremo a extremo
   tests/                  deriva de esquemas y ejemplos, invariantes
 ```
 
@@ -34,6 +35,9 @@ python -m pip install -e railspec/packages/railspec-contracts[test] \
   -e railspec/packages/railspec-graph[falkordb,test]
 python -m pytest railspec
 ```
+
+Las pruebas extremo a extremo (Mongo, FalkorDB, servidor y proxy por stdio) se
+saltan si Mongo y FalkorDB no responden: ver [integracion/README.md](integracion/README.md).
 
 Ver [docs/contratos.md](docs/contratos.md), [docs/grafo.md](docs/grafo.md) y
 [docs/proxy-local.md](docs/proxy-local.md).

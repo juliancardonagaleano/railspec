@@ -33,6 +33,13 @@ def ruta_artefacto(estado: EstadoUnidad, artefacto: Artefacto) -> str:
     return f".railspec/unidades/{estado.unidad.unidad}/{artefacto.value}.md"
 
 
+def glob_artefactos(estado: EstadoUnidad) -> str:
+    """Los artefactos de la unidad viven en su worktree: el snapshot de implementación
+    los incluye y no cuentan como archivos fuera del plan."""
+
+    return f".railspec/unidades/{estado.unidad.unidad}/*"
+
+
 def _base(estado: EstadoUnidad, id_: uuid.UUID, ahora: datetime) -> dict:
     repo = primario(estado)
     base_commit = next(r.base_commit for r in estado.repositorios if r.repositorio == repo)
@@ -143,7 +150,7 @@ def implementar(
         fase=Fase.implement,
         instrucciones=instrucciones,
         contexto=contexto,
-        alcance=AlcanceArchivos(permitidos=permitidos or grupo_plan.archivos),
+        alcance=AlcanceArchivos(permitidos=[*(permitidos or grupo_plan.archivos), glob_artefactos(estado)]),
         criterios=[c for c in criterios if c.id in citados],
         comando_validacion=comando_validacion,
         grupo=grupo_plan.id,
