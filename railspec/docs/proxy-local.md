@@ -144,10 +144,20 @@ y con secretos redactados.
 
 Interfaz `Indexador` en `indice.py`, cargada por *entry point*
 (`railspec.indexadores`). La implementación incluida usa `codebase-memory-mcp`
-en modo `cli` (sin demonio, sin escribir `.codebase-memory/` en el árbol):
-indexa el worktree y, aparte, los archivos tocados tal como estaban en el
-commit base para calcular símbolos y aristas borrados. Los ids salen de
-`id_simbolo` del contrato. Probado con la versión 0.11.0.
+sin escribir `.codebase-memory/` en el árbol: indexa el worktree y, aparte,
+los archivos tocados tal como estaban en el commit base para calcular
+símbolos y aristas borrados. Los ids salen de `id_simbolo` del contrato.
+Probado con la versión 0.11.0.
+
+Cada delta abre una sola sesión MCP por stdio con el binario y la cierra al
+terminar: arrancar el binario cuesta unos 6 segundos y cada consulta,
+milésimas, así que un proceso por operación (el modo `cli`) multiplicaba ese
+arranque por cada página. Las consultas piden el tope de filas y de salida
+(`max_rows`, `max_output_tokens`); con el presupuesto por defecto el binario
+devuelve unas cien filas por página. Si la sesión no arranca, se vuelve al
+modo `cli`. Se usa la caché del usuario (`CBM_CACHE_DIR`): el binario tiene un
+demonio por cuenta y rechaza dos cachés distintas a la vez. Sin embeddings,
+como antes.
 
 ## Sincronización y cola sin conexión
 

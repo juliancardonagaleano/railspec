@@ -1,8 +1,15 @@
-"""Indexador local sobre ``codebase-memory-mcp`` (DeusData, MIT) en modo CLI.
+"""Indexador local sobre ``codebase-memory-mcp`` (DeusData, MIT).
 
-Se usa el modo ``cli`` del binario: corre una operación y termina, sin
-demonio ni *watchers*, y nunca escribe el artefacto ``.codebase-memory/`` en
-el árbol (``--persistence`` queda en falso). Para el delta:
+El binario se lanza una vez como servidor MCP por stdio y todas las
+operaciones de un índice (indexar, consultas paginadas, borrar) van por esa
+sesión: arrancar el proceso cuesta varios segundos y las consultas, milésimas.
+La sesión dura lo que un delta: no queda ningún proceso vivo entre reportes.
+Se respeta la caché del usuario (``CBM_CACHE_DIR``): el binario mantiene un
+demonio por cuenta y rechaza dos cachés distintas a la vez. Nunca se escribe
+el artefacto ``.codebase-memory/`` en el árbol (``persistence`` queda en
+falso). Las consultas piden páginas grandes: con el presupuesto de salida por
+defecto el binario devuelve unas cien filas por página. Si la sesión no
+arranca, se vuelve al modo ``cli`` (un proceso por operación). Para el delta:
 
 - el árbol de trabajo de la unidad se indexa con un nombre de proyecto fijo;
 - los archivos tocados, tal como estaban en el commit base, se extraen a un
@@ -21,13 +28,17 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import re
+import selectors
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO, Any
 
 from railspec.contracts.snapshot import (
     Arista,
@@ -43,6 +54,10 @@ from . import git
 from .rutas import coincide
 
 BINARIO = "codebase-memory-mcp"
+#: Tope de filas por página y de salida que admite ``query_graph``.
+MAX_FILAS = 99998
+MAX_TOKENS_SALIDA = 1_000_000
+TIMEOUT_S = 600
 
 _TIPOS = {
     "Function": TipoSimbolo.funcion,
@@ -80,19 +95,156 @@ def _slug(texto: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", texto.lower()).strip("-")[:60] or "x"
 
 
+class _SesionMcp:
+    """Cliente MCP mínimo y síncrono sobre stdio (JSON-RPC por líneas).
+
+    Síncrono a propósito: el indexador se llama desde código síncrono del proxy
+    y no debe depender de su bucle de eventos."""
+
+    def __init__(self, binario: str) -> None:
+        self._errores = tempfile.TemporaryFile()
+        self._proc = subprocess.Popen(
+            [binario],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=self._errores,
+        )
+        self._buffer = b""
+        self._id = 0
+        try:
+            self._pedir(
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "railspec-local", "version": "0"},
+                },
+                timeout_s=120,
+            )
+            self._enviar({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except BaseException:
+            self.cerrar()
+            raise
+
+    @property
+    def viva(self) -> bool:
+        return self._proc.poll() is None
+
+    def _enviar(self, mensaje: dict[str, Any]) -> None:
+        stdin: IO[bytes] = self._proc.stdin  # type: ignore[assignment]
+        try:
+            stdin.write(json.dumps(mensaje).encode() + b"\n")
+            stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
+            raise ErrorIndexador(f"la sesión de {BINARIO} se cerró: {self._stderr()}") from exc
+
+    def _linea(self, limite: float) -> bytes:
+        stdout: IO[bytes] = self._proc.stdout  # type: ignore[assignment]
+        with selectors.DefaultSelector() as selector:
+            selector.register(stdout, selectors.EVENT_READ)
+            while b"\n" not in self._buffer:
+                restante = limite - time.monotonic()
+                if restante <= 0:
+                    raise ErrorIndexador(f"{BINARIO} no respondió a tiempo")
+                if not selector.select(restante):
+                    continue
+                trozo = os.read(stdout.fileno(), 1 << 16)
+                if not trozo:
+                    raise ErrorIndexador(f"la sesión de {BINARIO} terminó: {self._stderr()}")
+                self._buffer += trozo
+        linea, self._buffer = self._buffer.split(b"\n", 1)
+        return linea
+
+    def _pedir(self, metodo: str, parametros: dict[str, Any], timeout_s: float = TIMEOUT_S) -> dict:
+        self._id += 1
+        propio = self._id
+        self._enviar({"jsonrpc": "2.0", "id": propio, "method": metodo, "params": parametros})
+        limite = time.monotonic() + timeout_s
+        while True:
+            try:
+                mensaje = json.loads(self._linea(limite))
+            except json.JSONDecodeError:
+                continue  # líneas que no son JSON-RPC
+            if not isinstance(mensaje, dict) or "id" not in mensaje:
+                continue  # notificaciones (progreso, registros)
+            if "method" in mensaje:
+                # Petición del servidor (ping, roots): se contesta sin capacidades.
+                respuesta: dict[str, Any] = {"jsonrpc": "2.0", "id": mensaje["id"]}
+                if mensaje["method"] == "ping":
+                    respuesta["result"] = {}
+                else:
+                    respuesta["error"] = {"code": -32601, "message": "no soportado"}
+                self._enviar(respuesta)
+                continue
+            if mensaje.get("id") != propio:
+                continue
+            if "error" in mensaje:
+                raise ErrorIndexador(f"{metodo}: {json.dumps(mensaje['error'])[:500]}")
+            return mensaje.get("result") or {}
+
+    def llamar(self, tool: str, argumentos: dict[str, Any]) -> dict:
+        resultado = self._pedir("tools/call", {"name": tool, "arguments": argumentos})
+        datos = resultado.get("structuredContent")
+        if datos is None:
+            texto = "".join(b.get("text", "") for b in resultado.get("content", []) if isinstance(b, dict))
+            try:
+                datos = json.loads(texto)
+            except json.JSONDecodeError as exc:
+                if resultado.get("isError"):
+                    raise ErrorIndexador(f"{tool}: {texto[:500]}") from exc
+                raise ErrorIndexador(f"{tool}: salida no JSON") from exc
+        if resultado.get("isError"):
+            raise ErrorIndexador(f"{tool}: {json.dumps(datos, ensure_ascii=False)[:500]}")
+        return datos
+
+    def _stderr(self) -> str:
+        try:
+            self._errores.seek(0)
+            return self._errores.read()[-500:].decode("utf-8", "replace").strip()
+        except (OSError, ValueError):
+            return ""
+
+    def cerrar(self) -> None:
+        if self._proc.poll() is None:
+            try:
+                if self._proc.stdin:
+                    self._proc.stdin.close()
+                self._proc.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                self._proc.kill()
+                self._proc.wait(timeout=10)
+        for flujo in (self._proc.stdout, self._errores):
+            if flujo is not None:
+                flujo.close()
+
+
 class IndexadorCodebaseMemory:
     def __init__(self, binario: str) -> None:
         self.binario = binario
         self._version: str | None = None
+        self._sesion: _SesionMcp | None = None
+        self._solo_cli = False
 
-    # --- CLI -------------------------------------------------------------------------
+    # --- transporte -----------------------------------------------------------------
+
+    def _llamar(self, tool: str, argumentos: dict) -> dict:
+        if not self._solo_cli:
+            if self._sesion is None or not self._sesion.viva:
+                try:
+                    self._sesion = _SesionMcp(self.binario)
+                except (ErrorIndexador, OSError):
+                    # Sin modo servidor (o sin arrancar): un proceso por operación.
+                    self._sesion, self._solo_cli = None, True
+            if self._sesion is not None:
+                return self._sesion.llamar(tool, argumentos)
+        return self._cli(tool, argumentos)
 
     def _cli(self, tool: str, argumentos: dict) -> dict:
         proc = subprocess.run(
             [self.binario, "cli", "--quiet", tool],
             input=json.dumps(argumentos).encode(),
             capture_output=True,
-            timeout=600,
+            timeout=TIMEOUT_S,
             check=False,
         )
         if proc.returncode != 0:
@@ -101,6 +253,11 @@ class IndexadorCodebaseMemory:
             return json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise ErrorIndexador(f"{tool}: salida no JSON") from exc
+
+    def cerrar(self) -> None:
+        if self._sesion is not None:
+            sesion, self._sesion = self._sesion, None
+            sesion.cerrar()
 
     def version(self) -> str:
         if self._version is None:
@@ -114,16 +271,22 @@ class IndexadorCodebaseMemory:
         return self._version
 
     def _indexar(self, ruta: Path, proyecto: str) -> None:
-        self._cli("index_repository", {"repo_path": str(ruta), "name": proyecto, "mode": "fast"})
+        self._llamar("index_repository", {"repo_path": str(ruta), "name": proyecto, "mode": "fast"})
 
     def _consultar(self, proyecto: str, cypher: str) -> list[list[str]]:
         filas: list[list[str]] = []
         cursor = None
         while True:
-            args = {"project": proyecto, "query": cypher, "format": "json", "max_rows": 5000}
+            args: dict[str, Any] = {
+                "project": proyecto,
+                "query": cypher,
+                "format": "json",
+                "max_rows": MAX_FILAS,
+                "max_output_tokens": MAX_TOKENS_SALIDA,
+            }
             if cursor:
                 args["cursor"] = cursor
-            salida = self._cli("query_graph", args)
+            salida = self._llamar("query_graph", args)
             filas += salida.get("rows", [])
             cursor = salida.get("next_cursor") or salida.get("cursor")
             if not salida.get("has_more") or not cursor:
@@ -197,6 +360,14 @@ class IndexadorCodebaseMemory:
         motor = MotorIndice(version=self.version())
         if not rutas:
             return DeltaIndice(motor=motor)
+        try:
+            return self._delta(worktree, repositorio, base_commit, rutas, motor)
+        finally:
+            self.cerrar()
+
+    def _delta(
+        self, worktree: Path, repositorio: str, base_commit: str, rutas: list[str], motor: MotorIndice
+    ) -> DeltaIndice:
         proyecto = f"railspec-{_slug(repositorio)}-{_slug(worktree.name)}"
         self._indexar(worktree, proyecto)
         despues = [r for r in rutas if (worktree / r).is_file()]
@@ -243,7 +414,7 @@ class IndexadorCodebaseMemory:
 
     def _borrar(self, proyecto: str) -> None:
         try:
-            self._cli("delete_project", {"project": proyecto})
+            self._llamar("delete_project", {"project": proyecto})
         except ErrorIndexador:
             pass
 
