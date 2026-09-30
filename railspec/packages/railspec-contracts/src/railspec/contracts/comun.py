@@ -141,6 +141,11 @@ class CausaEscalado(StrEnum):
     sin_gobernanza = "sin-gobernanza"
     presupuesto_agotado = "presupuesto-agotado"
     error_proveedor = "error-proveedor"
+    sin_convergencia = "sin-convergencia"  # 1.2: el refinamiento oscila sin reducir hallazgos
+
+
+#: Modos que solo se admiten bajo un mandato (plan de trabajo).
+MODOS_CON_MANDATO = frozenset({Modo.supervisado, Modo.desatendido})
 
 
 class GobernanzaConsultada(StrEnum):

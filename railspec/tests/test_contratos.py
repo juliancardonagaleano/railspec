@@ -30,6 +30,8 @@ from railspec.contracts.tools import (
     GraphQueryEntrada,
     Superficie,
     UnitApproveEntrada,
+    UnitSetModeEntrada,
+    UnitStartEntrada,
     tools_para,
 )
 
@@ -369,6 +371,7 @@ def test_registro_de_tools() -> None:
         "insumo.get",
         "telemetry.query",
         "graph.index",
+        "unit.set_mode",
     }
     assert all(t.efecto == Efecto.lectura for t in tools_para(Superficie.chat))
     assert [t.nombre for t in TOOLS.values() if Superficie.chat in t.superficies and t.nombre == "code.read"]
@@ -457,3 +460,82 @@ def test_arista_hacia_otro_repositorio_del_workspace() -> None:
     arista = d["delta_indice"]["aristas_agregadas"][0]
     assert arista["repositorio_destino"] == "reporteria"
     assert arista["destino"] == id_simbolo("reporteria", "src/informes.py", "funcion", "informes.registrar")
+
+
+# --- Contrato 1.2: pedidos del hilo del motor ----------------------------------------------
+
+
+def _conversion(de: str, a: str, tras: str | None) -> dict[str, Any]:
+    return {
+        "de": de,
+        "a": a,
+        "actor": f.JULIAN.model_dump(mode="json"),
+        "en": f.T0.isoformat(),
+        "motivo": "El spec quedó aprobado; el resto puede ir sin checkpoints.",
+        "tras": tras,
+    }
+
+
+def test_gate_escalado_sin_convergencia() -> None:
+    ResultadoGate.model_validate(
+        _gate(veredicto="escalado", causa="sin-convergencia", iteraciones=2, hallazgos=[HALLAZGO_ALTO])
+    )
+    _rechaza(ResultadoGate, _gate(veredicto="escalado", causa="sin-convergencia", iteraciones=0), "iteración")
+
+
+def test_estado_guarda_el_pedido_original() -> None:
+    assert _dump(f.estado_unidad)["pedido"].startswith("Quiero")
+
+
+def test_conversion_de_modo_registrada() -> None:
+    d = _dump(f.estado_unidad)
+    d.update(modo="semi-autonomo", modo_conversion=[_conversion("interactivo", "semi-autonomo", "spec")])
+    EstadoUnidad.model_validate(d)
+    d["modo_conversion"][0]["actor"] = f.SERVIDOR.model_dump(mode="json")
+    _rechaza(EstadoUnidad, d, "actor humano")
+
+
+def test_solo_la_primera_conversion_puede_no_tener_fase() -> None:
+    d = _dump(f.estado_unidad)
+    d.update(
+        modo="interactivo",
+        modo_conversion=[
+            _conversion("interactivo", "semi-autonomo", None),
+            _conversion("semi-autonomo", "interactivo", None),
+        ],
+    )
+    _rechaza(EstadoUnidad, d, "primera conversión")
+
+
+def test_supervisado_exige_mandato() -> None:
+    d = _dump(f.estado_unidad)
+    d.update(modo="supervisado", modo_conversion=[_conversion("interactivo", "supervisado", "spec")])
+    _rechaza(EstadoUnidad, d, "exige un mandato")
+    d["unidad"]["plan"] = "certificados-q4"
+    EstadoUnidad.model_validate(d)
+    entrada = {
+        "unidad": f.ALCANCE_UNIDAD.model_dump(),
+        "modo": "desatendido",
+        "motivo": "Lote nocturno",
+        "version_vista": 12,
+    }
+    _rechaza(UnitSetModeEntrada, entrada, "exige un mandato")
+
+
+def test_unit_set_mode_solo_humanos() -> None:
+    tool = TOOLS["unit.set_mode"]
+    assert tool.efecto == Efecto.escritura
+    assert tool.tipos_actor == {TipoActor.humano}
+    assert Superficie.chat not in tool.superficies
+
+
+def test_unit_start_con_modo_inicial() -> None:
+    base = {
+        "alcance": f.ALCANCE_WS.model_dump(),
+        "repositorios": [{"repositorio": "certificados-api", "rama": "main", "base_commit": f.BASE}],
+        "titulo": "Firmar PDF",
+        "pedido": "Firmar los certificados",
+        "version_contrato_cliente": "1.2",
+    }
+    UnitStartEntrada.model_validate({**base, "modo": "semi-autonomo"})
+    _rechaza(UnitStartEntrada, {**base, "modo": "supervisado"}, "exige un mandato")

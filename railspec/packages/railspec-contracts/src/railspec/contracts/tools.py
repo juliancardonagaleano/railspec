@@ -19,6 +19,7 @@ from pydantic import UUID4, AwareDatetime, BaseModel, Field, model_validator
 from ._base import VERSION_CONTRATO, Contrato, Mensaje
 from .comun import (
     CLASE_CODIGO_INTERNO,
+    MODOS_CON_MANDATO,
     AlcanceRepositorio,
     AlcanceUnidad,
     AlcanceWorkspace,
@@ -74,6 +75,7 @@ class CodigoError(StrEnum):
     secretos_detectados = "secretos-detectados"
     checkpoint_ya_resuelto = "checkpoint-ya-resuelto"
     perfil_insatisfacible = "perfil-insatisfacible"
+    conversion_no_permitida = "conversion-no-permitida"
     unidad_no_cerrada = "unidad-no-cerrada"
     presupuesto_agotado = "presupuesto-agotado"
 
@@ -105,9 +107,22 @@ class UnitStartEntrada(Mensaje):
     plan: Slug | None = None
     perfil: Perfil | None = None
     riesgo_sugerido: Riesgo | None = Field(default=None, description="El triaje del servidor decide.")
+    modo: Modo | None = Field(
+        default=None,
+        description=(
+            "Desde 1.2: modo que el humano fija en la petición inicial. El servidor lo registra "
+            "como primera conversión desde interactivo, con tras=None."
+        ),
+    )
     arnes: Arnes | None = None
     insumos: list[UUID4] = Field(default_factory=list, description="Insumos del chat (R6).")
     version_contrato_cliente: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
+
+    @model_validator(mode="after")
+    def _mandato(self) -> UnitStartEntrada:
+        if self.modo in MODOS_CON_MANDATO and self.plan is None:
+            raise ValueError(f"modo {self.modo.value} exige un mandato (plan)")
+        return self
 
 
 class UnitStartSalida(Mensaje):
@@ -188,6 +203,26 @@ class UnitIntegrateEntrada(Mensaje):
     unidad: AlcanceUnidad
     especificacion_viva: str = Field(min_length=1, max_length=512)
     pr_url: str | None = Field(default=None, pattern=r"^https://", max_length=512)
+
+
+class UnitSetModeEntrada(Mensaje):
+    """Desde 1.2: convierte el modo de una unidad; solo un humano.
+
+    El servidor solo la admite tras la fase research o tras el checkpoint
+    del spec, y la registra en ``modo_conversion``; en otro momento responde
+    ``conversion-no-permitida``.
+    """
+
+    unidad: AlcanceUnidad
+    modo: Modo
+    motivo: str = Field(min_length=1, max_length=2000)
+    version_vista: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _mandato(self) -> UnitSetModeEntrada:
+        if self.modo in MODOS_CON_MANDATO and self.unidad.plan is None:
+            raise ValueError(f"modo {self.modo.value} exige un mandato (unidad.plan)")
+        return self
 
 
 class EstadoSalida(Mensaje):
@@ -555,6 +590,16 @@ TOOLS: dict[str, ToolDef] = {
             rol_minimo=Rol.desarrollador,
             superficies=frozenset({_M, _H}),
             entrada=UnitIntegrateEntrada,
+            salida=EstadoSalida,
+        ),
+        ToolDef(
+            nombre="unit.set_mode",
+            descripcion="Convierte el modo de una unidad tras research o el checkpoint del spec.",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_M, _H}),
+            tipos_actor=frozenset({TipoActor.humano}),
+            entrada=UnitSetModeEntrada,
             salida=EstadoSalida,
         ),
         ToolDef(
