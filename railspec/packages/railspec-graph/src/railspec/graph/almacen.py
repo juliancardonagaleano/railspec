@@ -39,7 +39,11 @@ from .motor import AristaMotor, Cluster, Meta, Proceso
 
 
 class CodificadorConsulta(Protocol):
-    """Embebe el texto de una consulta (no código) con el mismo modelo del indexador local."""
+    """Embebe el texto de una consulta (no código) con el mismo modelo del indexador local.
+
+    Desde el contrato 1.1 el proxy manda el vector ya calculado
+    (``ConsultaSearch.vector_b64``); el codificador solo se usa si falta.
+    """
 
     def codificar(self, texto: str) -> str:
         """Devuelve el vector int8 en base64, como ``Embedding.vector_b64``."""
@@ -284,8 +288,11 @@ class AlmacenGrafo:
         for v in vistas:
             for s in v.buscar_nombre(q.texto, tipos, False, limite + 1):
                 puntos[s["id"]] = (len(q.texto) / max(len(s["nombre"]), len(q.texto)), v, s)
-        if q.semantica and self._codificador is not None:
-            vector = decodificar(self._codificador.codificar(q.texto))
+        vector_b64 = q.vector_b64
+        if q.semantica and vector_b64 is None and self._codificador is not None:
+            vector_b64 = self._codificador.codificar(q.texto)
+        if q.semantica and vector_b64 is not None:
+            vector = decodificar(vector_b64)
             for v in vistas:
                 cercanos = v.knn(vector, limite + 1)
                 hallados = v.simbolos([i for i, _ in cercanos])

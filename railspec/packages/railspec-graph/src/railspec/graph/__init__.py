@@ -10,10 +10,12 @@ Capas, de abajo arriba:
   (``VectorStore``), con superposiciones por unidad.
 - ``analitica``: clusters, procesos y riesgo de impacto.
 - ``rag`` e ``ingesta``: recuperación por referencias e ingesta de snapshots.
+- ``indexado``: ``graph.index``, el canónico por lotes desde CI.
 """
 
 from .acceso import AccesoGrafo, Espacio, FueraDeWorkspace, RepositorioNoVisible
 from .almacen import AlmacenGrafo, AlmacenVectores, CodificadorConsulta
+from .indexado import IndexadorCanonico, IndiceDesfasado, IndiceRechazado
 from .ingesta import SnapshotRechazado, ingerir_snapshot
 from .memoria import MotorMemoria
 from .motor import MotorGrafo
@@ -28,6 +30,9 @@ __all__ = [
     "CodificadorConsulta",
     "Espacio",
     "FueraDeWorkspace",
+    "IndexadorCanonico",
+    "IndiceDesfasado",
+    "IndiceRechazado",
     "MotorGrafo",
     "MotorMemoria",
     "RecuperadorContexto",

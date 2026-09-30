@@ -12,7 +12,8 @@ Reglas que se imponen aquí y no en los llamadores:
   workspace y solo los que el servidor calculó como visibles para el actor
   (desde los vínculos y roles); cualquier otro alcance es un error, no un
   resultado vacío.
-- Borrar un repositorio borra su grafo canónico y todas sus superposiciones.
+- Borrar un repositorio borra su grafo canónico, sus superposiciones y sus
+  lotes de indexado a medio llegar.
 """
 
 from __future__ import annotations
@@ -29,6 +30,9 @@ from .motor import AristaMotor, Cluster, Meta, MotorGrafo, Proceso
 _UNIDAD = re.compile(r"^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$")
 #: Separador de la superposición de una unidad dentro del espacio del repositorio.
 SEPARADOR_SUPERPOSICION = ":u:"
+#: Separador del grafo de preparación de ``graph.index`` (lotes de un commit aún incompleto).
+SEPARADOR_INDEXADO = ":i:"
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
 
 class FueraDeWorkspace(PermissionError):
@@ -94,6 +98,9 @@ class Espacio:
     def fijar_embeddings(self, vectores: dict[str, list[float]]) -> None:
         self._motor.fijar_embeddings(self._grafo, vectores)
 
+    def leer_embeddings(self, ids: list[str]) -> dict[str, list[float]]:
+        return self._motor.leer_embeddings(self._grafo, ids)
+
     def knn(self, vector: list[float], k: int) -> list[tuple[str, float]]:
         return self._motor.knn(self._grafo, vector, k)
 
@@ -151,6 +158,17 @@ class AccesoGrafo:
             raise RepositorioNoVisible(", ".join(faltan))
         return [por_slug[s] for s in sorted(set(pedidos))]
 
+    def espacio_indexado(self, alcance: AlcanceRepositorio, commit: str) -> Espacio:
+        """Grafo de preparación donde se acumulan los lotes de ``graph.index`` de un commit."""
+
+        if not _COMMIT.match(commit):
+            raise ValueError(f"commit inválido: {commit!r}")
+        return Espacio(alcance, None, self._motor, nombre_grafo(alcance) + SEPARADOR_INDEXADO + commit)
+
+    def indexados(self, alcance: AlcanceRepositorio) -> list[str]:
+        prefijo = nombre_grafo(alcance) + SEPARADOR_INDEXADO
+        return [n[len(prefijo) :] for n in self._motor.listar(prefijo)]
+
     def superposiciones(self, alcance: AlcanceRepositorio) -> list[str]:
         prefijo = nombre_grafo(alcance) + SEPARADOR_SUPERPOSICION
         return [n[len(prefijo) :] for n in self._motor.listar(prefijo)]
@@ -158,4 +176,6 @@ class AccesoGrafo:
     def borrar_repositorio(self, alcance: AlcanceRepositorio) -> None:
         for unidad in self.superposiciones(alcance):
             self.espacio(alcance, unidad).borrar()
+        for commit in self.indexados(alcance):
+            self.espacio_indexado(alcance, commit).borrar()
         self.espacio(alcance).borrar()

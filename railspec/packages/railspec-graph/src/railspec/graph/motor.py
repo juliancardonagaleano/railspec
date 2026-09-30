@@ -47,12 +47,20 @@ class Proceso:
 
 @dataclass
 class Meta:
-    """Metadatos del grafo: commit, superposición y lápidas de la superposición."""
+    """Metadatos del grafo: commit, superposición, lápidas y lotes de indexado.
+
+    ``borrados`` y ``aristas_borradas`` son las lápidas de una superposición o
+    lo que un índice incremental borra; ``base``, ``lotes`` y ``recibidos``
+    solo los usa el grafo de preparación de ``graph.index``.
+    """
 
     commit: str | None = None
     unidad: str | None = None
     borrados: list[str] = field(default_factory=list)
     aristas_borradas: list[tuple[str, str, str]] = field(default_factory=list)
+    base: str | None = None
+    lotes: int | None = None
+    recibidos: list[int] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -108,6 +116,9 @@ class MotorGrafo(Protocol):
     # --- vectores ----------------------------------------------------------
     def fijar_embeddings(self, grafo: str, vectores: dict[str, list[float]]) -> None:
         """Solo sobre símbolos existentes; ignora ids que no están."""
+
+    def leer_embeddings(self, grafo: str, ids: list[str]) -> dict[str, list[float]]:
+        """Solo los ids que tienen embedding."""
 
     def knn(self, grafo: str, vector: list[float], k: int) -> list[tuple[str, float]]:
         """(id, similitud coseno en [-1, 1]) de mayor a menor."""

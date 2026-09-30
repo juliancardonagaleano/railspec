@@ -123,6 +123,10 @@ class MotorMemoria:
             if i in g.simbolos:
                 g.vectores[i] = list(v)
 
+    def leer_embeddings(self, grafo: str, ids: list[str]) -> dict[str, list[float]]:
+        g = self._grafos.get(grafo)
+        return {i: list(g.vectores[i]) for i in ids if i in g.vectores} if g else {}
+
     def knn(self, grafo: str, vector: list[float], k: int) -> list[tuple[str, float]]:
         g = self._grafos.get(grafo)
         if not g:
