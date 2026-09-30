@@ -1,0 +1,237 @@
+"""Servidor MCP local por stdio: lo que el arnés ve de Railspec.
+
+Los nombres usan guion bajo (``unit_start``) y no el punto del registro
+(``unit.start``) porque varios arneses solo admiten ``[A-Za-z0-9_-]`` en
+nombres de tool. El actor nunca viaja: el servidor lo deriva del token.
+
+Checkpoints humanos: ``unit_checkpoint`` pregunta al humano con un formulario
+(*elicitation*; desde la revisión 2026-07-28 viaja como ``InputRequiredResult``)
+y resuelve el checkpoint con su respuesta, sin que el modelo del arnés la vea
+ni la invente. Si el arnés no declara la capacidad, las reglas de conducta
+le obligan a preguntar al humano y llamar ``unit_approve`` con su decisión.
+"""
+
+import functools
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Any, Literal
+from uuid import UUID
+
+from mcp.server.mcpserver import AcceptedElicitation, Elicit, ElicitationResult, MCPServer, Resolve
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field, ValidationError
+from railspec.contracts.comun import Fase, Modo, Perfil, Riesgo
+from railspec.contracts.estado import Decision
+from railspec.contracts.reporte import ResultadoOrden, UsoModeloArnes
+
+from . import __version__
+from .errores import ErrorRailspec
+from .proxy import ProxyLocal
+
+log = logging.getLogger(__name__)
+
+INSTRUCCIONES = """\
+Railspec pone rieles de Spec-Driven Development a este arnés. El servidor decide fase, gate y
+presupuesto; tú ejecutas la orden de trabajo vigente y nada más.
+Bucle: unit_start (una vez) → unit_advance → ejecutar la orden en el worktree de la unidad →
+unit_report → unit_advance… hasta que unit_advance devuelva "cerrada".
+No decidas fases ni te saltes gates; un checkpoint lo resuelve siempre un humano."""
+
+
+class RespuestaCheckpoint(BaseModel):
+    decision: Literal["aprobado", "cambios-solicitados", "rechazado"] = Field(
+        description="aprobado, cambios-solicitados o rechazado"
+    )
+    comentario: str = Field(default="", description="Obligatorio si no apruebas.")
+
+
+def _errores(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+    """Convierte errores del proxy en resultados de error legibles para el arnés."""
+
+    @functools.wraps(fn)
+    async def envuelta(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await fn(*args, **kwargs)
+        except ErrorRailspec as exc:
+            raise ToolError(str(exc)) from exc
+        except ValidationError as exc:
+            raise ToolError(f"Entrada fuera de contrato: {exc}") from exc
+
+    return envuelta
+
+
+def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
+    """``fabrica_proxy`` se llama perezosamente para que el servidor arranque aunque la
+    configuración falte y el error llegue como resultado de la tool, no como caída."""
+
+    servidor = MCPServer(
+        name="railspec",
+        title="Railspec",
+        version=__version__,
+        instructions=INSTRUCCIONES,
+    )
+    cache: dict[str, ProxyLocal] = {}
+
+    def proxy() -> ProxyLocal:
+        if "p" not in cache:
+            cache["p"] = fabrica_proxy()
+        return cache["p"]
+
+    escritura = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
+    lectura = ToolAnnotations(readOnlyHint=True)
+
+    @_errores
+    async def unit_start(
+        titulo: str,
+        pedido: str,
+        insumos: list[UUID] | None = None,
+        perfil: Perfil | None = None,
+        riesgo_sugerido: Riesgo | None = None,
+        plan: str | None = None,
+        modo: Modo | None = None,
+    ) -> dict[str, Any]:
+        """Arranca una unidad SDD: el servidor la registra y el proxy crea su worktree y rama.
+        `insumos` son ids de insumos exportados desde el chat de la consola. `modo` solo si el humano
+        lo pidió explícitamente (supervisado y desatendido exigen `plan`); si no, nace interactivo."""
+        return await proxy().iniciar(titulo, pedido, insumos, perfil, riesgo_sugerido, plan, modo)
+
+    @_errores
+    async def unit_advance(unidad: str | None = None) -> dict[str, Any]:
+        """Pide al servidor lo siguiente: una orden de trabajo, un checkpoint humano, una espera o el
+        cierre. Primero envía lo que haya en cola sin conexión."""
+        respuesta = await proxy().avanzar(unidad)
+        if respuesta.get("tipo") == "checkpoint":
+            respuesta["como_resolver"] = (
+                "Llama unit_checkpoint: pregunta al humano con un formulario y registra su decisión. Si tu "
+                "arnés no admite formularios, pregúntale tú y llama unit_approve con su decisión exacta. "
+                "Nunca decidas por él; también puede resolverlo desde la consola web."
+            )
+        return respuesta
+
+    @_errores
+    async def unit_report(
+        unidad: str | None = None,
+        resultado: ResultadoOrden = ResultadoOrden.completado,
+        tareas_completadas: list[str] | None = None,
+        motivo: str | None = None,
+        modelo: str | None = None,
+    ) -> dict[str, Any]:
+        """Cierra la orden en curso. El proxy construye el snapshot según la política de código,
+        corre la validación y lee el artefacto; tú solo dices el resultado. `motivo` es obligatorio
+        si el resultado es fallido o bloqueado; `modelo` es el modelo que usaste (telemetría)."""
+        uso = UsoModeloArnes(modelo=modelo) if modelo else None
+        return await proxy().reportar(unidad, resultado, tareas_completadas, motivo, uso)
+
+    def _pedir_decision(unidad: str | None = None) -> Elicit[RespuestaCheckpoint]:
+        try:
+            checkpoint = proxy().checkpoint_pendiente(unidad)
+        except ErrorRailspec as exc:
+            raise ToolError(str(exc)) from exc
+        return Elicit(
+            f"Railspec · {checkpoint.tipo.value} ({checkpoint.fase.value}): {checkpoint.pregunta}",
+            RespuestaCheckpoint,
+        )
+
+    @_errores
+    async def unit_checkpoint(
+        respuesta: Annotated[ElicitationResult[RespuestaCheckpoint], Resolve(_pedir_decision)],
+        unidad: str | None = None,
+    ) -> dict[str, Any]:
+        """Pregunta al humano, con un formulario del arnés, la decisión del checkpoint pendiente y la
+        registra. El modelo no decide: la respuesta viene del humano."""
+        if not isinstance(respuesta, AcceptedElicitation):
+            return {"tipo": "checkpoint", "como_resolver": "El humano no respondió; sigue pendiente."}
+        checkpoint = proxy().checkpoint_pendiente(unidad)
+        datos = respuesta.data
+        resultado = await proxy().aprobar(
+            unidad, checkpoint.id, Decision(datos.decision), datos.comentario or None
+        )
+        return {**resultado, "tipo": "checkpoint-resuelto", "decision": datos.decision}
+
+    @_errores
+    async def unit_approve(
+        checkpoint: UUID, decision: Decision, comentario: str | None = None, unidad: str | None = None
+    ) -> dict[str, Any]:
+        """Resuelve un checkpoint con la decisión que dio el humano (nunca la tuya). Gana la primera
+        resolución por cualquier canal."""
+        return await proxy().aprobar(unidad, checkpoint, decision, comentario)
+
+    @_errores
+    async def unit_set_mode(modo: Modo, motivo: str, unidad: str | None = None) -> dict[str, Any]:
+        """Cambia el modo de la unidad. Solo cuando el humano lo pide explícitamente, con su motivo;
+        el servidor lo admite tras research o tras el checkpoint del spec."""
+        return await proxy().cambiar_modo(unidad, modo, motivo)
+
+    @_errores
+    async def unit_integrate(
+        especificacion_viva: str, pr_url: str | None = None, unidad: str | None = None
+    ) -> dict[str, Any]:
+        """Registra que el resultado de una unidad cerrada se integró (spec viva y PR)."""
+        return await proxy().integrar(unidad, especificacion_viva, pr_url)
+
+    @_errores
+    async def unit_status(unidad: str | None = None) -> dict[str, Any]:
+        """Estado remoto de la unidad y resumen local (worktree, cola pendiente)."""
+        return await proxy().estado(unidad)
+
+    @_errores
+    async def unit_list(
+        fase: list[Fase] | None = None,
+        integradas: bool | None = None,
+        limite: int = 50,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Unidades del workspace de este repositorio."""
+        filtros: dict[str, Any] = {"repositorio": proxy().config.repo.repositorio, "limite": limite}
+        if fase:
+            filtros["fase"] = fase
+        if integradas is not None:
+            filtros["integradas"] = integradas
+        if cursor:
+            filtros["cursor"] = cursor
+        return await proxy().listar(**filtros)
+
+    @_errores
+    async def graph_query(
+        consulta: dict[str, Any],
+        repositorios: list[str] | None = None,
+        unidad: str | None = None,
+        limite: int = 25,
+    ) -> dict[str, Any]:
+        """Consulta el grafo de código del workspace. `consulta` lleva `verbo`
+        (resolve, search, traverse, related) y sus campos. Devuelve referencias, nunca código:
+        resuélvelas leyendo el clon."""
+        return await proxy().consultar_grafo(consulta, repositorios, unidad, limite)
+
+    @_errores
+    async def insumo_pull(insumo: UUID, unidad: str | None = None) -> dict[str, Any]:
+        """Trae un insumo del chat de la consola y lo escribe como Markdown en .railspec/insumos/
+        del worktree de la unidad (o de la raíz si no hay unidad)."""
+        return await proxy().traer_insumo(insumo, unidad)
+
+    @_errores
+    async def railspec_sync(unidad: str | None = None) -> dict[str, Any]:
+        """Envía los reportes que quedaron en cola por falta de conexión."""
+        return await proxy().sincronizar(unidad)
+
+    for fn, anotaciones in (
+        (unit_start, escritura),
+        (unit_advance, escritura),
+        (unit_report, escritura),
+        (unit_checkpoint, escritura),
+        (unit_approve, escritura),
+        (unit_set_mode, escritura),
+        (unit_integrate, escritura),
+        (unit_status, lectura),
+        (unit_list, lectura),
+        (graph_query, lectura),
+        (insumo_pull, escritura),
+        (railspec_sync, escritura),
+    ):
+        servidor.add_tool(fn, annotations=anotaciones, structured_output=False)
+    return servidor
+
+
+def servir(fabrica_proxy: Callable[[], ProxyLocal]) -> None:
+    crear_servidor(fabrica_proxy).run("stdio")

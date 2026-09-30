@@ -5,11 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "railspec-local"
 version = "0.1.0"
-description = "Proxy MCP local de Railspec (fase 3): worktree por unidad, snapshots y cola sin conexión."
+description = "Proxy MCP local de Railspec: worktree por unidad, snapshots, cola sin conexión y adaptadores de arnés."
 requires-python = ">=3.11"
-dependencies = ["railspec-contracts==0.1.0"]
+dependencies = [
+  "railspec-contracts==0.1.0",
+  # SDK de MCP: servidor stdio hacia el arnés y cliente Streamable HTTP hacia el motor.
+  "mcp>=2.2,<3",
+]
+
+[project.scripts]
+railspec = "railspec.local.cli:main"
+
+[project.entry-points."railspec.indexadores"]
+codebase-memory-mcp = "railspec.local.indexador_cbm:crear"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["railspec.local*"]
 namespaces = true
+
+[tool.setuptools.package-data]
+"railspec.local.adaptadores" = ["plantillas/*.md"]

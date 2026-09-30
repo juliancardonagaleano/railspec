@@ -1,0 +1,648 @@
+"""Núcleo del proxy local, independiente del SDK de MCP.
+
+Traduce las llamadas del arnés a tools del contrato y hace en local lo que el
+protocolo exige en local: crear el worktree de la unidad, construir el
+snapshot bajo la política de código, correr la validación, leer el artefacto
+redactado y mantener el estado local con su cola de eventos.
+
+El arnés nunca decide fase ni gate: el proxy solo reporta la orden en curso
+y siempre devuelve el control a ``unit_advance``.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid4
+
+from railspec.contracts._base import VERSION_CONTRATO, VERSION_MAYOR
+from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, Modo, Perfil, Riesgo
+from railspec.contracts.estado import Checkpoint, Decision, EstadoLocal
+from railspec.contracts.eventos import Direccion, EventoSync, OrdenReportada, SnapshotSubido
+from railspec.contracts.orden import OrdenImplementar, OrdenRedactar, OrdenRefinar
+from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, UsoModeloArnes
+from railspec.contracts.snapshot import EMBEDDING_MODELO
+from railspec.contracts.tools import (
+    AvanceCerrada,
+    AvanceCheckpoint,
+    AvanceEspera,
+    AvanceOrden,
+    CodigoError,
+    EstadoSalida,
+    GraphQueryEntrada,
+    GraphQuerySalida,
+    InsumoGetEntrada,
+    InsumoGetSalida,
+    RepositorioInicio,
+    UnitAdvanceEntrada,
+    UnitAdvanceSalida,
+    UnitApproveEntrada,
+    UnitIntegrateEntrada,
+    UnitListEntrada,
+    UnitListSalida,
+    UnitReportSalida,
+    UnitSetModeEntrada,
+    UnitStartEntrada,
+    UnitStartSalida,
+    UnitStatusEntrada,
+    UnitStatusSalida,
+)
+
+from . import git, insumos, validacion
+from .almacen import EXCLUIR_DE_GIT, Almacen
+from .cliente import ClienteServidor
+from .config import Config
+from .errores import ErrorRailspec, ErrorServidor, FueraDeAlcance, SinConexion
+from .indice import Indexador
+from .politica import construir_snapshot
+from .rutas import coincide
+
+Json = dict[str, Any]
+
+
+def _json(modelo: Any) -> Any:
+    return modelo.model_dump(mode="json", exclude_none=True)
+
+
+class ProxyLocal:
+    def __init__(
+        self,
+        config: Config,
+        cliente: ClienteServidor,
+        indexador: Indexador | None = None,
+        reloj: Callable[[], datetime] = lambda: datetime.now(UTC),
+        nuevo_id: Callable[[], UUID] = uuid4,
+    ) -> None:
+        self.config = config
+        self.cliente = cliente
+        self.indexador = indexador
+        self.reloj = reloj
+        self.nuevo_id = nuevo_id
+
+    # --- localización de unidades ------------------------------------------------
+
+    @property
+    def raiz(self) -> Path:
+        return self.config.raiz_path
+
+    def unidades_locales(self) -> dict[str, Path]:
+        return git.worktrees(self.raiz)
+
+    def _almacen(self, unidad: str | None) -> Almacen:
+        locales = self.unidades_locales()
+        if unidad is None:
+            if len(locales) != 1:
+                nombres = ", ".join(sorted(locales)) or "ninguna"
+                raise ErrorRailspec(f"Indica la unidad; unidades locales: {nombres}.")
+            unidad = next(iter(locales))
+        if unidad not in locales:
+            raise ErrorRailspec(f"No hay worktree local para la unidad {unidad}; arráncala con unit_start.")
+        almacen = Almacen(locales[unidad])
+        if not almacen.existe():
+            raise ErrorRailspec(f"El worktree de {unidad} no tiene estado local ({almacen.ruta}).")
+        return almacen
+
+    def _alcance_ws(self) -> AlcanceWorkspace:
+        return AlcanceWorkspace(org=self.config.repo.org, workspace=self.config.repo.workspace)
+
+    # --- unit.start ------------------------------------------------------------------
+
+    async def iniciar(
+        self,
+        titulo: str,
+        pedido: str,
+        insumos: list[UUID] | None = None,
+        perfil: Perfil | None = None,
+        riesgo_sugerido: Riesgo | None = None,
+        plan: str | None = None,
+        modo: Modo | None = None,
+    ) -> Json:
+        """``modo`` solo cuando el humano lo fija al pedir (contrato 1.2); si no, nace interactivo."""
+
+        base = git.head(self.raiz)
+        rama = git.rama_actual(self.raiz) or base
+        entrada = UnitStartEntrada(
+            alcance=self._alcance_ws(),
+            repositorios=[
+                RepositorioInicio(repositorio=self.config.repo.repositorio, rama=rama, base_commit=base)
+            ],
+            titulo=titulo,
+            pedido=pedido,
+            plan=plan,
+            perfil=perfil,
+            riesgo_sugerido=riesgo_sugerido,
+            modo=modo,
+            arnes=self.config.repo.arnes,
+            insumos=insumos or [],
+            version_contrato_cliente=VERSION_CONTRATO,
+        )
+        salida = await self.cliente.llamar("unit.start", entrada, UnitStartSalida)
+        if int(salida.version_contrato_negociada.split(".")[0]) != VERSION_MAYOR:
+            raise ErrorRailspec(
+                f"El servidor negoció el contrato {salida.version_contrato_negociada}; "
+                f"este proxy habla {VERSION_CONTRATO}. Actualiza railspec-local."
+            )
+        unidad = salida.estado.unidad
+        worktree = Path(self.config.dir_worktrees) / unidad.unidad
+        rama_unidad = git.rama_de_unidad(unidad.unidad)
+        git.excluir_localmente(self.raiz, EXCLUIR_DE_GIT)
+        git.crear_worktree(self.raiz, worktree, rama_unidad, base)
+        almacen = Almacen(worktree)
+        with almacen.cerrojo():
+            estado = EstadoLocal(
+                unidad=unidad,
+                repositorio=self.config.repo.repositorio,
+                worktree=str(worktree),
+                rama=rama_unidad,
+                base_commit=base,
+                espejo_remoto=salida.estado,
+            )
+            almacen.escribir(almacen.tomar_bloqueo(estado))
+        avisos = []
+        if git.hay_cambios(self.raiz):
+            avisos.append(
+                "El clon principal tiene cambios sin commit; la unidad parte de HEAD y no los incluye."
+            )
+        return {
+            "unidad": unidad.unidad,
+            "worktree": str(worktree),
+            "rama": rama_unidad,
+            "base_commit": base,
+            "fase": salida.estado.fase.value,
+            "modo": salida.estado.modo.value,
+            "avisos": avisos,
+            "siguiente": "unit_advance",
+        }
+
+    # --- unit.advance ------------------------------------------------------------------
+
+    async def avanzar(self, unidad: str | None = None) -> Json:
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.tomar_bloqueo(almacen.leer())
+            almacen.escribir(estado)
+            try:
+                estado, rechazos = await self._vaciar_cola(almacen, estado)
+                version_vista = estado.espejo_remoto.version if estado.espejo_remoto else 1
+                salida = await self.cliente.llamar(
+                    "unit.advance",
+                    UnitAdvanceEntrada(unidad=estado.unidad, version_vista=version_vista),
+                    UnitAdvanceSalida,
+                )
+            except SinConexion as exc:
+                # _vaciar_cola persiste cada paso: lo vigente está en disco.
+                return self._respuesta_sin_conexion(almacen.leer(), exc)
+            estado = await self._refrescar_espejo(estado, salida.version_estado)
+            respuesta: Json = {"unidad": estado.unidad.unidad, "worktree": estado.worktree}
+            if rechazos:
+                respuesta["reportes_rechazados"] = rechazos
+            avance = salida.avance
+            if isinstance(avance, AvanceOrden):
+                orden = avance.orden
+                if orden.base_commit != estado.base_commit:
+                    raise ErrorRailspec(
+                        f"La orden parte de {orden.base_commit[:12]} y el worktree de "
+                        f"{estado.base_commit[:12]}; hay que rebasar la unidad antes de seguir."
+                    )
+                estado = estado.model_copy(update={"orden_en_curso": orden})
+                respuesta |= {"tipo": "orden", "orden": _json(orden), "como_ejecutar": _como_ejecutar(orden)}
+            else:
+                estado = estado.model_copy(update={"orden_en_curso": None})
+                if isinstance(avance, AvanceCheckpoint):
+                    espejo = estado.espejo_remoto
+                    if espejo is None or espejo.checkpoint_pendiente != avance.checkpoint:
+                        estado = await self._refrescar_espejo(estado, version=0)
+                    respuesta |= {"tipo": "checkpoint", "checkpoint": _json(avance.checkpoint)}
+                elif isinstance(avance, AvanceEspera):
+                    respuesta |= {
+                        "tipo": "en-espera",
+                        "motivo": avance.motivo,
+                        "reintentar_en_s": avance.reintentar_en_s,
+                    }
+                elif isinstance(avance, AvanceCerrada):
+                    respuesta |= {"tipo": "cerrada"}
+            almacen.escribir(estado)
+            return respuesta
+
+    def _respuesta_sin_conexion(self, estado: EstadoLocal, exc: SinConexion) -> Json:
+        respuesta: Json = {
+            "unidad": estado.unidad.unidad,
+            "worktree": estado.worktree,
+            "tipo": "sin-conexion",
+            "detalle": str(exc),
+            "eventos_pendientes": len(estado.cola_pendiente),
+        }
+        if estado.orden_en_curso is not None:
+            respuesta["orden"] = _json(estado.orden_en_curso)
+            respuesta["como_ejecutar"] = (
+                "Sin conexión con el servidor. Puedes seguir ejecutando la orden en curso; "
+                "el reporte se encola y los gates esperan a la reconexión."
+            )
+        return respuesta
+
+    async def _refrescar_espejo(self, estado: EstadoLocal, version: int) -> EstadoLocal:
+        if estado.espejo_remoto is not None and estado.espejo_remoto.version == version:
+            return estado
+        salida = await self.cliente.llamar(
+            "unit.status", UnitStatusEntrada(unidad=estado.unidad), UnitStatusSalida
+        )
+        return estado.model_copy(update={"espejo_remoto": salida.estado})
+
+    # --- unit.report ---------------------------------------------------------------------
+
+    async def reportar(
+        self,
+        unidad: str | None = None,
+        resultado: ResultadoOrden = ResultadoOrden.completado,
+        tareas_completadas: list[str] | None = None,
+        motivo: str | None = None,
+        uso_modelo: UsoModeloArnes | None = None,
+    ) -> Json:
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.tomar_bloqueo(almacen.leer())
+            orden = estado.orden_en_curso
+            if orden is None:
+                raise ErrorRailspec("No hay orden en curso: llama unit_advance para recibir la siguiente.")
+            if any(
+                isinstance(e.carga, OrdenReportada) and e.carga.orden_id == orden.id
+                for e in estado.cola_pendiente
+            ):
+                raise ErrorRailspec("Esta orden ya está reportada y en cola; llama unit_advance.")
+            worktree = Path(estado.worktree)
+            completado = resultado == ResultadoOrden.completado
+            ahora = self.reloj()
+            avisos: list[str] = []
+            local: Json = {}
+
+            snapshot = None
+            if orden.reporte_requerido.snapshot or (completado and isinstance(orden, OrdenImplementar)):
+                construido = construir_snapshot(
+                    worktree=worktree,
+                    unidad=estado.unidad,
+                    repositorio=estado.repositorio,
+                    base_commit=estado.base_commit,
+                    nivel=self.config.repo.nivel_codigo,
+                    indexador=self.indexador,
+                    snapshot_id=self.nuevo_id(),
+                    ahora=ahora,
+                )
+                snapshot = construido.snapshot
+                avisos += construido.avisos
+                if construido.excluidos:
+                    local["excluidos_del_snapshot"] = construido.excluidos
+                if completado and isinstance(orden, OrdenImplementar):
+                    _verificar_alcance(orden, [a.ruta for a in snapshot.archivos] + construido.excluidos)
+
+            resultado_validacion = None
+            if orden.reporte_requerido.validacion and completado and orden.comando_validacion:
+                ejecucion = validacion.ejecutar(
+                    worktree,
+                    orden.comando_validacion,
+                    self.config.repo.nivel_codigo,
+                    str(orden.id),
+                    self.config.repo.validacion_timeout_s,
+                )
+                resultado_validacion = ejecucion.resultado
+                local["validacion"] = {
+                    "codigo_salida": ejecucion.resultado.codigo_salida,
+                    "log": str(ejecucion.log),
+                    "cola_salida": ejecucion.salida_local,
+                }
+
+            artefacto = None
+            if orden.reporte_requerido.artefacto and completado:
+                artefacto = _leer_artefacto(worktree, orden)
+
+            reporte = ReporteOrden(
+                orden_id=orden.id,
+                secuencia=orden.secuencia,
+                unidad=estado.unidad,
+                base_commit=estado.base_commit,
+                resultado=resultado,
+                reportado_en=ahora,
+                snapshot=snapshot,
+                validacion=resultado_validacion,
+                artefacto=artefacto,
+                tareas_completadas=tareas_completadas or [],
+                motivo=motivo,
+                uso_modelo=uso_modelo,
+            )
+            almacen.guardar_pendiente(reporte)
+            estado = self._encolar(estado, reporte)
+            almacen.escribir(estado)
+
+            respuesta: Json = {"unidad": estado.unidad.unidad, "orden": str(orden.id)}
+            if avisos:
+                respuesta["avisos"] = avisos
+            respuesta |= local
+            try:
+                estado, rechazos = await self._vaciar_cola(almacen, estado)
+            except SinConexion as exc:
+                respuesta |= {
+                    "encolado": True,
+                    "detalle": f"{exc}. El reporte queda en cola y se envía al reconectar.",
+                    "siguiente": "unit_advance",
+                }
+                return respuesta
+            if rechazos:
+                respuesta |= {"aceptado": False, "rechazos": rechazos, "siguiente": "unit_advance"}
+            else:
+                respuesta |= {"aceptado": True, "siguiente": "unit_advance"}
+            return respuesta
+
+    # --- cola de sincronización -----------------------------------------------------------
+
+    def _actor(self, estado: EstadoLocal) -> Actor:
+        if estado.espejo_remoto is None:
+            raise ErrorRailspec("Estado local sin espejo remoto; llama unit_status con conexión.")
+        return estado.espejo_remoto.dueno.model_copy(update={"canal": Canal.arnes})
+
+    def _encolar(self, estado: EstadoLocal, reporte: ReporteOrden) -> EstadoLocal:
+        cola = list(estado.cola_pendiente)
+        siguiente = (cola[-1].secuencia if cola else estado.ultima_secuencia_confirmada) + 1
+        ahora = reporte.reportado_en
+        actor = self._actor(estado)
+        causa = None
+        if reporte.snapshot is not None:
+            evento_snapshot = EventoSync(
+                id=self.nuevo_id(),
+                direccion=Direccion.local_a_remoto,
+                unidad=estado.unidad,
+                secuencia=siguiente,
+                emitido_en=ahora,
+                actor=actor,
+                carga=SnapshotSubido(
+                    snapshot_id=reporte.snapshot.id,
+                    repositorio=reporte.snapshot.repositorio,
+                    base_commit=reporte.snapshot.base_commit,
+                    hash_arbol=reporte.snapshot.hash_arbol,
+                ),
+            )
+            cola.append(evento_snapshot)
+            causa = evento_snapshot.id
+            siguiente += 1
+        cola.append(
+            EventoSync(
+                id=self.nuevo_id(),
+                direccion=Direccion.local_a_remoto,
+                unidad=estado.unidad,
+                secuencia=siguiente,
+                emitido_en=ahora,
+                actor=actor,
+                causado_por=causa,
+                carga=OrdenReportada(orden_id=reporte.orden_id, secuencia_orden=reporte.secuencia),
+            )
+        )
+        return estado.model_copy(update={"cola_pendiente": cola})
+
+    async def _vaciar_cola(self, almacen: Almacen, estado: EstadoLocal) -> tuple[EstadoLocal, list[Json]]:
+        """Envía en orden los reportes encolados. Cada ``orden.reportada`` confirma también
+        los ``snapshot.subido`` que la preceden, porque el snapshot viaja dentro del reporte.
+
+        Un rechazo del servidor saca el reporte de la cola (en el protocolo gana el
+        remoto) y se devuelve al arnés; una caída de red deja la cola como está."""
+
+        rechazos: list[Json] = []
+        while True:
+            cola = list(estado.cola_pendiente)
+            indice = next((i for i, e in enumerate(cola) if isinstance(e.carga, OrdenReportada)), None)
+            if indice is None:
+                return estado, rechazos
+            evento = cola[indice]
+            orden_id = evento.carga.orden_id  # type: ignore[union-attr]
+            reporte = almacen.leer_pendiente(orden_id)
+            if reporte is not None:
+                try:
+                    await self.cliente.llamar("unit.report", reporte, UnitReportSalida)
+                except ErrorServidor as exc:
+                    if not self._ya_aceptado(exc):
+                        rechazos.append(
+                            {"orden": str(orden_id), "codigo": exc.codigo.value, "detalle": exc.error.detalle}
+                        )
+            orden_en_curso = estado.orden_en_curso
+            if orden_en_curso is not None and orden_en_curso.id == orden_id:
+                orden_en_curso = None
+            estado = estado.model_copy(
+                update={
+                    "cola_pendiente": cola[indice + 1 :],
+                    "ultima_secuencia_confirmada": evento.secuencia,
+                    "orden_en_curso": orden_en_curso,
+                }
+            )
+            almacen.escribir(estado)
+            almacen.borrar_pendiente(orden_id)
+
+    @staticmethod
+    def _ya_aceptado(exc: ErrorServidor) -> bool:
+        """Un reintento de un reporte que el servidor ya aceptó (la respuesta se perdió
+        por el camino) vuelve como ``secuencia-duplicada``: no es un rechazo."""
+
+        return exc.codigo == CodigoError.secuencia_duplicada
+
+    async def sincronizar(self, unidad: str | None = None) -> Json:
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.leer()
+            estado, rechazos = await self._vaciar_cola(almacen, estado)
+            return {
+                "unidad": estado.unidad.unidad,
+                "pendientes": len(estado.cola_pendiente),
+                "rechazos": rechazos,
+            }
+
+    # --- resto de tools -----------------------------------------------------------------------
+
+    async def estado(self, unidad: str | None = None) -> Json:
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.leer()
+            try:
+                salida = await self.cliente.llamar(
+                    "unit.status", UnitStatusEntrada(unidad=estado.unidad), UnitStatusSalida
+                )
+            except SinConexion as exc:
+                return {"sin_conexion": str(exc), "local": _resumen_local(estado)}
+            estado = estado.model_copy(update={"espejo_remoto": salida.estado})
+            almacen.escribir(estado)
+            return {"estado": _json(salida.estado), "local": _resumen_local(estado)}
+
+    def checkpoint_pendiente(self, unidad: str | None = None) -> Checkpoint:
+        """Checkpoint pendiente según el espejo remoto (lo refresca ``unit_advance``)."""
+
+        estado = self._almacen(unidad).leer()
+        checkpoint = estado.espejo_remoto.checkpoint_pendiente if estado.espejo_remoto else None
+        if checkpoint is None:
+            raise ErrorRailspec("No hay checkpoint pendiente; llama unit_advance.")
+        return checkpoint
+
+    async def aprobar(
+        self, unidad: str | None, checkpoint: UUID, decision: Decision, comentario: str | None = None
+    ) -> Json:
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.leer()
+            salida = await self.cliente.llamar(
+                "unit.approve",
+                UnitApproveEntrada(
+                    unidad=estado.unidad, checkpoint=checkpoint, decision=decision, comentario=comentario
+                ),
+                EstadoSalida,
+            )
+            almacen.escribir(estado.model_copy(update={"espejo_remoto": salida.estado}))
+            return {
+                "unidad": estado.unidad.unidad,
+                "fase": salida.estado.fase.value,
+                "siguiente": "unit_advance",
+            }
+
+    async def cambiar_modo(self, unidad: str | None, modo: Modo, motivo: str) -> Json:
+        """``unit.set_mode`` (1.2): solo a petición explícita del humano; el servidor lo admite
+        tras research o tras el checkpoint del spec y responde ``conversion-no-permitida`` si no."""
+
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.leer()
+            version = estado.espejo_remoto.version if estado.espejo_remoto else 1
+            salida = await self.cliente.llamar(
+                "unit.set_mode",
+                UnitSetModeEntrada(unidad=estado.unidad, modo=modo, motivo=motivo, version_vista=version),
+                EstadoSalida,
+            )
+            almacen.escribir(estado.model_copy(update={"espejo_remoto": salida.estado}))
+            return {
+                "unidad": estado.unidad.unidad,
+                "modo": salida.estado.modo.value,
+                "siguiente": "unit_advance",
+            }
+
+    async def integrar(self, unidad: str | None, especificacion_viva: str, pr_url: str | None = None) -> Json:
+        almacen = self._almacen(unidad)
+        with almacen.cerrojo():
+            estado = almacen.leer()
+            salida = await self.cliente.llamar(
+                "unit.integrate",
+                UnitIntegrateEntrada(
+                    unidad=estado.unidad, especificacion_viva=especificacion_viva, pr_url=pr_url
+                ),
+                EstadoSalida,
+            )
+            almacen.escribir(estado.model_copy(update={"espejo_remoto": salida.estado}))
+            return {"unidad": estado.unidad.unidad, "integrada": salida.estado.integracion is not None}
+
+    async def listar(self, **filtros: Any) -> Json:
+        entrada = UnitListEntrada(alcance=self._alcance_ws(), **filtros)
+        salida = await self.cliente.llamar("unit.list", entrada, UnitListSalida)
+        locales = self.unidades_locales()
+        filas = []
+        for u in salida.unidades:
+            fila = _json(u)
+            if u.unidad in locales:
+                fila["worktree"] = str(locales[u.unidad])
+            filas.append(fila)
+        return {"unidades": filas, "cursor_siguiente": salida.cursor_siguiente}
+
+    async def consultar_grafo(
+        self,
+        consulta: Json,
+        repositorios: list[str] | None = None,
+        unidad: str | None = None,
+        limite: int = 25,
+    ) -> Json:
+        entrada = GraphQueryEntrada(
+            alcance=self._alcance_ws(),
+            repositorios=repositorios or [],
+            unidad=unidad,
+            consulta=self._preparar_consulta_grafo(consulta),
+            limite=limite,
+        )
+        salida = await self.cliente.llamar("graph.query", entrada, GraphQuerySalida)
+        return _json(salida)
+
+    def _preparar_consulta_grafo(self, consulta: Json) -> Json:
+        """En una búsqueda semántica el vector de la consulta se calcula en local (contrato 1.1):
+        el texto de la consulta no necesita salir para que el servidor compare vectores."""
+
+        if (
+            consulta.get("verbo") == "search"
+            and consulta.get("semantica")
+            and "vector_b64" not in consulta
+            and self.indexador is not None
+        ):
+            vector = self.indexador.embedding_consulta(consulta.get("texto", ""))
+            if vector is not None:
+                consulta = {
+                    **consulta,
+                    "vector_b64": base64.b64encode(vector).decode(),
+                    "modelo_embedding": EMBEDDING_MODELO,
+                }
+        return consulta
+
+    async def traer_insumo(self, insumo_id: UUID, unidad: str | None = None) -> Json:
+        """``railspec insumo pull``: escribe el insumo en el worktree de la unidad (o en la raíz)."""
+
+        salida = await self.cliente.llamar(
+            "insumo.get", InsumoGetEntrada(alcance=self._alcance_ws(), id=insumo_id), InsumoGetSalida
+        )
+        destino = Path(self._almacen(unidad).worktree) if unidad else self.raiz
+        if unidad is None:
+            git.excluir_localmente(self.raiz, EXCLUIR_DE_GIT)
+        ruta = insumos.escribir(destino, salida.insumo)
+        return {"insumo": str(insumo_id), "ruta": str(ruta), "objetivo": salida.insumo.objetivo}
+
+
+# --- utilidades -------------------------------------------------------------------------------
+
+
+def _verificar_alcance(orden: OrdenImplementar, rutas: list[str]) -> None:
+    fuera = [
+        r for r in rutas if not coincide(r, orden.alcance.permitidos) or coincide(r, orden.alcance.prohibidos)
+    ]
+    if fuera:
+        raise FueraDeAlcance(sorted(fuera))
+
+
+def _leer_artefacto(worktree: Path, orden: Any) -> ArtefactoRedactado:
+    assert isinstance(orden, OrdenRedactar | OrdenRefinar)
+    ruta = worktree / orden.ruta_artefacto
+    if not ruta.is_file():
+        raise ErrorRailspec(
+            f"La orden pide el artefacto en {orden.ruta_artefacto} y no existe en el worktree."
+        )
+    contenido = ruta.read_text(encoding="utf-8")
+    return ArtefactoRedactado(
+        tipo=orden.artefacto,
+        contenido=contenido,
+        sha256=hashlib.sha256(contenido.encode("utf-8")).hexdigest(),
+    )
+
+
+def _como_ejecutar(orden: Any) -> str:
+    base = "Trabaja solo dentro del worktree de la unidad. "
+    if isinstance(orden, OrdenImplementar):
+        return base + (
+            "Implementa las tareas de la orden tocando solo archivos de alcance.permitidos; "
+            "luego llama unit_report con las tareas completadas. El proxy construye el snapshot y "
+            "corre la validación; no subas diffs ni fragmentos tú mismo."
+        )
+    if isinstance(orden, OrdenRedactar | OrdenRefinar):
+        return base + (
+            f"Escribe el artefacto en {orden.ruta_artefacto} siguiendo las instrucciones y luego "
+            "llama unit_report; el proxy lo lee del disco."
+        )
+    return base + "Llama unit_report: el proxy corre el comando de validación en local y reporta la salida."
+
+
+def _resumen_local(estado: EstadoLocal) -> Json:
+    return {
+        "worktree": estado.worktree,
+        "rama": estado.rama,
+        "base_commit": estado.base_commit,
+        "orden_en_curso": str(estado.orden_en_curso.id) if estado.orden_en_curso else None,
+        "eventos_pendientes": len(estado.cola_pendiente),
+        "ultima_secuencia_confirmada": estado.ultima_secuencia_confirmada,
+    }
