@@ -38,7 +38,12 @@ def ensamblar(config: Configuracion, *, proveedores: Proveedores | None = None) 
     identidad = (
         IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
     )
-    registro = Registro.del_motor(motor, AutorizadorRoles(almacen, abierto=config.modo_memoria))
+    extra = {}
+    if nucleo.grafo is not None:
+        from .api.grafo import manejador_graph_query
+
+        extra["graph.query"] = manejador_graph_query(nucleo.grafo, almacen)
+    registro = Registro.del_motor(motor, AutorizadorRoles(almacen, abierto=config.modo_memoria), extra)
     return motor, aplicacion(registro, identidad, host=config.host)
 
 

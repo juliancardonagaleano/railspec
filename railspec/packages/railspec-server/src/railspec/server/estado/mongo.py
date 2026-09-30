@@ -343,6 +343,10 @@ class AlmacenMongo:
                 return PresupuestoConfig.model_validate(_limpio(doc))
         return None
 
+    def vinculos(self, org: str, workspace: str) -> list[VinculoRepositorio]:
+        cursor = self.db.vinculos.find(_filtro_ws(org, workspace, "alcance")).sort("alcance.repositorio", 1)
+        return [VinculoRepositorio.model_validate(_limpio(d)) for d in cursor]
+
     def vinculo(self, alcance: AlcanceRepositorio) -> VinculoRepositorio | None:
         doc = self.db.vinculos.find_one(
             {

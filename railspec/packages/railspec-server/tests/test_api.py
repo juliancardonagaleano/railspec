@@ -212,3 +212,36 @@ def test_identidad():
     assert len(llamadas) == 1  # cacheado
     with pytest.raises(TokenInvalido):
         gh.actor_desde_token("malo", "arnes")
+
+
+def test_graph_query_con_repositorios_vinculados():
+    from apoyo_motor import JULIAN
+    from railspec.contracts.comun import NivelCodigo
+    from railspec.contracts.tools import GraphQuerySalida
+    from railspec.server.api.grafo import manejador_graph_query
+
+    vistos = []
+
+    class GrafoFalso:
+        def consultar(self, entrada, visibles):
+            vistos.append([v.repositorio for v in visibles])
+            if entrada.consulta.nombre == "prohibido":
+                raise PermissionError("repositorio no visible")
+            return GraphQuerySalida(resultados=[], commits={})
+
+    async def caso():
+        motor, _ = construir(nivel=NivelCodigo.interno)
+        extra = {"graph.query": manejador_graph_query(GrafoFalso(), motor.n.almacen)}
+        registro = Registro.del_motor(motor, AutorizadorRoles(motor.n.almacen, abierto=True), extra)
+        assert "graph.query" in {t.nombre for t in registro.tools(Superficie.mcp)}
+        entrada = {
+            "alcance": {"org": ORG, "workspace": WS},
+            "consulta": {"verbo": "resolve", "nombre": "firmar"},
+        }
+        r = await registro.invocar("graph.query", entrada, JULIAN, Superficie.mcp)
+        assert r.ok and vistos == [["certificados-api"]]
+        entrada["consulta"]["nombre"] = "prohibido"
+        r = await registro.invocar("graph.query", entrada, JULIAN, Superficie.mcp)
+        assert r.estado_http == 403 and r.cuerpo["codigo"] == "fuera-de-alcance"
+
+    asyncio.run(caso())

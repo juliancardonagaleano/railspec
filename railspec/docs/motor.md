@@ -64,7 +64,7 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
   (nace `interactivo`) y `EstadoUnidad` no guarda el pedido original.
 - Identidad OIDC de GitHub Actions (actor de servicio) y la tool
   `graph.index`.
-- Manejadores de `graph.query`, `insumo.get` y `code.read`: el registro los
+- Manejadores de `insumo.get` y `code.read` (`graph.query` ya se enchufa con el grafo): el registro los
   acepta enchufados y no los anuncia mientras falten.
 - Roles por equipo de GitHub: hoy solo se resuelven asignaciones de usuario.
 - La forma de la respuesta de PCE no está verificada contra el servicio real.
