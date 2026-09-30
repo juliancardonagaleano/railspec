@@ -1,0 +1,37 @@
+"""railspec-graph: grafo de código centralizado y RAG de Railspec (repositorio central).
+
+Capas, de abajo arriba:
+
+- ``motor``: primitivas de un motor físico (``MotorFalkor`` hoy; ``MotorMemoria``
+  como doble; LadybugDB entraría como otro ``MotorGrafo``).
+- ``acceso``: único módulo que construye nombres de grafo e impone el filtro
+  de workspace.
+- ``almacen``: ``AlmacenGrafo`` (``GraphStore``) y ``AlmacenVectores``
+  (``VectorStore``), con superposiciones por unidad.
+- ``analitica``: clusters, procesos y riesgo de impacto.
+- ``rag`` e ``ingesta``: recuperación por referencias e ingesta de snapshots.
+"""
+
+from .acceso import AccesoGrafo, Espacio, FueraDeWorkspace, RepositorioNoVisible
+from .almacen import AlmacenGrafo, AlmacenVectores, CodificadorConsulta
+from .ingesta import SnapshotRechazado, ingerir_snapshot
+from .memoria import MotorMemoria
+from .motor import MotorGrafo
+from .rag import RecuperadorContexto
+
+__version__ = "0.1.0"
+
+__all__ = [
+    "AccesoGrafo",
+    "AlmacenGrafo",
+    "AlmacenVectores",
+    "CodificadorConsulta",
+    "Espacio",
+    "FueraDeWorkspace",
+    "MotorGrafo",
+    "MotorMemoria",
+    "RecuperadorContexto",
+    "RepositorioNoVisible",
+    "SnapshotRechazado",
+    "ingerir_snapshot",
+]

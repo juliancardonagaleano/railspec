@@ -13,6 +13,10 @@ permissions:
 jobs:
   contratos:
     runs-on: ubuntu-latest
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,10 +27,13 @@ jobs:
           python -m pip install ruff \
             -e "railspec/packages/railspec-contracts[test]" \
             -e railspec/packages/railspec-server \
-            -e railspec/packages/railspec-local
+            -e railspec/packages/railspec-local \
+            -e "railspec/packages/railspec-graph[falkordb,test]"
       - name: Lint
         run: |
           ruff check --config railspec/pyproject.toml railspec
           ruff format --config railspec/pyproject.toml --check railspec
       - name: Pruebas de contratos
+        env:
+          RAILSPEC_FALKORDB_URL: redis://localhost:6379
         run: python -m pytest railspec
