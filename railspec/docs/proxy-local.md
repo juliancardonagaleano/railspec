@@ -22,19 +22,58 @@ export RAILSPEC_TOKEN=...                          # token OAuth de GitHub del d
 secretos: org, workspace, slug del repositorio, nivel de código, arnés) y el
 adaptador de cada arnés. `--nivel` fija el nivel del vínculo; si falta rige
 `restringido`. `railspec instalar --verificar` informa deriva sin escribir.
-El token nunca se escribe en disco.
+El token nunca se escribe en disco. El comando `railspec` tiene que estar en
+el `PATH` que ve el arnés (`pipx install railspec-local` sirve); si no lo
+está, `instalar` lo avisa.
+
+```
+railspec desinstalar                  # todos los adaptadores presentes
+railspec desinstalar --arnes opencode # solo uno
+railspec desinstalar --config         # además, .railspec/config.json
+```
+
+`desinstalar` quita exactamente lo que puso `instalar` y deja el resto de
+cada archivo como estaba; si un archivo queda vacío (o, en OpenCode, solo con
+`$schema`), lo borra, y también las carpetas que queden vacías. Nunca toca
+las unidades: sus worktrees y su estado local siguen donde estaban y la salida
+los lista en `unidades_en_local`.
 
 ## Adaptadores: el stack de tres piezas
 
 | Pieza | Claude Code | OpenCode |
 |---|---|---|
-| Registro del proxy | `.mcp.json` → `mcpServers.railspec` | `opencode.jsonc` → `mcp.railspec` |
-| Comando de arranque `/railspec` | `.claude/commands/railspec.md` | `.opencode/command/railspec.md` |
-| Bucle de cliente | `.claude/skills/railspec-bucle/SKILL.md` | `.opencode/skill/railspec-bucle/SKILL.md` |
+| Registro del proxy | `.mcp.json` → `mcpServers.railspec` | `opencode.json` u `opencode.jsonc` (el que exista) → `mcp.railspec` |
+| Comando de arranque `/railspec` | `.claude/commands/railspec.md` | `.opencode/commands/railspec.md` |
+| Bucle de cliente | `.claude/skills/railspec-bucle/SKILL.md` | `.opencode/skills/railspec-bucle/SKILL.md` |
 | Reglas de conducta | bloque delimitado en `CLAUDE.md` | bloque delimitado en `AGENTS.md` |
+| Permisos | `.claude/settings.json` y `.claude/settings.local.json` | `permission` en el mismo archivo de configuración |
 
-La fusión solo toca la entrada `railspec` y el bloque entre marcadores; el
-resto de cada archivo se conserva. Un JSON inválido no se pisa.
+La fusión solo toca la entrada `railspec`, los permisos que añade y el bloque
+entre marcadores; el resto de cada archivo se conserva. Un JSON inválido no
+se pisa. Al reescribir un `opencode.jsonc` se pierden sus comentarios.
+
+**Permisos.** El bucle corre sin preguntas, pero lo que registra una decisión
+humana pregunta siempre:
+
+| | Claude Code | OpenCode |
+|---|---|---|
+| Sin preguntar | `permissions.allow`: `mcp__railspec__<tool>` para `unit_start`, `unit_advance`, `unit_report`, `unit_checkpoint`, `unit_status`, `unit_list`, `graph_query`, `insumo_pull`, `railspec_sync` | por defecto (OpenCode permite las tools MCP) |
+| Pregunta siempre | `permissions.ask` (gana a `allow`): `unit_approve`, `unit_set_mode`, `unit_integrate` | `permission.railspec_<tool>: "ask"` para esas tres |
+
+En Claude Code, la parte por máquina va a `.claude/settings.local.json`, que
+`instalar` excluye de git en `info/exclude`: `enabledMcpjsonServers:
+["railspec"]` (el servidor del `.mcp.json` queda aprobado cuando la carpeta es
+de confianza) y `permissions.additionalDirectories` con la carpeta de
+worktrees, para que el arnés edite en el worktree de la unidad sin salir de su
+espacio de trabajo. OpenCode no tiene configuración de proyecto fuera de git:
+pide permiso (`external_directory`) la primera vez que toca esa carpeta, y
+`instalar` avisa de que hay que contestarle que siempre.
+
+Las piezas se probaron contra Claude Code (`claude mcp get railspec`:
+conectado) y OpenCode 1.18.33 (`opencode mcp list`, `opencode debug config`
+y `opencode debug skill` reconocen servidor, comando, skill y permisos). Las
+versiones anteriores del adaptador de OpenCode escribían en `.opencode/command/`
+y `.opencode/skill/`; `instalar` las quita.
 
 ## Tools que ve el arnés
 
@@ -153,6 +192,13 @@ le obligan a preguntar y llamar `unit_approve` con la decisión exacta. La
 consola web puede resolverlo también; gana la primera resolución.
 
 ## Pendiente
+
+- **Hooks del arnés.** La hoja de ruta prevé hooks donde el arnés los tenga
+  (por ejemplo, impedir en Claude Code una edición en el clon principal con
+  una unidad en curso). Hoy solo lo dicen las reglas de conducta.
+- **Instalación por usuario.** Los adaptadores se instalan por repositorio; un
+  alcance de usuario (`~/.claude`, `~/.config/opencode`) queda para otra
+  iteración, igual que distribuir `railspec` como binario.
 
 - **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI y el
   servidor nunca calcula embeddings de código: el delta viaja sin ellos y la
