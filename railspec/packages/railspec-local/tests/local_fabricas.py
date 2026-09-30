@@ -147,6 +147,7 @@ class ServidorDoble:
         self.eventos_subidos: list[EventoSync] = []
         self.eventos_remotos: list[EventoSync] = []
         self.perder_respuesta_push = False
+        self.reenvio_idempotente = True
         self._n = 100
 
     def _id(self) -> UUID:
@@ -231,8 +232,12 @@ class ServidorDoble:
             self.orden = None
             self._actualizar(orden_vigente=None)
             raise self._error(codigo, "rechazado por el doble")
-        # Como railspec-server: unit.report no es idempotente; un reenvío de un reporte ya
-        # aceptado encuentra otra orden vigente (o ninguna).
+        # Como railspec-server (#11): el reenvío de un reporte ya aceptado responde
+        # secuencia-duplicada; con reenvio_idempotente=False, orden-no-vigente (servidor previo).
+        if reporte.orden_id in self.aceptadas:
+            if self.reenvio_idempotente:
+                raise self._error(CodigoError.secuencia_duplicada, "reporte ya aceptado")
+            raise self._error(CodigoError.orden_no_vigente, "no es la orden vigente")
         if self.orden is None or reporte.orden_id != self.orden.id:
             raise self._error(CodigoError.orden_no_vigente, "no es la orden vigente")
         if reporte.base_commit != self.orden.base_commit:

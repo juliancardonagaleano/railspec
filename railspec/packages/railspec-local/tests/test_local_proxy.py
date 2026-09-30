@@ -172,13 +172,25 @@ def test_respuesta_perdida_se_reintenta_sin_duplicar(tmp_path):
     assert correr(proxy.reportar())["encolado"] is True
     assert len(servidor.reportes) == 1  # el servidor sí lo aceptó
 
-    # unit.report no es idempotente: el reenvío ya no encuentra la orden vigente. El proxy
-    # no puede saber si el primer envío llegó, así que lo dice en vez de darlo por rechazado.
+    # El reenvío vuelve con secuencia-duplicada: ya entregado, y sus avisos suben.
     resultado = correr(proxy.sincronizar())
-    assert resultado["pendientes"] == 0
+    assert resultado["pendientes"] == 0 and resultado["rechazos"] == []
+    assert len(servidor.reportes) == 1
+    assert [e.carga.tipo for e in servidor.eventos_subidos] == ["snapshot.subido", "orden.reportada"]
+
+
+def test_reenvio_contra_servidor_no_idempotente_se_marca_incierto(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    servidor.reenvio_idempotente = False
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    correr(proxy.avanzar())
+    servidor.perder_respuesta = True
+    assert correr(proxy.reportar())["encolado"] is True
+
+    # Un servidor anterior al #11 responde orden-no-vigente: el proxy no sabe si llegó.
+    resultado = correr(proxy.sincronizar())
     (rechazo,) = resultado["rechazos"]
     assert rechazo["codigo"] == "orden-no-vigente" and "incierto" in rechazo
-    assert len(servidor.reportes) == 1
     assert servidor.eventos_subidos == []  # sin certeza no se avisa orden.reportada
 
 

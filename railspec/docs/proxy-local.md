@@ -137,10 +137,11 @@ Al sincronizar (`unit_advance`, `unit_report`, `railspec_sync`):
 Sin red, la cola queda intacta y `unit_advance` devuelve la orden en curso
 para seguir editando; los gates esperan a la reconexión.
 
-`unit.report` no es idempotente en el servidor: si un envío se quedó sin
-respuesta y el reenvío vuelve con `orden-no-vigente`, el proxy no puede saber
-si el primero llegó. Lo informa como rechazo marcado `incierto`, no sube sus
-avisos y deja que la orden siguiente lo aclare.
+Si un envío de `unit.report` se quedó sin respuesta, el reenvío vuelve con
+`secuencia-duplicada` cuando el servidor ya lo tenía, y cuenta como entregado.
+Contra un servidor que responda `orden-no-vigente` en ese caso, el proxy no
+puede saber si el primero llegó: lo informa como rechazo marcado `incierto`,
+no sube sus avisos y deja que la orden siguiente lo aclare.
 
 ## Checkpoints
 
@@ -153,9 +154,6 @@ consola web puede resolverlo también; gana la primera resolución.
 
 ## Pendiente
 
-- **Reenvío de reportes.** Que el servidor responda `secuencia-duplicada` a un
-  `unit.report` ya aceptado (el código existe en el contrato) haría
-  determinista el caso de la respuesta perdida.
 - **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI y el
   servidor nunca calcula embeddings de código: el delta viaja sin ellos y la
   búsqueda semántica sin vector hasta integrar un codificador local.
