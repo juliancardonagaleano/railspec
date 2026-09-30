@@ -15,7 +15,7 @@ railspec/
   packages/
     railspec-contracts/   contratos v1 (fase 1): modelos Pydantic y esquemas
     railspec-server/      esqueleto del motor y del repositorio central (fases 2 y 4)
-    railspec-local/       esqueleto del proxy local y adaptadores (fase 3)
+    railspec-local/       proxy MCP local, CLI `railspec` y adaptadores de arnés
     railspec-graph/       grafo de código centralizado y RAG sobre FalkorDB
   schemas/v1/             JSON Schema generados + manifiesto de tools
   examples/v1/            un ejemplo válido por mensaje
@@ -35,4 +35,5 @@ python -m pip install -e railspec/packages/railspec-contracts[test] \
 python -m pytest railspec
 ```
 
-Ver [docs/contratos.md](docs/contratos.md) y [docs/grafo.md](docs/grafo.md).
+Ver [docs/contratos.md](docs/contratos.md), [docs/grafo.md](docs/grafo.md) y
+[docs/proxy-local.md](docs/proxy-local.md).
