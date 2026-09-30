@@ -14,6 +14,7 @@ from typing import Any
 import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from railspec.contracts.tools import nombre_mcp
 
 from .cliente import error_desde
 from .errores import RespuestaInvalida, SinConexion
@@ -53,7 +54,8 @@ class TransporteMcpHttp:
     async def llamar(self, tool: str, argumentos: dict[str, Any]) -> dict[str, Any]:
         cliente = await self._abrir()
         try:
-            resultado = await cliente.call_tool(tool, argumentos)
+            # El servidor publica cada tool en /mcp con su alias MCP (contrato 1.3).
+            resultado = await cliente.call_tool(nombre_mcp(tool), argumentos)
         except (httpx2.TransportError, OSError, ConnectionError) as exc:
             await self.cerrar()
             raise SinConexion(f"Se perdió la conexión con {self.url}: {exc}") from exc

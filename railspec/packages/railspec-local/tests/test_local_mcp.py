@@ -126,3 +126,36 @@ def test_checkpoint_rechazado_por_el_humano_queda_pendiente(tmp_path):
 
     assert asyncio.run(flujo())["tipo"] == "checkpoint"
     assert servidor.resoluciones == []
+
+
+def test_tools_del_contrato_usan_su_alias_mcp():
+    from railspec.contracts.tools import resolver_tool
+
+    async def nombres():
+        async with Client(crear_servidor(lambda: None)) as cliente:
+            return {t.name for t in (await cliente.list_tools()).tools}
+
+    propias = {"unit_checkpoint", "insumo_pull", "railspec_sync"}
+    for nombre in asyncio.run(nombres()) - propias:
+        tool = resolver_tool(nombre)
+        assert tool is not None and tool.nombre_mcp == nombre
+
+
+def test_transporte_llama_al_servidor_por_alias_mcp():
+    from railspec.local.transporte_mcp import TransporteMcpHttp
+
+    llamadas = []
+
+    class ClienteFalso:
+        async def call_tool(self, nombre, argumentos):
+            llamadas.append(nombre)
+            return types.CallToolResult(content=[], structured_content={"ok": True}, is_error=False)
+
+    transporte = TransporteMcpHttp("http://railspec.invalid/mcp", "token")
+
+    async def abrir():
+        return ClienteFalso()
+
+    transporte._abrir = abrir
+    assert asyncio.run(transporte.llamar("unit.set_mode", {})) == {"ok": True}
+    assert llamadas == ["unit_set_mode"]

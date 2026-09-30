@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from railspec.contracts.comun import Fase, Modo, Perfil, Riesgo
 from railspec.contracts.estado import Decision
 from railspec.contracts.reporte import ResultadoOrden, UsoModeloArnes
+from railspec.contracts.tools import nombre_mcp
 
 from . import __version__
 from .errores import ErrorRailspec
@@ -212,24 +213,27 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
 
     @_errores
     async def railspec_sync(unidad: str | None = None) -> dict[str, Any]:
-        """Envía los reportes que quedaron en cola por falta de conexión."""
+        """Sincroniza con el servidor: envía la cola sin conexión (reportes y avisos, commits
+        empujados incluidos) y trae los eventos remoto→local."""
         return await proxy().sincronizar(unidad)
 
-    for fn, anotaciones in (
-        (unit_start, escritura),
-        (unit_advance, escritura),
-        (unit_report, escritura),
-        (unit_checkpoint, escritura),
-        (unit_approve, escritura),
-        (unit_set_mode, escritura),
-        (unit_integrate, escritura),
-        (unit_status, lectura),
-        (unit_list, lectura),
-        (graph_query, lectura),
-        (insumo_pull, escritura),
-        (railspec_sync, escritura),
+    # Las tools que envuelven una del contrato se publican con su alias MCP (contrato 1.3);
+    # las que solo existen en el proxy llevan nombre propio.
+    for fn, nombre, anotaciones in (
+        (unit_start, nombre_mcp("unit.start"), escritura),
+        (unit_advance, nombre_mcp("unit.advance"), escritura),
+        (unit_report, nombre_mcp("unit.report"), escritura),
+        (unit_checkpoint, "unit_checkpoint", escritura),
+        (unit_approve, nombre_mcp("unit.approve"), escritura),
+        (unit_set_mode, nombre_mcp("unit.set_mode"), escritura),
+        (unit_integrate, nombre_mcp("unit.integrate"), escritura),
+        (unit_status, nombre_mcp("unit.status"), lectura),
+        (unit_list, nombre_mcp("unit.list"), lectura),
+        (graph_query, nombre_mcp("graph.query"), lectura),
+        (insumo_pull, "insumo_pull", escritura),
+        (railspec_sync, "railspec_sync", escritura),
     ):
-        servidor.add_tool(fn, annotations=anotaciones, structured_output=False)
+        servidor.add_tool(fn, name=nombre, annotations=anotaciones, structured_output=False)
     return servidor
 
 

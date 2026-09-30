@@ -103,6 +103,21 @@ def worktrees(repo: Path) -> dict[str, Path]:
     return encontrados
 
 
+def commit_empujado(repo: Path, rama: str) -> str | None:
+    """Commit de ``rama`` según la referencia remota más reciente (``refs/remotes/*/<rama>``).
+
+    Git la actualiza en cada ``push`` y ``fetch``; ``None`` si la rama nunca se empujó."""
+
+    salida = texto(
+        repo,
+        "for-each-ref",
+        "--sort=-committerdate",
+        "--format=%(objectname)",
+        f"refs/remotes/*/{rama}",
+    )
+    return salida.splitlines()[0] if salida else None
+
+
 def hash_arbol(repo: Path) -> str:
     """``git add -A && git write-tree`` sobre un índice temporal: incluye lo no commiteado
     sin tocar el índice real del desarrollador."""

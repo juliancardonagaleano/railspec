@@ -20,7 +20,8 @@ devuelva `cerrada`:
      Avisa al humano de que los gates esperan a la reconexión.
    - `cerrada` — informa al humano y termina.
 3. Si un resultado trae `reportes_rechazados` o `rechazos`, cuéntaselo al humano: el servidor
-   manda y la orden siguiente ya lo tiene en cuenta.
+   manda y la orden siguiente ya lo tiene en cuenta. Un rechazo marcado `incierto` puede que el
+   servidor sí lo tuviera: díselo así, sin afirmar ninguna de las dos cosas.
 4. Si el humano pide cambiar de modo, llama `unit_set_mode` con el modo y su motivo. Solo lo
    admite el servidor tras research o tras el checkpoint del spec (si no, responde
    `conversion-no-permitida`: díselo). Nunca cambies de modo por iniciativa propia.
