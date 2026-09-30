@@ -58,12 +58,20 @@ HTTP de la consola (R1).
 | `unit.set_mode` | escritura | sí (solo humano) | sí (solo humano) | no |
 | `unit.status` | lectura | sí | sí | sí |
 | `unit.list` | lectura | sí | sí | sí |
+| `sync.pull` | lectura | sí | no | no |
+| `sync.push` | escritura | sí | no | no |
 | `graph.query` | lectura | sí | sí | sí |
 | `graph.index` | escritura | no | sí (solo servicio) | no |
 | `code.read` | lectura | no | no | sí (solo) |
 | `insumo.get` | lectura | sí | sí | sí |
 | `telemetry.query` | lectura | no | sí | sí |
 
+- **Nombres (desde 1.3).** El nombre canónico lleva punto (`unit.start`) y
+  es el de la API HTTP (`POST /v1/tools/unit.start`), el registro y la
+  documentación. Toda superficie MCP, la del servidor y la del proxy, expone
+  el alias `nombre_mcp` (`unit_start`), porque varios arneses rechazan el
+  punto. El alias es determinista (punto → guion bajo), único y viaja en el
+  manifiesto como `mcp_name`; `resolver_tool` acepta las dos formas.
 - El actor nunca viaja en la entrada: el servidor lo deriva del token
   (GitHub OAuth para personas, OIDC de GitHub Actions para CI) y de la
   superficie.
@@ -103,7 +111,19 @@ su prueba negativa.
 - **Sincronización.** Eventos idempotentes por `id`, secuencia monótona por
   unidad y dirección, y la dirección debe corresponder al tipo. La cola
   local solo contiene eventos local→remoto aún no confirmados, en orden.
-  En el protocolo gana el remoto; en el código, el local.
+  En el protocolo gana el remoto; en el código, el local. Desde 1.3 el
+  proxy trae los eventos remoto→local con `sync.pull(unidad, desde)` y sube
+  su cola local→remoto con `sync.push`, que responde `confirmada_hasta`. La
+  subida no lleva actor (lo pone el servidor) y un hueco de secuencia se
+  rechaza con `secuencia-con-hueco`. `snapshot.subido` y `orden.reportada`
+  solo avisan: los datos viajan en `unit.report`. El webhook de push de la
+  GitHub App sigue siendo la fuente para ramas empujadas fuera del proxy;
+  si ya llegó un `commit.empujado` con el mismo commit, el servidor no lo
+  aplica dos veces.
+- **Embeddings.** Son opcionales en el delta y en la búsqueda. Si el proxy
+  no tiene codificador local, sube el delta sin embeddings y busca sin
+  `vector_b64`; los símbolos sin vector solo se encuentran por texto en la superposición
+  de la unidad. El servidor nunca calcula embeddings de código.
 - **Chat (R9, R10).** La respuesta del modelo es estructurada (afirmaciones
   y referencias tipadas) y su esquema rechaza bloques de código, HTML y
   URL. El veredicto del gate evalúa las siete reglas exactamente una vez y
@@ -118,7 +138,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.0`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.3`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -131,7 +151,9 @@ su prueba negativa.
   `repositorio_destino` en las aristas y `tipos_actor` en el registro;
   `1.2` añade la causa de escalado `sin-convergencia`, la tool
   `unit.set_mode`, `modo` opcional en `unit.start`, `tras` en cada
-  conversión de modo y `pedido` en el estado de la unidad.
+  conversión de modo y `pedido` en el estado de la unidad; `1.3` añade las
+  tools `sync.pull` y `sync.push`, el código de error
+  `secuencia-con-hueco` y el alias MCP de cada tool (`mcp_name`).
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

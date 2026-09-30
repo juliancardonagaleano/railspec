@@ -29,9 +29,13 @@ from railspec.contracts.tools import (
     GraphIndexEntrada,
     GraphQueryEntrada,
     Superficie,
+    SyncPullEntrada,
+    SyncPullSalida,
+    SyncPushEntrada,
     UnitApproveEntrada,
     UnitSetModeEntrada,
     UnitStartEntrada,
+    resolver_tool,
     tools_para,
 )
 
@@ -372,6 +376,8 @@ def test_registro_de_tools() -> None:
         "telemetry.query",
         "graph.index",
         "unit.set_mode",
+        "sync.pull",
+        "sync.push",
     }
     assert all(t.efecto == Efecto.lectura for t in tools_para(Superficie.chat))
     assert [t.nombre for t in TOOLS.values() if Superficie.chat in t.superficies and t.nombre == "code.read"]
@@ -539,3 +545,78 @@ def test_unit_start_con_modo_inicial() -> None:
     }
     UnitStartEntrada.model_validate({**base, "modo": "semi-autonomo"})
     _rechaza(UnitStartEntrada, {**base, "modo": "supervisado"}, "exige un mandato")
+
+
+# --- Contrato 1.3: pedidos del hilo del proxy local ---------------------------------------
+
+
+def _subida(n: int, secuencia: int) -> dict[str, Any]:
+    return {
+        "id": str(f.uid(100 + n)),
+        "secuencia": secuencia,
+        "emitido_en": "2026-09-30T20:00:00Z",
+        "carga": {
+            "tipo": "commit.empujado",
+            "repositorio": "certificados-api",
+            "rama": "railspec/0001-emitir-pdf",
+            "commit": f.BASE,
+        },
+    }
+
+
+def test_sync_push_sube_commit_empujado_sin_actor() -> None:
+    entrada = {"unidad": f.ALCANCE_UNIDAD.model_dump(), "eventos": [_subida(1, 8), _subida(2, 9)]}
+    SyncPushEntrada.model_validate(entrada)
+    _rechaza(SyncPushEntrada, {**entrada, "eventos": [_subida(1, 9), _subida(2, 8)]}, "crecientes")
+    _rechaza(SyncPushEntrada, {**entrada, "eventos": [_subida(1, 8), _subida(1, 9)]}, "repetidos")
+    con_actor = {**_subida(1, 8), "actor": f.JULIAN.model_dump()}
+    _rechaza(SyncPushEntrada, {**entrada, "eventos": [con_actor]}, "actor")
+    remoto = {
+        **_subida(1, 8),
+        "carga": {"tipo": "orden.emitida", "orden_id": str(f.uid(9)), "secuencia_orden": 1},
+    }
+    _rechaza(SyncPushEntrada, {**entrada, "eventos": [remoto]}, "orden.emitida")
+
+
+def test_sync_pull_solo_remoto_a_local_en_orden() -> None:
+    SyncPullEntrada.model_validate({"unidad": f.ALCANCE_UNIDAD.model_dump(), "desde": 0})
+    remoto = {
+        **f.evento().model_dump(mode="json"),
+        "direccion": "remoto-a-local",
+        "carga": {"tipo": "veredicto.emitido", "gate": "codigo", "veredicto": "aprobado"},
+    }
+    SyncPullSalida.model_validate({"eventos": [remoto], "ultima_secuencia": 7, "hay_mas": False})
+    _rechaza(
+        SyncPullSalida, {"eventos": [remoto], "ultima_secuencia": 3, "hay_mas": False}, "ultima_secuencia"
+    )
+    siguiente = {**remoto, "id": str(f.uid(50)), "secuencia": 6}
+    _rechaza(
+        SyncPullSalida,
+        {"eventos": [remoto, siguiente], "ultima_secuencia": 7, "hay_mas": False},
+        "crecientes",
+    )
+    local = f.evento().model_dump(mode="json")
+    _rechaza(SyncPullSalida, {"eventos": [local], "ultima_secuencia": 7, "hay_mas": False}, "remoto→local")
+
+
+def test_sync_tools_solo_mcp_y_sin_servicios() -> None:
+    for nombre in ("sync.pull", "sync.push"):
+        tool = TOOLS[nombre]
+        assert tool.superficies == {Superficie.mcp}
+        assert TipoActor.servicio not in tool.tipos_actor
+    assert TOOLS["sync.pull"].efecto == Efecto.lectura
+    assert TOOLS["sync.push"].efecto == Efecto.escritura
+
+
+def test_alias_mcp_deterministas_y_unicos() -> None:
+    import re
+
+    alias = {t.nombre_mcp for t in TOOLS.values()}
+    assert len(alias) == len(TOOLS)
+    for tool in TOOLS.values():
+        assert re.fullmatch(r"[a-z]+_[a-z_]+", tool.nombre_mcp)
+        assert tool.nombre_mcp == tool.nombre.replace(".", "_")
+        assert resolver_tool(tool.nombre) is tool
+        assert resolver_tool(tool.nombre_mcp) is tool
+        assert tool.manifiesto()["mcp_name"] == tool.nombre_mcp
+    assert resolver_tool("unit-start") is None
