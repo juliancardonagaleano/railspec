@@ -22,22 +22,28 @@ from uuid import UUID, uuid4
 from railspec.contracts._base import VERSION_CONTRATO, VERSION_MAYOR
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, Modo, Perfil, Riesgo
 from railspec.contracts.estado import Checkpoint, Decision, EstadoLocal
-from railspec.contracts.eventos import Direccion, EventoSync, OrdenReportada, SnapshotSubido
+from railspec.contracts.eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
 from railspec.contracts.orden import OrdenImplementar, OrdenRedactar, OrdenRefinar
 from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, UsoModeloArnes
 from railspec.contracts.snapshot import EMBEDDING_MODELO
 from railspec.contracts.tools import (
+    MAX_EVENTOS_SYNC,
     AvanceCerrada,
     AvanceCheckpoint,
     AvanceEspera,
     AvanceOrden,
     CodigoError,
     EstadoSalida,
+    EventoSubida,
     GraphQueryEntrada,
     GraphQuerySalida,
     InsumoGetEntrada,
     InsumoGetSalida,
     RepositorioInicio,
+    SyncPullEntrada,
+    SyncPullSalida,
+    SyncPushEntrada,
+    SyncPushSalida,
     UnitAdvanceEntrada,
     UnitAdvanceSalida,
     UnitApproveEntrada,
@@ -186,17 +192,18 @@ class ProxyLocal:
             estado = almacen.tomar_bloqueo(almacen.leer())
             almacen.escribir(estado)
             try:
-                estado, rechazos = await self._vaciar_cola(almacen, estado)
+                estado, rechazos = await self._sincronizar(almacen, estado)
                 version_vista = estado.espejo_remoto.version if estado.espejo_remoto else 1
                 salida = await self.cliente.llamar(
                     "unit.advance",
                     UnitAdvanceEntrada(unidad=estado.unidad, version_vista=version_vista),
                     UnitAdvanceSalida,
                 )
+                estado, recibidos = await self._traer_eventos(estado)
             except SinConexion as exc:
-                # _vaciar_cola persiste cada paso: lo vigente está en disco.
+                # _sincronizar persiste cada paso: lo vigente está en disco.
                 return self._respuesta_sin_conexion(almacen.leer(), exc)
-            estado = await self._refrescar_espejo(estado, salida.version_estado)
+            estado = await self._refrescar_espejo(estado, 0 if recibidos else salida.version_estado)
             respuesta: Json = {"unidad": estado.unidad.unidad, "worktree": estado.worktree}
             if rechazos:
                 respuesta["reportes_rechazados"] = rechazos
@@ -341,7 +348,7 @@ class ProxyLocal:
                 respuesta["avisos"] = avisos
             respuesta |= local
             try:
-                estado, rechazos = await self._vaciar_cola(almacen, estado)
+                estado, rechazos = await self._sincronizar(almacen, estado)
             except SinConexion as exc:
                 respuesta |= {
                     "encolado": True,
@@ -362,96 +369,182 @@ class ProxyLocal:
             raise ErrorRailspec("Estado local sin espejo remoto; llama unit_status con conexión.")
         return estado.espejo_remoto.dueno.model_copy(update={"canal": Canal.arnes})
 
+    def _evento(
+        self, estado: EstadoLocal, secuencia: int, carga: Any, causa: UUID | None = None
+    ) -> EventoSync:
+        return EventoSync(
+            id=self.nuevo_id(),
+            direccion=Direccion.local_a_remoto,
+            unidad=estado.unidad,
+            secuencia=secuencia,
+            emitido_en=self.reloj(),
+            actor=self._actor(estado),
+            causado_por=causa,
+            carga=carga,
+        )
+
+    @staticmethod
+    def _siguiente(estado: EstadoLocal) -> int:
+        cola = estado.cola_pendiente
+        return (cola[-1].secuencia if cola else estado.ultima_secuencia_confirmada) + 1
+
     def _encolar(self, estado: EstadoLocal, reporte: ReporteOrden) -> EstadoLocal:
+        """Desde el contrato 1.3 el proxy numera la dirección local→remoto: el servidor
+        no emite ``snapshot.subido`` ni ``orden.reportada`` al recibir ``unit.report``."""
+
         cola = list(estado.cola_pendiente)
-        siguiente = (cola[-1].secuencia if cola else estado.ultima_secuencia_confirmada) + 1
-        ahora = reporte.reportado_en
-        actor = self._actor(estado)
+        siguiente = self._siguiente(estado)
         causa = None
         if reporte.snapshot is not None:
-            evento_snapshot = EventoSync(
-                id=self.nuevo_id(),
-                direccion=Direccion.local_a_remoto,
-                unidad=estado.unidad,
-                secuencia=siguiente,
-                emitido_en=ahora,
-                actor=actor,
-                carga=SnapshotSubido(
-                    snapshot_id=reporte.snapshot.id,
-                    repositorio=reporte.snapshot.repositorio,
-                    base_commit=reporte.snapshot.base_commit,
-                    hash_arbol=reporte.snapshot.hash_arbol,
+            s = reporte.snapshot
+            evento_snapshot = self._evento(
+                estado,
+                siguiente,
+                SnapshotSubido(
+                    snapshot_id=s.id,
+                    repositorio=s.repositorio,
+                    base_commit=s.base_commit,
+                    hash_arbol=s.hash_arbol,
                 ),
             )
             cola.append(evento_snapshot)
             causa = evento_snapshot.id
             siguiente += 1
-        cola.append(
-            EventoSync(
-                id=self.nuevo_id(),
-                direccion=Direccion.local_a_remoto,
-                unidad=estado.unidad,
-                secuencia=siguiente,
-                emitido_en=ahora,
-                actor=actor,
-                causado_por=causa,
-                carga=OrdenReportada(orden_id=reporte.orden_id, secuencia_orden=reporte.secuencia),
-            )
-        )
+        carga = OrdenReportada(orden_id=reporte.orden_id, secuencia_orden=reporte.secuencia)
+        cola.append(self._evento(estado, siguiente, carga, causa))
         return estado.model_copy(update={"cola_pendiente": cola})
 
-    async def _vaciar_cola(self, almacen: Almacen, estado: EstadoLocal) -> tuple[EstadoLocal, list[Json]]:
-        """Envía en orden los reportes encolados. Cada ``orden.reportada`` confirma también
-        los ``snapshot.subido`` que la preceden, porque el snapshot viaja dentro del reporte.
+    def _detectar_empuje(self, almacen: Almacen, estado: EstadoLocal) -> EstadoLocal:
+        """Encola ``commit.empujado`` si la rama de la unidad llegó al remoto con un commit nuevo.
 
-        Un rechazo del servidor saca el reporte de la cola (en el protocolo gana el
-        remoto) y se devuelve al arnés; una caída de red deja la cola como está."""
+        La referencia remota la actualiza git en cada ``push``; el webhook de la GitHub App
+        sigue cubriendo las ramas empujadas desde otra máquina."""
 
+        commit = git.commit_empujado(Path(estado.worktree), estado.rama)
+        if commit is None or commit == almacen.leer_ultimo_empuje():
+            return estado
+        carga = CommitEmpujado(repositorio=estado.repositorio, rama=estado.rama, commit=commit)
+        estado = estado.model_copy(
+            update={
+                "cola_pendiente": [
+                    *estado.cola_pendiente,
+                    self._evento(estado, self._siguiente(estado), carga),
+                ]
+            }
+        )
+        almacen.escribir(estado)
+        almacen.escribir_ultimo_empuje(commit)
+        return estado
+
+    async def _sincronizar(self, almacen: Almacen, estado: EstadoLocal) -> tuple[EstadoLocal, list[Json]]:
+        """Vacía la cola local→remoto en dos pasos.
+
+        1. Cada reporte pendiente viaja por ``unit.report``. Si el servidor lo rechaza, el
+           remoto gana: el reporte y sus avisos salen de la cola y se devuelven al arnés.
+        2. Los avisos que quedan (``snapshot.subido`` y ``orden.reportada`` de reportes
+           aceptados, ``commit.empujado``) suben en orden por ``sync.push``.
+
+        Cada paso se persiste; una caída de red deja en disco lo que falte."""
+
+        estado = self._detectar_empuje(almacen, estado)
         rechazos: list[Json] = []
-        while True:
-            cola = list(estado.cola_pendiente)
-            indice = next((i for i, e in enumerate(cola) if isinstance(e.carga, OrdenReportada)), None)
-            if indice is None:
-                return estado, rechazos
-            evento = cola[indice]
-            orden_id = evento.carga.orden_id  # type: ignore[union-attr]
+        for evento in list(estado.cola_pendiente):
+            if not isinstance(evento.carga, OrdenReportada):
+                continue
+            orden_id = evento.carga.orden_id
             reporte = almacen.leer_pendiente(orden_id)
-            if reporte is not None:
-                try:
-                    await self.cliente.llamar("unit.report", reporte, UnitReportSalida)
-                except ErrorServidor as exc:
-                    if not self._ya_aceptado(exc):
-                        rechazos.append(
-                            {"orden": str(orden_id), "codigo": exc.codigo.value, "detalle": exc.error.detalle}
-                        )
-            orden_en_curso = estado.orden_en_curso
-            if orden_en_curso is not None and orden_en_curso.id == orden_id:
-                orden_en_curso = None
-            estado = estado.model_copy(
-                update={
-                    "cola_pendiente": cola[indice + 1 :],
-                    "ultima_secuencia_confirmada": evento.secuencia,
-                    "orden_en_curso": orden_en_curso,
-                }
-            )
+            if reporte is None:
+                continue  # ya aceptado; falta subir su aviso
+            reenvio = almacen.fue_enviado(orden_id)
+            almacen.marcar_enviado(orden_id)
+            try:
+                await self.cliente.llamar("unit.report", reporte, UnitReportSalida)
+            except ErrorServidor as exc:
+                if not self._ya_aceptado(exc):
+                    rechazos.append(_rechazo(orden_id, exc, reenvio))
+                    estado = self._quitar_de_cola(estado, evento)
+            estado = self._orden_resuelta(estado, orden_id)
             almacen.escribir(estado)
             almacen.borrar_pendiente(orden_id)
+        return await self._subir_avisos(almacen, estado), rechazos
 
     @staticmethod
     def _ya_aceptado(exc: ErrorServidor) -> bool:
-        """Un reintento de un reporte que el servidor ya aceptó (la respuesta se perdió
-        por el camino) vuelve como ``secuencia-duplicada``: no es un rechazo."""
+        """``secuencia-duplicada`` en un reenvío: el servidor ya tenía el reporte."""
 
         return exc.codigo == CodigoError.secuencia_duplicada
+
+    @staticmethod
+    def _orden_resuelta(estado: EstadoLocal, orden_id: UUID) -> EstadoLocal:
+        if estado.orden_en_curso is not None and estado.orden_en_curso.id == orden_id:
+            return estado.model_copy(update={"orden_en_curso": None})
+        return estado
+
+    @staticmethod
+    def _quitar_de_cola(estado: EstadoLocal, evento: EventoSync) -> EstadoLocal:
+        """Saca un reporte rechazado y su ``snapshot.subido`` y renumera lo que sigue.
+
+        Renumerar es seguro: los avisos solo suben después de resolver todos los
+        reportes, así que nada de la cola ha llegado aún al servidor."""
+
+        fuera = {evento.id, evento.causado_por}
+        quedan = [e for e in estado.cola_pendiente if e.id not in fuera]
+        base = estado.ultima_secuencia_confirmada
+        cola = [e.model_copy(update={"secuencia": base + i}) for i, e in enumerate(quedan, start=1)]
+        return estado.model_copy(update={"cola_pendiente": cola})
+
+    async def _subir_avisos(self, almacen: Almacen, estado: EstadoLocal) -> EstadoLocal:
+        while estado.cola_pendiente:
+            lote = estado.cola_pendiente[:MAX_EVENTOS_SYNC]
+            salida = await self.cliente.llamar(
+                "sync.push",
+                SyncPushEntrada(unidad=estado.unidad, eventos=[_subida(e) for e in lote]),
+                SyncPushSalida,
+            )
+            quedan = [e for e in estado.cola_pendiente if e.secuencia > salida.confirmada_hasta]
+            if len(quedan) == len(estado.cola_pendiente):
+                raise ErrorRailspec(
+                    f"sync.push no confirmó ningún evento (confirmada_hasta={salida.confirmada_hasta})."
+                )
+            estado = estado.model_copy(
+                update={
+                    "cola_pendiente": quedan,
+                    "ultima_secuencia_confirmada": max(
+                        salida.confirmada_hasta, estado.ultima_secuencia_confirmada
+                    ),
+                }
+            )
+            almacen.escribir(estado)
+        return estado
+
+    async def _traer_eventos(self, estado: EstadoLocal) -> tuple[EstadoLocal, int]:
+        """``sync.pull``: avanza ``ultima_secuencia_recibida``. El espejo se refresca aparte
+        con ``unit.status``, que trae el estado completo; los eventos solo avisan del cambio."""
+
+        recibidos = 0
+        while True:
+            salida = await self.cliente.llamar(
+                "sync.pull",
+                SyncPullEntrada(unidad=estado.unidad, desde=estado.ultima_secuencia_recibida),
+                SyncPullSalida,
+            )
+            recibidos += len(salida.eventos)
+            ultima = salida.eventos[-1].secuencia if salida.eventos else estado.ultima_secuencia_recibida
+            estado = estado.model_copy(update={"ultima_secuencia_recibida": ultima})
+            if not salida.hay_mas:
+                return estado, recibidos
 
     async def sincronizar(self, unidad: str | None = None) -> Json:
         almacen = self._almacen(unidad)
         with almacen.cerrojo():
             estado = almacen.leer()
-            estado, rechazos = await self._vaciar_cola(almacen, estado)
+            estado, rechazos = await self._sincronizar(almacen, estado)
+            estado, recibidos = await self._traer_eventos(estado)
+            almacen.escribir(estado)
             return {
                 "unidad": estado.unidad.unidad,
                 "pendientes": len(estado.cola_pendiente),
+                "eventos_recibidos": recibidos,
                 "rechazos": rechazos,
             }
 
@@ -596,6 +689,28 @@ class ProxyLocal:
 
 
 # --- utilidades -------------------------------------------------------------------------------
+
+
+def _subida(evento: EventoSync) -> EventoSubida:
+    return EventoSubida(
+        id=evento.id,
+        secuencia=evento.secuencia,
+        emitido_en=evento.emitido_en,
+        causado_por=evento.causado_por,
+        carga=evento.carga,
+    )
+
+
+def _rechazo(orden_id: UUID, exc: ErrorServidor, reenvio: bool) -> Json:
+    rechazo: Json = {"orden": str(orden_id), "codigo": exc.codigo.value, "detalle": exc.error.detalle}
+    if reenvio and exc.codigo == CodigoError.orden_no_vigente:
+        # unit.report no es idempotente: si el primer envío llegó y se perdió la respuesta,
+        # el reenvío ya no encuentra la orden vigente. El servidor manda en ambos casos.
+        rechazo["incierto"] = (
+            "Un envío anterior quedó sin respuesta; puede que el servidor ya tuviera este reporte. "
+            "Llama unit_advance: la orden siguiente lo refleja."
+        )
+    return rechazo
 
 
 def _verificar_alcance(orden: OrdenImplementar, rutas: list[str]) -> None:

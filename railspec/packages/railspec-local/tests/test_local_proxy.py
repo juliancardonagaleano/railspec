@@ -15,6 +15,7 @@ from local_fabricas import (
     orden_redactar,
     sh,
 )
+from railspec.contracts._base import VERSION_CONTRATO
 from railspec.contracts.comun import NivelCodigo
 from railspec.contracts.estado import BloqueoInstancia, EstadoLocal
 from railspec.contracts.eventos import OrdenReportada, SnapshotSubido
@@ -50,7 +51,7 @@ def test_inicio_crea_worktree_hermano_y_estado_local(tmp_path):
     # El estado local del proxy nunca aparece como cambio en git.
     assert sh(worktree, "status", "--porcelain").strip() == ""
     entrada = servidor.llamadas[0][1]
-    assert entrada["version_contrato_cliente"] == "1.2"
+    assert entrada["version_contrato_cliente"] == VERSION_CONTRATO
     assert "modo" not in entrada  # sin petición del humano, nace interactivo
     assert entrada["repositorios"][0]["rama"] == "main"
 
@@ -171,9 +172,90 @@ def test_respuesta_perdida_se_reintenta_sin_duplicar(tmp_path):
     assert correr(proxy.reportar())["encolado"] is True
     assert len(servidor.reportes) == 1  # el servidor sí lo aceptó
 
+    # El reenvío vuelve con secuencia-duplicada: ya entregado, y sus avisos suben.
     resultado = correr(proxy.sincronizar())
-    assert resultado == {"unidad": "0001-sumar", "pendientes": 0, "rechazos": []}
+    assert resultado["pendientes"] == 0 and resultado["rechazos"] == []
     assert len(servidor.reportes) == 1
+    assert [e.carga.tipo for e in servidor.eventos_subidos] == ["snapshot.subido", "orden.reportada"]
+
+
+def test_reenvio_contra_servidor_no_idempotente_se_marca_incierto(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    servidor.reenvio_idempotente = False
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    correr(proxy.avanzar())
+    servidor.perder_respuesta = True
+    assert correr(proxy.reportar())["encolado"] is True
+
+    # Un servidor anterior al #11 responde orden-no-vigente: el proxy no sabe si llegó.
+    resultado = correr(proxy.sincronizar())
+    (rechazo,) = resultado["rechazos"]
+    assert rechazo["codigo"] == "orden-no-vigente" and "incierto" in rechazo
+    assert servidor.eventos_subidos == []  # sin certeza no se avisa orden.reportada
+
+
+def test_reenvio_con_secuencia_duplicada_cuenta_como_aceptado(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    correr(proxy.avanzar())
+    servidor.conectado = False
+    assert correr(proxy.reportar())["encolado"] is True
+    servidor.conectado = True
+    servidor.rechazar_con = CodigoError.secuencia_duplicada
+    resultado = correr(proxy.sincronizar())
+    assert resultado["rechazos"] == [] and resultado["pendientes"] == 0
+    assert [e.carga.tipo for e in servidor.eventos_subidos] == ["snapshot.subido", "orden.reportada"]
+
+
+def test_avisos_suben_por_sync_push_numerados_por_el_proxy(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    correr(proxy.avanzar())
+    assert correr(proxy.reportar())["aceptado"] is True
+    snapshot, reportada = servidor.eventos_subidos
+    assert (snapshot.secuencia, reportada.secuencia) == (1, 2)
+    assert reportada.causado_por == snapshot.id
+    assert reportada.carga.orden_id == servidor.reportes[0].orden_id
+    estado = Almacen(worktree).leer()
+    assert estado.cola_pendiente == [] and estado.ultima_secuencia_confirmada == 2
+
+
+def test_respuesta_perdida_de_sync_push_no_duplica_avisos(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    correr(proxy.avanzar())
+    servidor.perder_respuesta_push = True
+    resultado = correr(proxy.reportar())
+    assert resultado["encolado"] is True and len(servidor.reportes) == 1
+    assert len(Almacen(worktree).leer().cola_pendiente) == 2  # el servidor sí los tiene
+    assert correr(proxy.sincronizar())["pendientes"] == 0
+    assert len(servidor.eventos_subidos) == 2 and len(servidor.reportes) == 1
+
+
+def test_avanzar_trae_eventos_remotos_con_sync_pull(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    correr(proxy.avanzar())
+    assert Almacen(worktree).leer().ultima_secuencia_recibida == 1  # orden.emitida
+    llamadas = [t for t, _ in servidor.llamadas]
+    assert llamadas.index("sync.pull") > llamadas.index("unit.advance")
+
+
+def test_rama_empujada_se_avisa_una_vez_como_commit_empujado(tmp_path):
+    servidor = ServidorDoble([orden_implementar])
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    remoto = tmp_path / "remoto.git"
+    sh(tmp_path, "init", "-q", "--bare", str(remoto))
+    sh(worktree, "remote", "add", "origin", str(remoto))
+    sh(worktree, "push", "-q", "origin", "HEAD:refs/heads/railspec/0001-sumar")
+    sh(worktree, "fetch", "-q", "origin")
+    commit = sh(worktree, "rev-parse", "HEAD").strip()
+
+    correr(proxy.avanzar())
+    correr(proxy.sincronizar())
+    (evento,) = servidor.eventos_subidos
+    assert evento.carga.tipo == "commit.empujado" and evento.carga.commit == commit
+    assert evento.carga.rama == "railspec/0001-sumar" and evento.secuencia == 1
 
 
 def test_un_rechazo_del_servidor_gana_y_se_informa(tmp_path):

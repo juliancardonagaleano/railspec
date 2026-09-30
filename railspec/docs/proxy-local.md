@@ -38,8 +38,11 @@ resto de cada archivo se conserva. Un JSON inválido no se pisa.
 
 ## Tools que ve el arnés
 
-Nombres con guion bajo, porque varios arneses no admiten el punto del
-registro. El actor nunca viaja: el servidor lo deriva del token.
+Las que envuelven una tool del contrato usan su alias `nombre_mcp` (contrato
+1.3: el punto pasa a guion bajo, porque varios arneses no lo admiten); el
+proxy también llama al servidor por ese alias. `unit_checkpoint`,
+`insumo_pull` y `railspec_sync` solo existen en el proxy. El actor nunca
+viaja: el servidor lo deriva del token.
 
 | Tool local | Tool del contrato | Qué añade el proxy |
 |---|---|---|
@@ -52,7 +55,7 @@ registro. El actor nunca viaja: el servidor lo deriva del token.
 | `unit_integrate`, `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
 | `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` |
-| `railspec_sync` | `unit.report` | Reenvía la cola pendiente |
+| `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |
 
 ## Worktree por unidad
 
@@ -68,7 +71,8 @@ Estado local en el worktree, siempre fuera de git (`info/exclude`):
 | Ruta | Contenido |
 |---|---|
 | `.railspec/estado-local.json` | `EstadoLocal`: espejo remoto, orden en curso, cola |
-| `.railspec/pendientes/<orden>.json` | Reporte completo esperando conexión |
+| `.railspec/pendientes/<orden>.json` | Reporte completo esperando conexión (`.enviado` si ya salió una vez) |
+| `.railspec/ultimo-empuje` | Último commit de la rama avisado como `commit.empujado` |
 | `.railspec/validacion/<orden>.log` | Salida completa del comando de validación |
 | `.railspec/insumos/<id>.md` | Insumos traídos de la consola |
 
@@ -108,15 +112,36 @@ commit base para calcular símbolos y aristas borrados. Los ids salen de
 
 ## Sincronización y cola sin conexión
 
-Cada reporte se guarda y encola como `snapshot.subido` (si hay snapshot) y
-`orden.reportada`, con secuencia monótona. Al enviarlo:
+Desde el contrato 1.3 la dirección local→remoto la numera solo el proxy:
+`unit.report` ya no genera eventos en el servidor. Cada reporte se guarda y
+encola como `snapshot.subido` (si hay snapshot) y `orden.reportada`, con
+secuencia monótona. Si la rama de la unidad aparece empujada con un commit
+nuevo (`refs/remotes/*/railspec/<unidad>`), se encola `commit.empujado`; el
+webhook de la GitHub App sigue cubriendo los empujes hechos desde otra
+máquina.
 
-- aceptado: se confirma la secuencia y se borra el pendiente;
-- `secuencia-duplicada`: el servidor ya lo tenía (se perdió la respuesta),
-  cuenta como confirmado;
-- otro error de negocio: el remoto gana; sale de la cola y se informa al arnés;
-- sin red: la cola queda intacta y `unit_advance` devuelve la orden en curso
-  para seguir editando; los gates esperan a la reconexión.
+Al sincronizar (`unit_advance`, `unit_report`, `railspec_sync`):
+
+1. Cada reporte pendiente viaja por `unit.report`.
+   - Aceptado: sale el pendiente; sus avisos esperan al paso 2.
+   - `secuencia-duplicada`: el servidor ya lo tenía; cuenta como aceptado.
+   - Otro error de negocio: el remoto gana. El reporte y sus avisos salen de la
+     cola, lo que queda se renumera y el rechazo se informa al arnés.
+2. Los avisos suben en orden por `sync.push`; lo confirmado
+   (`confirmada_hasta`) sale de la cola. Es idempotente por `id`, así que una
+   respuesta perdida se reintenta sin duplicar.
+3. `unit_advance` y `railspec_sync` traen los eventos remoto→local con
+   `sync.pull` y avanzan `ultima_secuencia_recibida`; si llegó alguno, el
+   espejo se refresca con `unit.status`.
+
+Sin red, la cola queda intacta y `unit_advance` devuelve la orden en curso
+para seguir editando; los gates esperan a la reconexión.
+
+Si un envío de `unit.report` se quedó sin respuesta, el reenvío vuelve con
+`secuencia-duplicada` cuando el servidor ya lo tenía, y cuenta como entregado.
+Contra un servidor que responda `orden-no-vigente` en ese caso, el proxy no
+puede saber si el primero llegó: lo informa como rechazo marcado `incierto`,
+no sube sus avisos y deja que la orden siguiente lo aclare.
 
 ## Checkpoints
 
@@ -129,16 +154,9 @@ consola web puede resolverlo también; gana la primera resolución.
 
 ## Pendiente
 
-- **Eventos remoto→local.** El registro de tools no tiene una vía para que
-  el proxy lea eventos del servidor (`orden.emitida`, `veredicto.emitido`…),
-  así que `ultima_secuencia_recibida` no avanza y el espejo se refresca con
-  `unit.status`. Propuesta: una tool de lectura `sync.pull(unidad, desde)`
-  en superficie MCP.
-- **`commit.empujado`.** Tampoco hay tool para subirlo; el servidor lo
-  detecta por el webhook de push de la GitHub App.
-- **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI; el
-  delta viaja sin embeddings y la búsqueda semántica sin vector local
-  hasta que haya una vía.
+- **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI y el
+  servidor nunca calcula embeddings de código: el delta viaja sin ellos y la
+  búsqueda semántica sin vector hasta integrar un codificador local.
 - **Rebase de una unidad.** Si el servidor emite una orden con otro commit
   base, el proxy se detiene y lo dice; rebasar el worktree queda para otra
   iteración.

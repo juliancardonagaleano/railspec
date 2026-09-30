@@ -18,6 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from fabricas import JULIAN, SERVIDOR, insumo
+from railspec.contracts._base import VERSION_CONTRATO
 from railspec.contracts.comun import (
     AlcanceUnidad,
     Criterio,
@@ -37,6 +38,7 @@ from railspec.contracts.estado import (
     RepositorioUnidad,
     TipoCheckpoint,
 )
+from railspec.contracts.eventos import Direccion, EventoSync, OrdenEmitida
 from railspec.contracts.orden import (
     AlcanceArchivos,
     Artefacto,
@@ -58,6 +60,10 @@ from railspec.contracts.tools import (
     GraphQueryEntrada,
     GraphQuerySalida,
     InsumoGetSalida,
+    SyncPullEntrada,
+    SyncPullSalida,
+    SyncPushEntrada,
+    SyncPushSalida,
     UnitAdvanceEntrada,
     UnitAdvanceSalida,
     UnitApproveEntrada,
@@ -138,6 +144,10 @@ class ServidorDoble:
         self.checkpoint: Checkpoint | None = None
         self.resoluciones: list[UnitApproveEntrada] = []
         self.consultas_grafo: list[GraphQueryEntrada] = []
+        self.eventos_subidos: list[EventoSync] = []
+        self.eventos_remotos: list[EventoSync] = []
+        self.perder_respuesta_push = False
+        self.reenvio_idempotente = True
         self._n = 100
 
     def _id(self) -> UUID:
@@ -195,7 +205,7 @@ class ServidorDoble:
             actualizado_en=T0,
             actualizado_por=SERVIDOR,
         )
-        return UnitStartSalida(estado=self.estado, version_contrato_negociada="1.2")
+        return UnitStartSalida(estado=self.estado, version_contrato_negociada=VERSION_CONTRATO)
 
     def _unit_advance(self, args: dict[str, Any]) -> UnitAdvanceSalida:
         UnitAdvanceEntrada.model_validate(args)
@@ -209,6 +219,7 @@ class ServidorDoble:
             secuencia = self.estado.secuencia_ordenes + 1
             self.orden = fabrica(self.estado, secuencia, self._id())
             self._actualizar(orden_vigente=self.orden.id, secuencia_ordenes=secuencia, fase=self.orden.fase)
+            self._emitir(OrdenEmitida(orden_id=self.orden.id, secuencia_orden=secuencia))
         if self.orden is None:
             return UnitAdvanceSalida(version_estado=self.estado.version, avance=AvanceCerrada())
         return UnitAdvanceSalida(version_estado=self.estado.version, avance=AvanceOrden(orden=self.orden))
@@ -221,8 +232,12 @@ class ServidorDoble:
             self.orden = None
             self._actualizar(orden_vigente=None)
             raise self._error(codigo, "rechazado por el doble")
+        # Como railspec-server (#11): el reenvío de un reporte ya aceptado responde
+        # secuencia-duplicada; con reenvio_idempotente=False, orden-no-vigente (servidor previo).
         if reporte.orden_id in self.aceptadas:
-            raise self._error(CodigoError.secuencia_duplicada, "reporte ya aceptado")
+            if self.reenvio_idempotente:
+                raise self._error(CodigoError.secuencia_duplicada, "reporte ya aceptado")
+            raise self._error(CodigoError.orden_no_vigente, "no es la orden vigente")
         if self.orden is None or reporte.orden_id != self.orden.id:
             raise self._error(CodigoError.orden_no_vigente, "no es la orden vigente")
         if reporte.base_commit != self.orden.base_commit:
@@ -235,6 +250,56 @@ class ServidorDoble:
             self.perder_respuesta = False
             raise SinConexion("respuesta perdida")
         return UnitReportSalida(version_estado=self.estado.version)
+
+    def _emitir(self, carga: Any) -> None:
+        assert self.estado is not None
+        self.eventos_remotos.append(
+            EventoSync(
+                id=self._id(),
+                direccion=Direccion.remoto_a_local,
+                unidad=self.estado.unidad,
+                secuencia=len(self.eventos_remotos) + 1,
+                emitido_en=T0,
+                actor=SERVIDOR,
+                carga=carga,
+            )
+        )
+
+    def _sync_pull(self, args: dict[str, Any]) -> SyncPullSalida:
+        entrada = SyncPullEntrada.model_validate(args)
+        nuevos = [e for e in self.eventos_remotos if e.secuencia > entrada.desde]
+        return SyncPullSalida(
+            eventos=nuevos[: entrada.limite],
+            ultima_secuencia=len(self.eventos_remotos),
+            hay_mas=len(nuevos) > entrada.limite,
+        )
+
+    def _sync_push(self, args: dict[str, Any]) -> SyncPushSalida:
+        entrada = SyncPushEntrada.model_validate(args)
+        ultima = self.eventos_subidos[-1].secuencia if self.eventos_subidos else 0
+        ids = {e.id for e in self.eventos_subidos}
+        duplicados = 0
+        for subida in entrada.eventos:
+            if subida.id in ids:
+                duplicados += 1
+                continue
+            if subida.secuencia <= ultima:
+                raise self._error(CodigoError.secuencia_duplicada, f"{subida.secuencia} ya confirmada")
+            if subida.secuencia != ultima + 1:
+                raise self._error(CodigoError.secuencia_con_hueco, f"se esperaba {ultima + 1}")
+            self.eventos_subidos.append(
+                EventoSync(
+                    direccion=Direccion.local_a_remoto,
+                    unidad=entrada.unidad,
+                    actor=JULIAN,
+                    **subida.model_dump(),
+                )
+            )
+            ultima = subida.secuencia
+        if self.perder_respuesta_push:
+            self.perder_respuesta_push = False
+            raise SinConexion("respuesta de sync.push perdida")
+        return SyncPushSalida(confirmada_hasta=ultima, duplicados=duplicados)
 
     def _unit_status(self, args: dict[str, Any]) -> UnitStatusSalida:
         UnitStatusEntrada.model_validate(args)

@@ -4,7 +4,9 @@
 de solo lectura del estado remoto, orden en curso y cola de eventos sin
 confirmar. Los reportes que esperan conexión se guardan completos en
 ``.railspec/pendientes/<orden>.json``, porque el evento de la cola solo lleva
-el id de la orden.
+el id de la orden; ``<orden>.enviado`` marca que ya salió al menos una vez.
+``.railspec/ultimo-empuje`` guarda el último commit de la rama de la unidad
+avisado como ``commit.empujado``.
 
 Cada escritura es atómica (archivo temporal + ``rename``) y las secciones de
 lectura-modificación-escritura se serializan con un ``flock`` para que dos
@@ -14,7 +16,6 @@ procesos del proxy sobre la misma unidad no se pisen.
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 import socket
 from collections.abc import Iterator
@@ -32,6 +33,7 @@ DIR = Path(".railspec")
 ARCHIVO_ESTADO = DIR / "estado-local.json"
 DIR_PENDIENTES = DIR / "pendientes"
 ARCHIVO_CERROJO = DIR / ".cerrojo"
+ARCHIVO_EMPUJE = DIR / "ultimo-empuje"
 
 #: Rutas locales del proxy que nunca se versionan (van a ``info/exclude``).
 EXCLUIR_DE_GIT = [
@@ -40,6 +42,7 @@ EXCLUIR_DE_GIT = [
     "/.railspec/validacion/",
     "/.railspec/insumos/",
     "/.railspec/.cerrojo",
+    "/.railspec/ultimo-empuje",
 ]
 
 
@@ -117,9 +120,21 @@ class Almacen:
             return None
         return ReporteOrden.model_validate_json(ruta.read_text(encoding="utf-8"))
 
+    def marcar_enviado(self, orden_id: UUID) -> None:
+        (self.worktree / DIR_PENDIENTES / f"{orden_id}.enviado").touch()
+
+    def fue_enviado(self, orden_id: UUID) -> bool:
+        return (self.worktree / DIR_PENDIENTES / f"{orden_id}.enviado").is_file()
+
     def borrar_pendiente(self, orden_id: UUID) -> None:
         (self.worktree / DIR_PENDIENTES / f"{orden_id}.json").unlink(missing_ok=True)
+        (self.worktree / DIR_PENDIENTES / f"{orden_id}.enviado").unlink(missing_ok=True)
 
+    # --- último commit empujado avisado ----------------------------------------------
 
-def volcar_json(datos: object) -> str:
-    return json.dumps(datos, indent=2, ensure_ascii=False, default=str)
+    def leer_ultimo_empuje(self) -> str | None:
+        ruta = self.worktree / ARCHIVO_EMPUJE
+        return ruta.read_text(encoding="utf-8").strip() or None if ruta.is_file() else None
+
+    def escribir_ultimo_empuje(self, commit: str) -> None:
+        _escribir_atomico(self.worktree / ARCHIVO_EMPUJE, commit + "\n")
