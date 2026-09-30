@@ -1,0 +1,36 @@
+# Ingress para un controlador NGINX: el add-on de enrutamiento de aplicaciones
+# de AKS (clase webapprouting.kubernetes.azure.com) o ingress-nginx.
+# - El MCP streamable HTTP guarda la sesión en memoria de la réplica que la
+#   creó: el hash por la cabecera Mcp-Session-Id manda cada sesión a la misma.
+# - SSE en /mcp: sin buffering y con timeouts largos.
+# - graph.index sube lotes de hasta unos MB.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: railspec-server
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-server
+    app.kubernetes.io/part-of: railspec
+  annotations:
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$http_mcp_session_id"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: ${RAILSPEC_INGRESS_CLASE}
+  tls:
+    - hosts: ["${RAILSPEC_DOMINIO}"]
+      secretName: ${RAILSPEC_TLS_SECRETO}
+  rules:
+    - host: ${RAILSPEC_DOMINIO}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: railspec-server
+                port:
+                  name: http

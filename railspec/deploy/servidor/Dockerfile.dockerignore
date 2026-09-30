@@ -1,0 +1,9 @@
+# Contexto de docker build: solo lo que usa railspec/deploy/servidor/Dockerfile.
+*
+!railspec/packages/railspec-contracts
+!railspec/packages/railspec-graph
+!railspec/packages/railspec-server
+!railspec/deploy/servidor/requirements.lock
+**/__pycache__
+**/*.egg-info
+**/tests

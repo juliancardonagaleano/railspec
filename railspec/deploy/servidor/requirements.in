@@ -1,0 +1,17 @@
+# Dependencias de terceros de la imagen de railspec-server.
+# Espejo de los pyproject de railspec-contracts, railspec-graph[falkordb] y
+# railspec-server[motor]; los tres paquetes propios se instalan aparte, sin
+# dependencias. Regenerar el lock con railspec/deploy/servidor/bloquear.sh.
+pydantic>=2.7,<3
+networkx>=3.2,<4
+falkordb>=1.0,<2
+agent-framework-core>=1.19,<2
+pymongo>=4.8,<5
+agent-framework-anthropic>=1.0.0b260918
+agent-framework-foundry>=1.13
+azure-identity>=1.19
+mcp>=2.2,<3
+# Verificación del token OIDC de CI (graph.index).
+pyjwt[crypto]>=2.8
+fastapi>=0.115
+uvicorn>=0.30
