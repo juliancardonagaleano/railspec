@@ -597,8 +597,11 @@
       "$ref": "#/$defs/AlcanceUnidad"
     },
     "version_contrato": {
-      "const": "1.0",
-      "default": "1.0",
+      "default": "1.1",
+      "enum": [
+        "1.0",
+        "1.1"
+      ],
       "title": "Version Contrato",
       "type": "string"
     }
