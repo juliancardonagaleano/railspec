@@ -538,7 +538,7 @@
           "type": "string"
         },
         "simbolo": {
-          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Simbolo",
           "type": "string"
@@ -673,8 +673,11 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "const": "1.0",
-          "default": "1.0",
+          "default": "1.1",
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
           "title": "Version Contrato",
           "type": "string"
         }
@@ -812,8 +815,11 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "const": "1.0",
-          "default": "1.0",
+          "default": "1.1",
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
           "title": "Version Contrato",
           "type": "string"
         }
@@ -955,8 +961,11 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "const": "1.0",
-          "default": "1.0",
+          "default": "1.1",
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
           "title": "Version Contrato",
           "type": "string"
         }
@@ -1075,8 +1084,11 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "const": "1.0",
-          "default": "1.0",
+          "default": "1.1",
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
           "title": "Version Contrato",
           "type": "string"
         }
@@ -1394,7 +1406,7 @@
           "type": "string"
         },
         "simbolo": {
-          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Simbolo",
           "type": "string"

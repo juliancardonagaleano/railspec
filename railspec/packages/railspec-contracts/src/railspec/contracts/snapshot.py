@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -35,10 +36,33 @@ SimboloId = Annotated[
     Field(
         description=(
             "Identificador estable del símbolo: SHA-256 de "
-            "'<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'."
+            "'<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del "
+            "repositorio tal como está vinculado en el workspace. Ver id_simbolo()."
         )
     ),
 ]
+
+
+def id_simbolo(repositorio: str, ruta: str, tipo: str, nombre: str) -> str:
+    """Id de un símbolo; el proxy lo usa también para destinos en otros repositorios.
+
+    ``repositorio`` es el slug del vínculo en el workspace (no el nombre en
+    GitHub), para que una arista hacia otro repositorio resuelva contra el
+    grafo de ese vínculo.
+    """
+
+    clave = "\0".join((repositorio, ruta, tipo, nombre))
+    return hashlib.sha256(clave.encode("utf-8")).hexdigest()
+
+
+def validar_vector_b64(vector_b64: str, dimensiones: int) -> None:
+    try:
+        crudo = base64.b64decode(vector_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("vector_b64 no es base64 válido") from exc
+    if len(crudo) != dimensiones:
+        raise ValueError(f"vector de {len(crudo)} bytes, se esperaban {dimensiones}")
+
 
 #: Tope del diff en bytes; por encima el proxy cae a ``solo-hashes``.
 DIFF_MAX_BYTES = 2_000_000
@@ -115,6 +139,13 @@ class Arista(Contrato):
     origen: SimboloId
     destino: SimboloId
     relacion: Relacion
+    repositorio_destino: Slug | None = Field(
+        default=None,
+        description=(
+            "Desde 1.1: slug del vínculo del workspace donde vive el destino, si no es el "
+            "repositorio del delta (aristas CROSS_* de codebase-memory-mcp)."
+        ),
+    )
 
 
 class Embedding(Contrato):
@@ -129,12 +160,7 @@ class Embedding(Contrato):
 
     @model_validator(mode="after")
     def _longitud(self) -> Embedding:
-        try:
-            crudo = base64.b64decode(self.vector_b64, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ValueError("vector_b64 no es base64 válido") from exc
-        if len(crudo) != self.dimensiones:
-            raise ValueError(f"vector de {len(crudo)} bytes, se esperaban {self.dimensiones}")
+        validar_vector_b64(self.vector_b64, self.dimensiones)
         return self
 
 
