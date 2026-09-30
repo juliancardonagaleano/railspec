@@ -673,11 +673,12 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.2",
+          "default": "1.3",
           "enum": [
             "1.0",
             "1.1",
-            "1.2"
+            "1.2",
+            "1.3"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -816,11 +817,12 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.2",
+          "default": "1.3",
           "enum": [
             "1.0",
             "1.1",
-            "1.2"
+            "1.2",
+            "1.3"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -963,11 +965,12 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.2",
+          "default": "1.3",
           "enum": [
             "1.0",
             "1.1",
-            "1.2"
+            "1.2",
+            "1.3"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1087,11 +1090,12 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.2",
+          "default": "1.3",
           "enum": [
             "1.0",
             "1.1",
-            "1.2"
+            "1.2",
+            "1.3"
           ],
           "title": "Version Contrato",
           "type": "string"

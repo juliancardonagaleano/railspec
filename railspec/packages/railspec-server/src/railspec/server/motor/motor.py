@@ -50,7 +50,7 @@ from railspec.contracts.estado import (
     ResolucionCheckpoint,
     TipoCheckpoint,
 )
-from railspec.contracts.eventos import CheckpointResuelto, OrdenReportada, SnapshotSubido, UnidadIntegrada
+from railspec.contracts.eventos import CheckpointResuelto, Direccion, EventoSync, UnidadIntegrada
 from railspec.contracts.reporte import ReporteOrden, ResultadoOrden
 from railspec.contracts.repositorio import EventoAuditoria, RegistroAuditoria
 from railspec.contracts.tools import (
@@ -61,6 +61,10 @@ from railspec.contracts.tools import (
     CodigoError,
     EstadoSalida,
     ResumenUnidad,
+    SyncPullEntrada,
+    SyncPullSalida,
+    SyncPushEntrada,
+    SyncPushSalida,
     TelemetryQueryEntrada,
     TelemetryQuerySalida,
     UnitAdvanceEntrada,
@@ -359,6 +363,54 @@ class Motor:
         nuevo = self.n.escribir(e.unidad, convertir, actor)
         return EstadoSalida(estado=nuevo)
 
+    # --- sync.pull y sync.push (contrato 1.3) --------------------------------------------------
+
+    async def sync_pull(self, e: SyncPullEntrada, actor: Actor) -> SyncPullSalida:
+        self._estado(e.unidad)
+        eventos = self.n.almacen.eventos_desde(e.unidad, Direccion.remoto_a_local, e.desde, e.limite + 1)
+        return SyncPullSalida(
+            eventos=eventos[: e.limite],
+            ultima_secuencia=self.n.almacen.ultima_secuencia(e.unidad, Direccion.remoto_a_local),
+            hay_mas=len(eventos) > e.limite,
+        )
+
+    async def sync_push(self, e: SyncPushEntrada, actor: Actor) -> SyncPushSalida:
+        """Cola local→remoto del proxy: idempotente por id, sin huecos de secuencia."""
+
+        estado = self._estado(e.unidad)
+        ultima = self.n.almacen.ultima_secuencia(e.unidad, Direccion.local_a_remoto)
+        duplicados = 0
+        for subida in e.eventos:
+            if self.n.almacen.existe_evento(e.unidad, subida.id):
+                duplicados += 1
+                continue
+            if subida.secuencia <= ultima:
+                raise ErrorNegocio(
+                    CodigoError.secuencia_duplicada,
+                    f"la secuencia {subida.secuencia} ya está confirmada con otro evento (última {ultima})",
+                    estado.version,
+                )
+            if subida.secuencia != ultima + 1:
+                raise ErrorNegocio(
+                    CodigoError.secuencia_con_hueco,
+                    f"se esperaba la secuencia {ultima + 1} y llegó {subida.secuencia}",
+                    estado.version,
+                )
+            evento = EventoSync(
+                id=subida.id,
+                direccion=Direccion.local_a_remoto,
+                unidad=e.unidad,
+                secuencia=subida.secuencia,
+                emitido_en=subida.emitido_en,
+                actor=actor,
+                causado_por=subida.causado_por,
+                carga=subida.carga,
+            )
+            self.n.almacen.registrar_evento(evento)
+            self.n.notificar(evento)
+            ultima = subida.secuencia
+        return SyncPushSalida(confirmada_hasta=ultima, duplicados=duplicados)
+
     # --- unit.advance ----------------------------------------------------------------------
 
     async def advance(self, e: UnitAdvanceEntrada, actor: Actor) -> UnitAdvanceSalida:
@@ -401,7 +453,8 @@ class Motor:
         self._exigencias(orden, r, estado)
 
         self.n.almacen.guardar_reporte(r)
-        self.n.emitir(r.unidad, OrdenReportada(orden_id=r.orden_id, secuencia_orden=r.secuencia), actor)
+        # Los avisos local→remoto (orden.reportada, snapshot.subido) los numera y sube el proxy
+        # con sync.push: el servidor no escribe en esa dirección para no pisar su secuencia.
         if r.snapshot is not None:
             s = r.snapshot
             vinculo = self.n.almacen.vinculo(
@@ -411,16 +464,6 @@ class Motor:
                 self.n.almacen.guardar_snapshot(s, vinculo.retencion_snapshots_dias)
             else:
                 self.n.almacen.guardar_snapshot(s)
-            self.n.emitir(
-                r.unidad,
-                SnapshotSubido(
-                    snapshot_id=s.id,
-                    repositorio=s.repositorio,
-                    base_commit=s.base_commit,
-                    hash_arbol=s.hash_arbol,
-                ),
-                actor,
-            )
             if self.n.grafo is not None and s.delta_indice is not None:
                 self.n.grafo.aplicar_delta(
                     AlcanceRepositorio(

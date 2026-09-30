@@ -37,7 +37,7 @@ def servidor_mcp(registro: Registro, identidad: Any):
         return types.ListToolsResult(
             tools=[
                 types.Tool(
-                    name=t.nombre,
+                    name=t.nombre_mcp,
                     description=t.descripcion,
                     input_schema=t.entrada.model_json_schema(),
                     output_schema=t.salida.model_json_schema(),

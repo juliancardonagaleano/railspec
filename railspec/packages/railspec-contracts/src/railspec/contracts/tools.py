@@ -7,6 +7,11 @@ chat solo recibe tools de lectura, y ``code.read`` solo existe para él.
 
 El actor nunca viaja en la entrada: el servidor lo deriva del token
 autenticado (GitHub OAuth, u OIDC de GitHub Actions) y de la superficie.
+
+Nombres (desde 1.3): el nombre canónico lleva punto (``unit.start``) y es el
+que usan la API HTTP, el registro y la documentación. Toda superficie MCP
+(servidor y proxy) expone el alias ``nombre_mcp`` (``unit_start``), porque
+varios arneses rechazan el punto; ``resolver_tool`` acepta las dos formas.
 """
 
 from __future__ import annotations
@@ -35,8 +40,10 @@ from .comun import (
     Slug,
     TipoActor,
     UnidadId,
+    ids_unicos,
 )
 from .estado import Checkpoint, Decision, EstadoUnidad
+from .eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
 from .insumo import Insumo
 from .orden import OrdenDeTrabajo
 from .referencias import RefArchivo, RefNodoGrafo, RefSimbolo
@@ -78,6 +85,7 @@ class CodigoError(StrEnum):
     conversion_no_permitida = "conversion-no-permitida"
     unidad_no_cerrada = "unidad-no-cerrada"
     presupuesto_agotado = "presupuesto-agotado"
+    secuencia_con_hueco = "secuencia-con-hueco"
 
 
 class ErrorTool(Mensaje):
@@ -267,6 +275,86 @@ class ResumenUnidad(Contrato):
 class UnitListSalida(Mensaje):
     unidades: list[ResumenUnidad]
     cursor_siguiente: str | None = None
+
+
+# --- sync.pull y sync.push (desde 1.3) ------------------------------------------------
+
+MAX_EVENTOS_SYNC = 500
+
+
+class SyncPullEntrada(Mensaje):
+    """Pide los eventos remoto→local de una unidad posteriores a ``desde``."""
+
+    unidad: AlcanceUnidad
+    desde: int = Field(ge=0, description="Última secuencia remoto→local ya aplicada.")
+    limite: int = Field(default=100, ge=1, le=MAX_EVENTOS_SYNC)
+
+
+class SyncPullSalida(Mensaje):
+    eventos: list[EventoSync] = Field(max_length=MAX_EVENTOS_SYNC)
+    ultima_secuencia: int = Field(ge=0, description="Última secuencia remoto→local emitida.")
+    hay_mas: bool
+
+    @model_validator(mode="after")
+    def _reglas(self) -> SyncPullSalida:
+        previa = None
+        for evento in self.eventos:
+            if evento.direccion != Direccion.remoto_a_local:
+                raise ValueError("sync.pull solo devuelve eventos remoto→local")
+            if previa is not None and evento.secuencia <= previa:
+                raise ValueError("sync.pull devuelve secuencias crecientes")
+            previa = evento.secuencia
+        if previa is not None and previa > self.ultima_secuencia:
+            raise ValueError("ultima_secuencia no puede ser menor que la del último evento")
+        if self.hay_mas and not self.eventos:
+            raise ValueError("hay_mas exige al menos un evento")
+        return self
+
+
+CargaLocal = Annotated[
+    Union[SnapshotSubido, OrdenReportada, CommitEmpujado],
+    Field(discriminator="tipo"),
+]
+
+
+class EventoSubida(Contrato):
+    """Evento local→remoto tal como lo sube el proxy.
+
+    Sin actor ni dirección: el servidor completa el ``EventoSync`` con el
+    actor del token y la dirección local→remoto.
+    """
+
+    id: UUID4 = Field(description="Clave de idempotencia.")
+    secuencia: int = Field(ge=1, description="Monótona por unidad en la dirección local→remoto.")
+    emitido_en: AwareDatetime
+    causado_por: UUID4 | None = None
+    carga: CargaLocal
+
+
+class SyncPushEntrada(Mensaje):
+    """Sube la cola local→remoto de una unidad, en orden.
+
+    Idempotente por ``id``: un evento ya confirmado se descarta sin error.
+    ``snapshot.subido`` y ``orden.reportada`` solo avisan; los datos viajan en
+    ``unit.report``. Un hueco respecto a la última secuencia confirmada se
+    rechaza con ``secuencia-con-hueco``.
+    """
+
+    unidad: AlcanceUnidad
+    eventos: list[EventoSubida] = Field(min_length=1, max_length=MAX_EVENTOS_SYNC)
+
+    @model_validator(mode="after")
+    def _reglas(self) -> SyncPushEntrada:
+        ids_unicos([str(e.id) for e in self.eventos], "eventos")
+        for previo, siguiente in zip(self.eventos, self.eventos[1:], strict=False):
+            if siguiente.secuencia <= previo.secuencia:
+                raise ValueError("sync.push exige secuencias crecientes")
+        return self
+
+
+class SyncPushSalida(Mensaje):
+    confirmada_hasta: int = Field(ge=0, description="Última secuencia local→remoto confirmada.")
+    duplicados: int = Field(default=0, ge=0, description="Eventos ya confirmados que se descartaron.")
 
 
 # --- graph.query ----------------------------------------------------------------------
@@ -474,6 +562,12 @@ class TelemetryQuerySalida(Mensaje):
 # --- Registro -------------------------------------------------------------------------
 
 
+def nombre_mcp(nombre: str) -> str:
+    """Alias MCP determinista de un nombre canónico: el punto pasa a guion bajo."""
+
+    return nombre.replace(".", "_")
+
+
 class ToolDef(BaseModel):
     nombre: str = Field(pattern=r"^[a-z]+\.[a-z_]+$")
     descripcion: str
@@ -496,6 +590,12 @@ class ToolDef(BaseModel):
             raise ValueError("graph.index es solo HTTP y solo para identidades de servicio")
         return self
 
+    @property
+    def nombre_mcp(self) -> str:
+        """Alias que exponen las superficies MCP (desde 1.3)."""
+
+        return nombre_mcp(self.nombre)
+
     def campos_codigo_interno(self) -> list[str]:
         """Rutas JSON (con [] para listas) de la salida con clase codigo_interno."""
 
@@ -504,6 +604,7 @@ class ToolDef(BaseModel):
     def manifiesto(self) -> dict[str, Any]:
         return {
             "name": self.nombre,
+            "mcp_name": self.nombre_mcp,
             "description": self.descripcion,
             "efecto": self.efecto.value,
             "rol_minimo": self.rol_minimo.value,
@@ -621,6 +722,26 @@ TOOLS: dict[str, ToolDef] = {
             salida=UnitListSalida,
         ),
         ToolDef(
+            nombre="sync.pull",
+            descripcion="Trae los eventos remoto→local de una unidad desde una secuencia.",
+            efecto=_L,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_M}),
+            tipos_actor=frozenset({TipoActor.humano, TipoActor.agente}),
+            entrada=SyncPullEntrada,
+            salida=SyncPullSalida,
+        ),
+        ToolDef(
+            nombre="sync.push",
+            descripcion="Sube en orden los eventos local→remoto pendientes de una unidad (commit.empujado…).",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_M}),
+            tipos_actor=frozenset({TipoActor.humano, TipoActor.agente}),
+            entrada=SyncPushEntrada,
+            salida=SyncPushSalida,
+        ),
+        ToolDef(
             nombre="graph.query",
             descripcion="Consulta el grafo de código (resolve, search, traverse, related).",
             efecto=_L,
@@ -670,6 +791,16 @@ TOOLS: dict[str, ToolDef] = {
 }
 
 assert set(ClaveTelemetria.__args__) == set(CLAVES_TELEMETRIA)  # type: ignore[attr-defined]
+
+
+_POR_NOMBRE_MCP: dict[str, ToolDef] = {t.nombre_mcp: t for t in TOOLS.values()}
+assert len(_POR_NOMBRE_MCP) == len(TOOLS), "dos tools comparten alias MCP"
+
+
+def resolver_tool(nombre: str) -> ToolDef | None:
+    """Busca una tool por su nombre canónico o por su alias MCP."""
+
+    return TOOLS.get(nombre) or _POR_NOMBRE_MCP.get(nombre)
 
 
 def tools_para(superficie: Superficie) -> list[ToolDef]:

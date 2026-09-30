@@ -15,7 +15,7 @@ toca, corre los gates y abre los checkpoints.
 | `motor/gate.py` | Panel de críticos en paralelo (un lente por crítico), refutador para severidad alta y regla de convergencia. |
 | `motor/dag.py` | Nodos del DAG: triaje, redacción, gate, decisión humana, avance, implementación y cierre. |
 | `motor/motor.py` | Tools `unit.*` y `telemetry.query`; runner que reanuda el DAG desde el último checkpoint. |
-| `api/` | Registro único de tools (R1) expuesto por MCP en `/mcp` (proxy local) y por HTTP en `/v1/tools/{nombre}` (consola). |
+| `api/` | Registro único de tools (R1) expuesto por MCP en `/mcp` (proxy local, con el alias `nombre_mcp`: `unit_start`) y por HTTP en `/v1/tools/{nombre}` (consola, nombre canónico `unit.start`). El registro acepta las dos formas. |
 
 ## Recorrido
 
@@ -42,6 +42,11 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
   siguiente gate.
+- Sincronización (contrato 1.3): `sync.pull` pagina los eventos remoto→local;
+  `sync.push` recibe la cola local→remoto del proxy, idempotente por id y sin
+  huecos (`secuencia-con-hueco`). Esa dirección la numera solo el proxy: el
+  servidor no emite `orden.reportada` ni `snapshot.subido` al recibir
+  `unit.report`.
 - Las aprobaciones web son opcionales y gana la primera resolución; la
   segunda recibe `checkpoint-ya-resuelto`.
 

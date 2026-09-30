@@ -22,7 +22,7 @@ from pydantic import BaseModel, ValidationError
 from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.comun import Actor, AlcanceUnidad, AlcanceWorkspace, TipoActor
 from railspec.contracts.repositorio import Rol
-from railspec.contracts.tools import TOOLS, CodigoError, ErrorTool, Superficie, ToolDef
+from railspec.contracts.tools import TOOLS, CodigoError, ErrorTool, Superficie, ToolDef, resolver_tool
 
 from ..motor.motor import ErrorNegocio, Motor
 
@@ -95,6 +95,8 @@ _HTTP = {
     CodigoError.orden_no_vigente: 409,
     CodigoError.base_commit_distinto: 409,
     CodigoError.secuencia_duplicada: 409,
+    CodigoError.secuencia_con_hueco: 409,
+    CodigoError.conversion_no_permitida: 409,
     CodigoError.checkpoint_ya_resuelto: 409,
     CodigoError.unidad_no_cerrada: 409,
     CodigoError.snapshot_invalido: 422,
@@ -127,6 +129,8 @@ class Registro:
             "unit.report": motor.report,
             "unit.approve": motor.approve,
             "unit.set_mode": motor.set_mode,
+            "sync.pull": motor.sync_pull,
+            "sync.push": motor.sync_push,
             "unit.integrate": motor.integrate,
             "unit.status": motor.status,
             "unit.list": motor.list,
@@ -139,9 +143,11 @@ class Registro:
         return [t for n, t in sorted(TOOLS.items()) if superficie in t.superficies and n in self._manejadores]
 
     async def invocar(self, nombre: str, argumentos: Any, actor: Actor, superficie: Superficie) -> Resultado:
-        tool = TOOLS.get(nombre)
-        if tool is None or nombre not in self._manejadores:
+        # Acepta el nombre canónico (``unit.start``) y el alias MCP (``unit_start``).
+        tool = resolver_tool(nombre)
+        if tool is None or tool.nombre not in self._manejadores:
             return _error(CodigoError.no_encontrado, f"tool {nombre} no disponible")
+        nombre = tool.nombre
         if superficie not in tool.superficies:
             return _error(CodigoError.fuera_de_alcance, f"{nombre} no se expone por {superficie.value}")
         tipos = getattr(tool, "tipos_actor", None)
