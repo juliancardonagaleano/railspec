@@ -160,7 +160,8 @@
         "hallazgos-sin-resolver",
         "sin-gobernanza",
         "presupuesto-agotado",
-        "error-proveedor"
+        "error-proveedor",
+        "sin-convergencia"
       ],
       "title": "CausaEscalado",
       "type": "string"
@@ -324,6 +325,18 @@
           "minLength": 1,
           "title": "Motivo",
           "type": "string"
+        },
+        "tras": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.2: fase tras la que se convirtió (research o el checkpoint de spec). None solo en la primera conversión, cuando el humano fija el modo en unit.start."
         }
       },
       "required": [
@@ -1095,6 +1108,20 @@
       "default": null,
       "title": "Orden Vigente"
     },
+    "pedido": {
+      "anyOf": [
+        {
+          "maxLength": 20000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.2: el pedido original de unit.start, tal cual lo escribió el humano.",
+      "title": "Pedido"
+    },
     "perfil": {
       "$ref": "#/$defs/Perfil"
     },
@@ -1141,10 +1168,11 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.1",
+      "default": "1.2",
       "enum": [
         "1.0",
-        "1.1"
+        "1.1",
+        "1.2"
       ],
       "title": "Version Contrato",
       "type": "string"

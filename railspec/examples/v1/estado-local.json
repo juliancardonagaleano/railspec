@@ -25,7 +25,7 @@
         "unidad": "0001-emitir-pdf",
         "workspace": "certificados"
       },
-      "version_contrato": "1.1"
+      "version_contrato": "1.2"
     }
   ],
   "espejo_remoto": {
@@ -77,6 +77,7 @@
     "modo": "interactivo",
     "modo_conversion": [],
     "orden_vigente": "00000000-0000-4000-8000-000000000001",
+    "pedido": "Quiero que los certificados se emitan en PDF firmado digitalmente.",
     "perfil": "estandar",
     "presupuesto": {},
     "repositorios": [
@@ -102,7 +103,7 @@
       "workspace": "certificados"
     },
     "version": 12,
-    "version_contrato": "1.1"
+    "version_contrato": "1.2"
   },
   "orden_en_curso": {
     "alcance": {
@@ -157,7 +158,7 @@
       "unidad": "0001-emitir-pdf",
       "workspace": "certificados"
     },
-    "version_contrato": "1.1"
+    "version_contrato": "1.2"
   },
   "rama": "rs/0001",
   "repositorio": "certificados-api",
@@ -168,6 +169,6 @@
     "unidad": "0001-emitir-pdf",
     "workspace": "certificados"
   },
-  "version_contrato": "1.1",
+  "version_contrato": "1.2",
   "worktree": "/home/dev/certificados-api/.railspec/worktrees/0001-emitir-pdf"
 }
