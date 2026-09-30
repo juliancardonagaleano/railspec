@@ -5,12 +5,17 @@
   ``isError`` con el ``ErrorTool`` en ``structuredContent``.
 - HTTP (``POST /v1/tools/{nombre}``): lo consume la consola, canal ``consola``.
   ``GET /v1/tools`` publica el manifiesto de las tools HTTP disponibles.
+- ``GET /healthz`` (disponibilidad): 200 si cada sonda (Mongo, FalkorDB)
+  responde dentro del tope, 503 si no. ``GET /livez`` (vida): solo que el
+  proceso atiende; no reinicia la réplica por una caída de la base.
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -64,7 +69,32 @@ def servidor_mcp(registro: Registro, identidad: Any):
     return Server("railspec", version="0.1.0", on_list_tools=listar, on_call_tool=llamar)
 
 
-def aplicacion(registro: Registro, identidad: Any, *, host: str = "0.0.0.0"):
+TOPE_SONDA_S = 2.0
+
+
+async def _sondear(sondas: dict[str, Callable[[], Any]], tope_s: float) -> dict[str, str]:
+    async def una(sonda: Callable[[], Any]) -> str:
+        try:
+            await asyncio.wait_for(asyncio.to_thread(sonda), tope_s)
+            return "ok"
+        except TimeoutError:
+            return "sin respuesta"
+        except Exception as exc:
+            return f"error: {type(exc).__name__}"
+
+    nombres = list(sondas)
+    resultados = await asyncio.gather(*(una(sondas[n]) for n in nombres))
+    return dict(zip(nombres, resultados, strict=True))
+
+
+def aplicacion(
+    registro: Registro,
+    identidad: Any,
+    *,
+    host: str = "0.0.0.0",
+    sondas: dict[str, Callable[[], Any]] | None = None,
+    tope_sonda_s: float = TOPE_SONDA_S,
+):
     """App ASGI con la API HTTP de la consola y el MCP montado en ``/mcp``."""
 
     mcp_app = servidor_mcp(registro, identidad).streamable_http_app(streamable_http_path="/", host=host)
@@ -76,9 +106,17 @@ def aplicacion(registro: Registro, identidad: Any, *, host: str = "0.0.0.0"):
 
     app = FastAPI(title="Railspec", version="0.1.0", lifespan=vida)
 
-    @app.get("/healthz")
-    async def salud() -> dict[str, str]:
+    @app.get("/livez")
+    async def vida() -> dict[str, str]:
         return {"estado": "ok"}
+
+    @app.get("/healthz")
+    async def salud() -> JSONResponse:
+        resultados = await _sondear(sondas or {}, tope_sonda_s)
+        sano = all(v == "ok" for v in resultados.values())
+        return JSONResponse(
+            {"estado": "ok" if sano else "degradado", **resultados}, status_code=200 if sano else 503
+        )
 
     @app.get("/v1/tools")
     async def manifiesto() -> dict[str, Any]:

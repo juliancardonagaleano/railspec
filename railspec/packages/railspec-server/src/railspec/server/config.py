@@ -44,6 +44,11 @@ class Configuracion:
     #: Tokens de desarrollo ``token=login:github_id`` separados por coma. Solo
     #: para entornos sin GitHub App; en producción la identidad es GitHub.
     tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
+    #: OIDC de GitHub Actions (actor de servicio de ``graph.index``). Audiencia vacía = desactivado.
+    oidc_audiencia: str | None = "railspec"
+    oidc_emisor: str = "https://token.actions.githubusercontent.com"
+    #: ``owner/repo`` que pueden presentar un token OIDC; vacío = cualquiera con vínculo.
+    oidc_repositorios: frozenset[str] = frozenset()
     host: str = "0.0.0.0"
     puerto: int = 8080
 
@@ -75,6 +80,11 @@ class Configuracion:
             falkordb_url=env.get("RAILSPEC_FALKORDB_URL") or None,
             pce_api_key=env.get("RAILSPEC_PCE_API_KEY") or None,
             tokens_desarrollo=_tokens(env.get("RAILSPEC_TOKENS_DESARROLLO", "")),
+            oidc_audiencia=env.get("RAILSPEC_OIDC_AUDIENCIA", "railspec").strip() or None,
+            oidc_emisor=env.get("RAILSPEC_OIDC_EMISOR") or "https://token.actions.githubusercontent.com",
+            oidc_repositorios=frozenset(
+                r.strip() for r in env.get("RAILSPEC_OIDC_REPOSITORIOS", "").split(",") if r.strip()
+            ),
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
         )

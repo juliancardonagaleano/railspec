@@ -34,6 +34,12 @@ class MotorFalkor:
 
         return cls(FalkorDB.from_url(url), dimensiones)
 
+    def ping(self) -> None:
+        """Sonda ligera para la disponibilidad del servidor; lanza si FalkorDB no responde."""
+
+        if not self._db.connection.ping():
+            raise ConnectionError("FalkorDB no respondió al ping")
+
     # --- utilidades --------------------------------------------------------
     def _escribir(self, grafo: str, cypher: str, params: dict | None = None) -> list[list]:
         g = self._db.select_graph(grafo)

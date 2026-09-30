@@ -28,6 +28,9 @@ class MotorMemoria:
     def __init__(self) -> None:
         self._grafos: dict[str, _Grafo] = {}
 
+    def ping(self) -> None:
+        return None
+
     def _g(self, grafo: str) -> _Grafo:
         return self._grafos.setdefault(grafo, _Grafo())
 

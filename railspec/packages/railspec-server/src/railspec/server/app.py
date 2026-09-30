@@ -21,11 +21,19 @@ def ensamblar(
     *,
     proveedores: Proveedores | None = None,
     gobernanza: ProveedorGobernanza | None = None,
+    motor_grafo: Any | None = None,
+    verificador_oidc: Any | None = None,
 ) -> tuple[Motor, Any]:
-    """Construye motor y app ASGI. ``proveedores`` y ``gobernanza`` permiten inyectar dobles
+    """Construye motor y app ASGI. ``proveedores``, ``gobernanza``, ``motor_grafo`` (un
+    ``MotorGrafo`` de railspec-graph) y ``verificador_oidc`` permiten inyectar dobles
     (pruebas y entorno de integración sin credenciales)."""
 
-    from .api.identidad import IdentidadDesarrollo, IdentidadGithub
+    from .api.identidad import (
+        IdentidadCompuesta,
+        IdentidadDesarrollo,
+        IdentidadGithub,
+        VerificadorOidcActions,
+    )
     from .api.registro import AutorizadorRoles, Registro
     from .api.superficies import aplicacion
 
@@ -42,27 +50,46 @@ def ensamblar(
             if config.pce_url
             else GobernanzaNoConfigurada()
         )
-    nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=_grafo(config))
+    if motor_grafo is None and config.falkordb_url is not None:
+        from railspec.graph.motor_falkordb import MotorFalkor
+
+        motor_grafo = MotorFalkor.desde_url(config.falkordb_url)
+    acceso = grafo = None
+    if motor_grafo is not None:
+        from railspec.graph import AccesoGrafo, AlmacenGrafo
+
+        acceso = AccesoGrafo(motor_grafo)
+        grafo = AlmacenGrafo(acceso)
+    nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=grafo)
     motor = Motor(nucleo, CheckpointsMongo(almacen.db))
-    identidad = (
-        IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
-    )
+    humana = IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
+    if verificador_oidc is None and config.oidc_audiencia:
+        verificador_oidc = VerificadorOidcActions(
+            config.oidc_audiencia, config.oidc_emisor, config.oidc_repositorios
+        )
+    identidad = IdentidadCompuesta(humana, verificador_oidc)
     extra = {}
-    if nucleo.grafo is not None:
-        from .api.grafo import manejador_graph_query
+    if grafo is not None:
+        from railspec.graph import IndexadorCanonico
 
-        extra["graph.query"] = manejador_graph_query(nucleo.grafo, almacen)
+        from .api.grafo import manejador_graph_index, manejador_graph_query
+
+        extra["graph.query"] = manejador_graph_query(grafo, almacen)
+        extra["graph.index"] = manejador_graph_index(IndexadorCanonico(acceso, grafo), almacen)
     registro = Registro.del_motor(motor, AutorizadorRoles(almacen, abierto=config.modo_memoria), extra)
-    return motor, aplicacion(registro, identidad, host=config.host)
+    sondas = _sondas(config, almacen, motor_grafo)
+    return motor, aplicacion(registro, identidad, host=config.host, sondas=sondas)
 
 
-def _grafo(config: Configuracion) -> Any:
-    if config.falkordb_url is None:
-        return None
-    from railspec.graph import AccesoGrafo, AlmacenGrafo
-    from railspec.graph.motor_falkordb import MotorFalkor
+def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dict[str, Any]:
+    """Comprobaciones ligeras de ``/healthz``: una réplica sin sus bases no debe recibir tráfico."""
 
-    return AlmacenGrafo(AccesoGrafo(MotorFalkor.desde_url(config.falkordb_url)))
+    sondas: dict[str, Any] = {}
+    if not config.modo_memoria:
+        sondas["mongo"] = lambda: almacen.db.command("ping")
+    if motor_grafo is not None and hasattr(motor_grafo, "ping"):
+        sondas["falkordb"] = motor_grafo.ping
+    return sondas
 
 
 def _proveedores(config: Configuracion) -> Proveedores:
