@@ -19,6 +19,7 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 | `analitica` | Clusters (Louvain con semilla fija), procesos desde puntos de entrada y nivel de riesgo. |
 | `rag` | `RecuperadorContexto`: k-NN por repositorio visible y expansión por el grafo; devuelve referencias. |
 | `ingesta` | `ingerir_snapshot`: aplica el delta de un snapshot con la política del vínculo. |
+| `indexado` | `IndexadorCanonico`: `graph.index`, el canónico por lotes desde CI (contrato 1.1). |
 
 ## Espacios de nombres
 
@@ -53,7 +54,7 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 | Verbo | Resultado |
 |---|---|
 | `resolve` | Símbolos con ese nombre o sufijo calificado (`.x`, `::x`, `/x`, `#x`). |
-| `search` | Subcadena del nombre, filtrable por tipo; con `semantica` y un `CodificadorConsulta`, también k-NN. |
+| `search` | Subcadena del nombre, filtrable por tipo; con `semantica`, también k-NN con el `vector_b64` que calcula el proxy (1.1) o, si falta, con un `CodificadorConsulta` del servidor. |
 | `traverse` | BFS por relaciones con distancia y relación de llegada; aguas arriba lleva riesgo. |
 | `related` | Clusters y procesos del símbolo, sus vecinos directos y sus compañeros de cluster. |
 
@@ -62,11 +63,29 @@ Riesgo aguas arriba, por símbolos afectados (a) y procesos tocados (p):
 p ≥ 2; si no, `bajo`. Todos los resultados de una misma consulta llevan el
 mismo riesgo.
 
+## Indexado del canónico (`graph.index`)
+
+Un job de GitHub Actions corre codebase-memory-mcp en cada push a la rama
+por defecto y llama `graph.index` (solo HTTP, solo actor de servicio) con el
+delta por lotes. `IndexadorCanonico.recibir(entrada, vinculo)`:
+
+- rechaza (`IndiceRechazado`) otro repositorio, una rama que no es la por
+  defecto del vínculo o lotes de un mismo commit con distinto total o base;
+- con `commit_anterior` aplica un delta incremental y exige que el canónico
+  esté en ese commit (`IndiceDesfasado` si no); sin él, el índice es
+  completo y reemplaza al canónico;
+- acumula los lotes en un grafo de preparación `...:i:<commit>` (sobrevive a
+  reinicios y a varias réplicas) y solo al llegar el último aplica todo al
+  canónico, recalcula la analítica y borra la preparación;
+- reenviar un lote o un commit ya aplicado es idempotente;
+- vuelve a aplicar las exclusiones del vínculo.
+
 ## Referencias entre repositorios
 
 Un delta puede traer aristas hacia símbolos de otro repositorio del
-workspace (las aristas `CROSS_*` de codebase-memory-mcp). El destino se
-guarda como stub (solo id) en el grafo de origen. Como los ids son globales,
+workspace (las aristas `CROSS_*` de codebase-memory-mcp, marcadas con
+`repositorio_destino` desde 1.1). El proxy y CI calculan el id del destino
+con `id_simbolo` y el slug del vínculo destino. El destino se guarda como stub (solo id) en el grafo de origen. Como los ids son globales,
 el recorrido las sigue solo por la unión de los repositorios visibles; si el
 repositorio destino no es visible, la referencia se corta al resolver.
 
@@ -97,16 +116,8 @@ en una organización propia que se borra al terminar.
 
 ## Pendiente fuera de este paquete
 
-- **Búsqueda semántica sin modelo en el servidor.** `ConsultaSearch` no
-  lleva vector; hoy `semantica` solo funciona si el servidor tiene un
-  `CodificadorConsulta` y, si no, cae a texto. Propuesta de contrato 1.1:
-  `vector_b64` opcional en `ConsultaSearch`, calculado por el proxy.
-- **Quién sube el delta canónico.** No hay tool para ello: propuesta de un
-  `graph.index` de escritura, solo HTTP y solo actor de servicio (OIDC de
-  GitHub Actions), que un job de CI con codebase-memory-mcp llame en cada
-  push a la rama por defecto.
-- **Ids de destino entre repositorios.** El proxy debe calcular el id del
-  destino con el slug del repositorio destino tal como está vinculado en el
-  workspace, para que la referencia resuelva.
 - **Enlace con CA-NN.** Vincular símbolos tocados con criterios del spec
   depende de datos del motor DAG; queda para cuando exista.
+- **Cableado en el servidor.** `railspec-server` expone `graph.query` y
+  `graph.index` con estas clases y calcula los repositorios visibles del
+  actor; es del hilo del motor.

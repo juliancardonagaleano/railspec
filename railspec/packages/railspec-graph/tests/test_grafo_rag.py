@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 from grafo_fabricas import (
     COMMIT_1,
     COMMIT_2,
+    T0,
     UNIDAD,
     Api,
     alcances,
@@ -17,13 +17,9 @@ from grafo_fabricas import (
     embedding,
     simbolo,
     vector,
+    vinculo,
 )
 from railspec.contracts.comun import AlcanceUnidad, NivelCodigo
-from railspec.contracts.repositorio import (
-    Auditoria,
-    VinculoRepositorio,
-    politica_chat_por_defecto,
-)
 from railspec.contracts.snapshot import EscaneoSecretos, ModoDelta, Snapshot
 from railspec.graph import (
     AccesoGrafo,
@@ -82,6 +78,22 @@ def test_search_semantico_con_codificador(piezas, org):
     assert salida.resultados[0].ref.nombre == "pdf.render"
 
 
+def test_search_semantico_con_vector_del_proxy_sin_codificador(motor, org):
+    g = AlmacenGrafo(AccesoGrafo(motor))
+    api = Api()
+    (repo,) = alcances(org, "certificados", "api")
+    g.aplicar_delta(repo, COMMIT_1, api.delta(), None)
+    cuerpo = {
+        "verbo": "search",
+        "texto": "zzz",
+        "semantica": True,
+        "vector_b64": vector(3),
+        "modelo_embedding": "nomic-embed-code",
+    }
+    salida = g.consultar(consulta(org, "certificados", cuerpo), [repo])
+    assert salida.resultados[0].ref.nombre == "pdf.fuente"
+
+
 def test_rag_devuelve_referencias_y_expande_por_el_grafo(piezas, org):
     g, _, api, repo = piezas
     rag = RecuperadorContexto(g)
@@ -105,25 +117,6 @@ def test_rag_con_unidad_ve_la_superposicion(piezas, org):
 
 # --- ingesta -----------------------------------------------------------------
 
-T0 = datetime(2026, 9, 30, 12, tzinfo=UTC)
-
-
-def _vinculo(org: str, nivel: NivelCodigo, exclusiones=()) -> VinculoRepositorio:
-    from railspec.contracts.comun import Actor, Canal, TipoActor
-
-    actor = Actor(tipo=TipoActor.humano, canal=Canal.consola, github_id=1, login="julian")
-    (repo,) = alcances(org, "certificados", "api")
-    return VinculoRepositorio(
-        version=1,
-        auditoria=Auditoria(creado_por=actor, creado_en=T0, actualizado_por=actor, actualizado_en=T0),
-        alcance=repo,
-        url="https://github.com/acme/api",
-        rol="primario",
-        nivel_codigo=nivel,
-        chat_contexto_codigo=politica_chat_por_defecto(nivel),
-        exclusiones=list(exclusiones),
-    )
-
 
 def _snapshot(org: str, nivel: NivelCodigo, d=None, repo="api", workspace="certificados") -> Snapshot:
     return Snapshot(
@@ -146,7 +139,7 @@ def test_ingesta_aplica_a_la_superposicion_y_respeta_exclusiones(piezas, org):
     visible = simbolo("api", "src/firma.py", "funcion", "firma.aplicar")
     oculto = simbolo("api", "vendor/lib.py", "funcion", "lib.oculta")
     snap = _snapshot(org, NivelCodigo.restringido, delta(simbolos=[visible, oculto]))
-    assert ingerir_snapshot(snap, _vinculo(org, NivelCodigo.restringido, ["vendor/"]), g)
+    assert ingerir_snapshot(snap, vinculo(org, NivelCodigo.restringido, ["vendor/"]), g)
     q = consulta(org, "certificados", {"verbo": "search", "texto": "a"}, unidad=UNIDAD, limite=50)
     nombres = [r.ref.nombre for r in g.consultar(q, [repo]).resultados]
     assert "firma.aplicar" in nombres and "lib.oculta" not in nombres
@@ -155,20 +148,20 @@ def test_ingesta_aplica_a_la_superposicion_y_respeta_exclusiones(piezas, org):
 def test_ingesta_solo_hashes_no_toca_el_grafo(piezas, org):
     g, _, _, _ = piezas
     assert not ingerir_snapshot(
-        _snapshot(org, NivelCodigo.restringido), _vinculo(org, NivelCodigo.restringido), g
+        _snapshot(org, NivelCodigo.restringido), vinculo(org, NivelCodigo.restringido), g
     )
 
 
-def test_ingesta_rechaza_nivel_mas_abierto_que_el_vinculo(piezas, org):
+def test_ingesta_rechaza_nivel_mas_abierto_que_elvinculo(piezas, org):
     g, _, _, _ = piezas
     snap = _snapshot(org, NivelCodigo.interno, delta())
     with pytest.raises(SnapshotRechazado):
-        ingerir_snapshot(snap, _vinculo(org, NivelCodigo.restringido), g)
+        ingerir_snapshot(snap, vinculo(org, NivelCodigo.restringido), g)
 
 
 def test_ingesta_rechaza_otro_repositorio_o_workspace(piezas, org):
     g, _, _, _ = piezas
-    vinc = _vinculo(org, NivelCodigo.restringido)
+    vinc = vinculo(org, NivelCodigo.restringido)
     with pytest.raises(SnapshotRechazado):
         ingerir_snapshot(_snapshot(org, NivelCodigo.restringido, delta(), repo="otro"), vinc, g)
     with pytest.raises(SnapshotRechazado):

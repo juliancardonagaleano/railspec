@@ -22,7 +22,12 @@ def mundo(motor, org):
     api, otro = Api(), Api()
     moneda = simbolo("reporteria", "fmt/moneda.py", "funcion", "fmt.moneda")
     api_repo, rep_repo = alcances(org, "certificados", "api", "reporteria")
-    g.aplicar_delta(api_repo, COMMIT_1, api.delta(aristas=[arista(api.render, moneda)]), None)
+    g.aplicar_delta(
+        api_repo,
+        COMMIT_1,
+        api.delta(aristas=[arista(api.render, moneda, repositorio_destino="reporteria")]),
+        None,
+    )
     g.aplicar_delta(rep_repo, COMMIT_1, delta(simbolos=[moneda]), None)
     (otro_repo,) = alcances(org, "otro", "api")
     secreto = simbolo("api", "src/secreto.py", "funcion", "secreto.solo_otro")

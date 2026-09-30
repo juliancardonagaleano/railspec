@@ -91,6 +91,9 @@ class MotorFalkor:
                 "unidad": meta.unidad,
                 "borrados": sorted(set(meta.borrados)),
                 "aristas_borradas": sorted({tuple(a) for a in meta.aristas_borradas}),
+                "base": meta.base,
+                "lotes": meta.lotes,
+                "recibidos": sorted(set(meta.recibidos)),
             }
         )
         self._escribir(grafo, "MERGE (m:Meta) SET m.json = $j", {"j": texto})
@@ -200,6 +203,17 @@ class MotorFalkor:
                 "SET s.embedding = vecf32(v.e)",
                 {"v": [{"id": i, "e": e} for i, e in vectores.items()]},
             )
+
+    def leer_embeddings(self, grafo: str, ids: list[str]) -> dict[str, list[float]]:
+        if not ids:
+            return {}
+        filas = self._leer(
+            grafo,
+            "UNWIND $ids AS i MATCH (s:Simbolo {id: i}) WHERE s.embedding IS NOT NULL "
+            "RETURN s.id, s.embedding",
+            {"ids": ids},
+        )
+        return {i: [float(x) for x in e] for i, e in filas}
 
     def knn(self, grafo: str, vector: list[float], k: int) -> list[tuple[str, float]]:
         if not self.existe(grafo):
