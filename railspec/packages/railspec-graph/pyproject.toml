@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "railspec-graph"
+version = "0.1.0"
+description = "Grafo de código centralizado de Railspec: GraphStore y VectorStore sobre FalkorDB, analítica (clusters, procesos, impacto) y RAG por referencias."
+requires-python = ">=3.11"
+dependencies = ["railspec-contracts==0.1.0", "networkx>=3.2,<4"]
+
+[project.optional-dependencies]
+falkordb = ["falkordb>=1.0,<2"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["railspec.graph*"]
+namespaces = true

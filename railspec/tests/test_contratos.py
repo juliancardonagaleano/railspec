@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 from collections.abc import Callable
@@ -14,15 +15,23 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 from railspec.contracts import esquemas
 from railspec.contracts.chat import MensajeChat, ReglaGate, VeredictoGateSalida
-from railspec.contracts.comun import Actor, verificar_texto_plano
+from railspec.contracts.comun import Actor, TipoActor, verificar_texto_plano
 from railspec.contracts.estado import EstadoLocal, EstadoUnidad, ResultadoGate
 from railspec.contracts.eventos import EventoSync
 from railspec.contracts.insumo import Insumo
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import AsignacionRol, RegistroAuditoria, VinculoRepositorio
-from railspec.contracts.snapshot import Snapshot
-from railspec.contracts.tools import TOOLS, Efecto, Superficie, UnitApproveEntrada, tools_para
+from railspec.contracts.snapshot import Snapshot, id_simbolo
+from railspec.contracts.tools import (
+    TOOLS,
+    Efecto,
+    GraphIndexEntrada,
+    GraphQueryEntrada,
+    Superficie,
+    UnitApproveEntrada,
+    tools_para,
+)
 
 RAIZ = Path(__file__).parents[1]
 ESQUEMAS = RAIZ / "schemas" / "v1"
@@ -359,6 +368,7 @@ def test_registro_de_tools() -> None:
         "code.read",
         "insumo.get",
         "telemetry.query",
+        "graph.index",
     }
     assert all(t.efecto == Efecto.lectura for t in tools_para(Superficie.chat))
     assert [t.nombre for t in TOOLS.values() if Superficie.chat in t.superficies and t.nombre == "code.read"]
@@ -379,3 +389,71 @@ def test_un_tool_de_escritura_no_puede_exponerse_al_chat() -> None:
     base = TOOLS["unit.start"]
     with pytest.raises(ValidationError):
         ToolDef(**{**base.__dict__, "superficies": frozenset({Superficie.chat})})
+
+
+# --- Contrato 1.1: pedidos del hilo del grafo -----------------------------------------------
+
+
+def _busqueda(**cambios: Any) -> dict[str, Any]:
+    consulta = {"verbo": "search", "texto": "firma del pdf", "semantica": True}
+    consulta.update(cambios)
+    return {"alcance": f.ALCANCE_WS.model_dump(), "consulta": consulta}
+
+
+VECTOR = base64.b64encode(bytes(768)).decode()
+
+
+def test_busqueda_con_vector_calculado_en_local() -> None:
+    GraphQueryEntrada.model_validate(_busqueda(vector_b64=VECTOR, modelo_embedding="nomic-embed-code"))
+    GraphQueryEntrada.model_validate(_busqueda())  # sin vector: el servidor codifica o cae a texto
+
+
+def test_vector_de_busqueda_exige_semantica_modelo_y_longitud() -> None:
+    _rechaza(
+        GraphQueryEntrada,
+        _busqueda(semantica=False, vector_b64=VECTOR, modelo_embedding="nomic-embed-code"),
+        "semantica",
+    )
+    _rechaza(GraphQueryEntrada, _busqueda(vector_b64=VECTOR), "modelo_embedding")
+    _rechaza(
+        GraphQueryEntrada,
+        _busqueda(vector_b64="AAAA", modelo_embedding="nomic-embed-code"),
+        "se esperaban 768",
+    )
+
+
+def test_graph_index_solo_ci_por_http() -> None:
+    tool = TOOLS["graph.index"]
+    assert tool.efecto == Efecto.escritura
+    assert tool.superficies == {Superficie.http}
+    assert tool.tipos_actor == {TipoActor.servicio}
+    from railspec.contracts.tools import ToolDef
+
+    with pytest.raises(ValidationError):
+        ToolDef(**{**tool.__dict__, "tipos_actor": frozenset(TipoActor)})
+
+
+def test_graph_index_lotes_coherentes() -> None:
+    delta = f.snapshot().delta_indice.model_dump(mode="json")
+    base = {
+        "alcance": f.ALCANCE_REPO.model_dump(),
+        "rama": "main",
+        "commit": f.BASE,
+        "lote": 1,
+        "lotes": 2,
+        "delta": delta,
+    }
+    GraphIndexEntrada.model_validate(base)
+    _rechaza(GraphIndexEntrada, {**base, "lote": 3}, "lote mayor")
+    _rechaza(GraphIndexEntrada, {**base, "commit_anterior": f.BASE}, "igual a commit")
+
+
+def test_id_simbolo_es_la_convencion_publicada() -> None:
+    assert id_simbolo("certificados-api", "src/pdf.py", "funcion", "pdf.emitir") == f.SIMBOLO_ID
+
+
+def test_arista_hacia_otro_repositorio_del_workspace() -> None:
+    d = _dump(f.snapshot)
+    arista = d["delta_indice"]["aristas_agregadas"][0]
+    assert arista["repositorio_destino"] == "reporteria"
+    assert arista["destino"] == id_simbolo("reporteria", "src/informes.py", "funcion", "informes.registrar")

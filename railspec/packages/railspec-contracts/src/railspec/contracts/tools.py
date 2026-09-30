@@ -32,6 +32,7 @@ from .comun import (
     RutaRelativa,
     Sha256,
     Slug,
+    TipoActor,
     UnidadId,
 )
 from .estado import Checkpoint, Decision, EstadoUnidad
@@ -40,7 +41,14 @@ from .orden import OrdenDeTrabajo
 from .referencias import RefArchivo, RefNodoGrafo, RefSimbolo
 from .reporte import ReporteOrden
 from .repositorio import CLAVES_TELEMETRIA, Rol
-from .snapshot import Relacion, SimboloId, TipoSimbolo
+from .snapshot import (
+    EMBEDDING_DIMENSIONES,
+    DeltaIndice,
+    Relacion,
+    SimboloId,
+    TipoSimbolo,
+    validar_vector_b64,
+)
 
 
 class Efecto(StrEnum):
@@ -246,6 +254,29 @@ class ConsultaSearch(Contrato):
     texto: str = Field(min_length=1, max_length=1000)
     tipos: list[TipoSimbolo] = Field(default_factory=list)
     semantica: bool = Field(default=False, description="Similitud por vectores además de texto.")
+    vector_b64: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9+/]+={0,2}$",
+        description=(
+            "Desde 1.1: embedding del texto calculado por el cliente con el modelo local "
+            "(int8, 768, base64). Sin él, el servidor codifica la consulta si tiene "
+            "codificador o cae a búsqueda por texto."
+        ),
+    )
+    modelo_embedding: Literal["nomic-embed-code"] | None = None
+
+    @model_validator(mode="after")
+    def _vector(self) -> ConsultaSearch:
+        if self.vector_b64 is None:
+            if self.modelo_embedding is not None:
+                raise ValueError("modelo_embedding solo acompaña a vector_b64")
+            return self
+        if not self.semantica:
+            raise ValueError("vector_b64 exige semantica=true")
+        if self.modelo_embedding is None:
+            raise ValueError("vector_b64 exige modelo_embedding")
+        validar_vector_b64(self.vector_b64, EMBEDDING_DIMENSIONES)
+        return self
 
 
 class ConsultaTraverse(Contrato):
@@ -288,6 +319,43 @@ class GraphQuerySalida(Mensaje):
     resultados: list[ResultadoGrafo]
     commits: dict[Slug, Commit] = Field(description="Commit del grafo consultado por repositorio.")
     truncado: bool = False
+
+
+# --- graph.index (solo CI) -----------------------------------------------------------
+
+
+class GraphIndexEntrada(Mensaje):
+    """Desde 1.1: un job de CI sube el índice del canónico tras cada push.
+
+    El índice y los embeddings se calculan en el runner con el mismo motor
+    que el proxy local; el servidor nunca indexa ni calcula embeddings de
+    código. Un índice grande viaja en lotes; el canónico solo avanza cuando
+    llegan todos los lotes del commit.
+    """
+
+    alcance: AlcanceRepositorio
+    rama: str = Field(min_length=1, max_length=255)
+    commit: Commit
+    commit_anterior: Commit | None = Field(
+        default=None, description="Base del delta incremental; None = índice completo."
+    )
+    lote: int = Field(ge=1)
+    lotes: int = Field(ge=1, le=10_000)
+    delta: DeltaIndice
+
+    @model_validator(mode="after")
+    def _lotes(self) -> GraphIndexEntrada:
+        if self.lote > self.lotes:
+            raise ValueError("lote mayor que lotes")
+        if self.commit_anterior == self.commit:
+            raise ValueError("commit_anterior igual a commit")
+        return self
+
+
+class GraphIndexSalida(Mensaje):
+    commit: Commit
+    lotes_recibidos: int = Field(ge=0)
+    aplicado: bool = Field(description="True cuando el canónico ya avanzó a este commit.")
 
 
 # --- code.read (solo chat) -----------------------------------------------------------
@@ -377,6 +445,7 @@ class ToolDef(BaseModel):
     efecto: Efecto
     rol_minimo: Rol
     superficies: frozenset[Superficie]
+    tipos_actor: frozenset[TipoActor] = frozenset(TipoActor)
     entrada: type[BaseModel]
     salida: type[BaseModel]
 
@@ -386,6 +455,10 @@ class ToolDef(BaseModel):
             raise ValueError(f"{self.nombre}: el chat solo ve tools de lectura")
         if self.nombre == "code.read" and self.superficies != {Superficie.chat}:
             raise ValueError("code.read solo se expone al agente del chat")
+        if self.nombre == "graph.index" and (
+            self.tipos_actor != {TipoActor.servicio} or self.superficies != {Superficie.http}
+        ):
+            raise ValueError("graph.index es solo HTTP y solo para identidades de servicio")
         return self
 
     def campos_codigo_interno(self) -> list[str]:
@@ -400,6 +473,7 @@ class ToolDef(BaseModel):
             "efecto": self.efecto.value,
             "rol_minimo": self.rol_minimo.value,
             "superficies": sorted(s.value for s in self.superficies),
+            "tipos_actor": sorted(t.value for t in self.tipos_actor),
             "inputSchema": self.entrada.model_json_schema(),
             "outputSchema": self.salida.model_json_schema(),
             "codigo_interno": self.campos_codigo_interno(),
@@ -509,6 +583,16 @@ TOOLS: dict[str, ToolDef] = {
             superficies=frozenset({_M, _H, _C}),
             entrada=GraphQueryEntrada,
             salida=GraphQuerySalida,
+        ),
+        ToolDef(
+            nombre="graph.index",
+            descripcion="Sube el índice del canónico calculado en CI (solo OIDC de GitHub Actions).",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_H}),
+            tipos_actor=frozenset({TipoActor.servicio}),
+            entrada=GraphIndexEntrada,
+            salida=GraphIndexSalida,
         ),
         ToolDef(
             nombre="code.read",

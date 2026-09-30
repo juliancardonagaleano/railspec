@@ -25,7 +25,7 @@
         "unidad": "0001-emitir-pdf",
         "workspace": "certificados"
       },
-      "version_contrato": "1.0"
+      "version_contrato": "1.1"
     }
   ],
   "espejo_remoto": {
@@ -102,7 +102,7 @@
       "workspace": "certificados"
     },
     "version": 12,
-    "version_contrato": "1.0"
+    "version_contrato": "1.1"
   },
   "orden_en_curso": {
     "alcance": {
@@ -157,7 +157,7 @@
       "unidad": "0001-emitir-pdf",
       "workspace": "certificados"
     },
-    "version_contrato": "1.0"
+    "version_contrato": "1.1"
   },
   "rama": "rs/0001",
   "repositorio": "certificados-api",
@@ -168,6 +168,6 @@
     "unidad": "0001-emitir-pdf",
     "workspace": "certificados"
   },
-  "version_contrato": "1.0",
+  "version_contrato": "1.1",
   "worktree": "/home/dev/certificados-api/.railspec/worktrees/0001-emitir-pdf"
 }

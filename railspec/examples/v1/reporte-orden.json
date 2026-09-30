@@ -16,7 +16,14 @@
     "base_commit": "4063ae9000000000000000000000000000000000",
     "creado_en": "2026-09-30T19:00:00Z",
     "delta_indice": {
-      "aristas_agregadas": [],
+      "aristas_agregadas": [
+        {
+          "destino": "337614b52380dd086ea279af697d2bff8647f5be83593f3ce465476d862713db",
+          "origen": "fd5e814c7d3a4757bc1cbd6ef29b15ce303a6043a226186cdaec35af2eae85b1",
+          "relacion": "llama",
+          "repositorio_destino": "reporteria"
+        }
+      ],
       "aristas_borradas": [],
       "embeddings": [
         {
@@ -59,7 +66,7 @@
       "unidad": "0001-emitir-pdf",
       "workspace": "certificados"
     },
-    "version_contrato": "1.0"
+    "version_contrato": "1.1"
   },
   "tareas_completadas": [
     "T-01"
@@ -76,5 +83,5 @@
     "recortada": false,
     "salida": "3 passed"
   },
-  "version_contrato": "1.0"
+  "version_contrato": "1.1"
 }

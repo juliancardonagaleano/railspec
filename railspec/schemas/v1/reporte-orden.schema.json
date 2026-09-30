@@ -49,19 +49,34 @@
       "additionalProperties": false,
       "properties": {
         "destino": {
-          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Destino",
           "type": "string"
         },
         "origen": {
-          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Origen",
           "type": "string"
         },
         "relacion": {
           "$ref": "#/$defs/Relacion"
+        },
+        "repositorio_destino": {
+          "anyOf": [
+            {
+              "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.1: slug del vínculo del workspace donde vive el destino, si no es el repositorio del delta (aristas CROSS_* de codebase-memory-mcp).",
+          "title": "Repositorio Destino"
         }
       },
       "required": [
@@ -202,7 +217,7 @@
         },
         "simbolos_borrados": {
           "items": {
-            "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+            "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
             "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
@@ -245,7 +260,7 @@
           "type": "string"
         },
         "simbolo": {
-          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Simbolo",
           "type": "string"
@@ -325,7 +340,7 @@
         "simbolo": {
           "anyOf": [
             {
-              "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+              "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
               "pattern": "^[0-9a-f]{64}$",
               "type": "string"
             },
@@ -462,7 +477,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+          "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Id",
           "type": "string"
@@ -606,8 +621,11 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "const": "1.0",
-          "default": "1.0",
+          "default": "1.1",
+          "enum": [
+            "1.0",
+            "1.1"
+          ],
           "title": "Version Contrato",
           "type": "string"
         }
@@ -794,8 +812,11 @@
       "default": null
     },
     "version_contrato": {
-      "const": "1.0",
-      "default": "1.0",
+      "default": "1.1",
+      "enum": [
+        "1.0",
+        "1.1"
+      ],
       "title": "Version Contrato",
       "type": "string"
     }

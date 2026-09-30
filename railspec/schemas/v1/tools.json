@@ -33,8 +33,11 @@
         "type": "string"
       },
       "version_contrato": {
-        "const": "1.0",
-        "default": "1.0",
+        "default": "1.1",
+        "enum": [
+          "1.0",
+          "1.1"
+        ],
         "title": "Version Contrato",
         "type": "string"
       },
@@ -156,7 +159,7 @@
           "simbolo": {
             "anyOf": [
               {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
@@ -168,8 +171,11 @@
             "title": "Simbolo"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -245,8 +251,11 @@
             "type": "array"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -261,6 +270,398 @@
       "rol_minimo": "lector",
       "superficies": [
         "chat"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
+      ]
+    },
+    {
+      "codigo_interno": [],
+      "description": "Sube el índice del canónico calculado en CI (solo OIDC de GitHub Actions).",
+      "efecto": "escritura",
+      "inputSchema": {
+        "$defs": {
+          "AlcanceRepositorio": {
+            "additionalProperties": false,
+            "description": "Espacio de un repositorio vinculado a un workspace (grafo, vectores).",
+            "properties": {
+              "org": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Org",
+                "type": "string"
+              },
+              "repositorio": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Repositorio",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                "title": "Workspace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "org",
+              "workspace",
+              "repositorio"
+            ],
+            "title": "AlcanceRepositorio",
+            "type": "object"
+          },
+          "Arista": {
+            "additionalProperties": false,
+            "properties": {
+              "destino": {
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
+                "pattern": "^[0-9a-f]{64}$",
+                "title": "Destino",
+                "type": "string"
+              },
+              "origen": {
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
+                "pattern": "^[0-9a-f]{64}$",
+                "title": "Origen",
+                "type": "string"
+              },
+              "relacion": {
+                "$ref": "#/$defs/Relacion"
+              },
+              "repositorio_destino": {
+                "anyOf": [
+                  {
+                    "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.1: slug del vínculo del workspace donde vive el destino, si no es el repositorio del delta (aristas CROSS_* de codebase-memory-mcp).",
+                "title": "Repositorio Destino"
+              }
+            },
+            "required": [
+              "origen",
+              "destino",
+              "relacion"
+            ],
+            "title": "Arista",
+            "type": "object"
+          },
+          "DeltaIndice": {
+            "additionalProperties": false,
+            "description": "Delta del índice local entre el commit base y el árbol de trabajo.",
+            "properties": {
+              "aristas_agregadas": {
+                "items": {
+                  "$ref": "#/$defs/Arista"
+                },
+                "title": "Aristas Agregadas",
+                "type": "array"
+              },
+              "aristas_borradas": {
+                "items": {
+                  "$ref": "#/$defs/Arista"
+                },
+                "title": "Aristas Borradas",
+                "type": "array"
+              },
+              "embeddings": {
+                "items": {
+                  "$ref": "#/$defs/Embedding"
+                },
+                "title": "Embeddings",
+                "type": "array"
+              },
+              "motor": {
+                "$ref": "#/$defs/MotorIndice"
+              },
+              "simbolos_borrados": {
+                "items": {
+                  "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "title": "Simbolos Borrados",
+                "type": "array"
+              },
+              "simbolos_upsert": {
+                "items": {
+                  "$ref": "#/$defs/Simbolo"
+                },
+                "title": "Simbolos Upsert",
+                "type": "array"
+              }
+            },
+            "required": [
+              "motor"
+            ],
+            "title": "DeltaIndice",
+            "type": "object"
+          },
+          "Embedding": {
+            "additionalProperties": false,
+            "properties": {
+              "cuantizacion": {
+                "const": "int8",
+                "default": "int8",
+                "title": "Cuantizacion",
+                "type": "string"
+              },
+              "dimensiones": {
+                "const": 768,
+                "default": 768,
+                "title": "Dimensiones",
+                "type": "integer"
+              },
+              "modelo": {
+                "const": "nomic-embed-code",
+                "default": "nomic-embed-code",
+                "title": "Modelo",
+                "type": "string"
+              },
+              "simbolo": {
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
+                "pattern": "^[0-9a-f]{64}$",
+                "title": "Simbolo",
+                "type": "string"
+              },
+              "vector_b64": {
+                "description": "Vector int8 codificado en base64 estándar; 768 bytes decodificados.",
+                "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+                "title": "Vector B64",
+                "type": "string"
+              }
+            },
+            "required": [
+              "simbolo",
+              "vector_b64"
+            ],
+            "title": "Embedding",
+            "type": "object"
+          },
+          "MotorIndice": {
+            "additionalProperties": false,
+            "properties": {
+              "nombre": {
+                "const": "codebase-memory-mcp",
+                "default": "codebase-memory-mcp",
+                "title": "Nombre",
+                "type": "string"
+              },
+              "version": {
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+].+)?$",
+                "title": "Version",
+                "type": "string"
+              }
+            },
+            "required": [
+              "version"
+            ],
+            "title": "MotorIndice",
+            "type": "object"
+          },
+          "Relacion": {
+            "enum": [
+              "llama",
+              "importa",
+              "hereda",
+              "implementa",
+              "define",
+              "prueba"
+            ],
+            "title": "Relacion",
+            "type": "string"
+          },
+          "Simbolo": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
+                "pattern": "^[0-9a-f]{64}$",
+                "title": "Id",
+                "type": "string"
+              },
+              "linea_fin": {
+                "minimum": 1,
+                "title": "Linea Fin",
+                "type": "integer"
+              },
+              "linea_inicio": {
+                "minimum": 1,
+                "title": "Linea Inicio",
+                "type": "integer"
+              },
+              "nombre": {
+                "description": "Nombre calificado.",
+                "maxLength": 512,
+                "minLength": 1,
+                "title": "Nombre",
+                "type": "string"
+              },
+              "ruta": {
+                "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+                "maxLength": 1024,
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+                "title": "Ruta",
+                "type": "string"
+              },
+              "sha256": {
+                "description": "Hash del texto del fragmento; el texto no viaja aquí.",
+                "pattern": "^[0-9a-f]{64}$",
+                "title": "Sha256",
+                "type": "string"
+              },
+              "tipo": {
+                "$ref": "#/$defs/TipoSimbolo"
+              }
+            },
+            "required": [
+              "id",
+              "nombre",
+              "tipo",
+              "ruta",
+              "linea_inicio",
+              "linea_fin",
+              "sha256"
+            ],
+            "title": "Simbolo",
+            "type": "object"
+          },
+          "TipoSimbolo": {
+            "enum": [
+              "modulo",
+              "clase",
+              "interfaz",
+              "funcion",
+              "metodo",
+              "variable",
+              "otro"
+            ],
+            "title": "TipoSimbolo",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Desde 1.1: un job de CI sube el índice del canónico tras cada push.\n\nEl índice y los embeddings se calculan en el runner con el mismo motor\nque el proxy local; el servidor nunca indexa ni calcula embeddings de\ncódigo. Un índice grande viaja en lotes; el canónico solo avanza cuando\nllegan todos los lotes del commit.",
+        "properties": {
+          "alcance": {
+            "$ref": "#/$defs/AlcanceRepositorio"
+          },
+          "commit": {
+            "description": "SHA-1 completo de un commit git.",
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Commit",
+            "type": "string"
+          },
+          "commit_anterior": {
+            "anyOf": [
+              {
+                "description": "SHA-1 completo de un commit git.",
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Base del delta incremental; None = índice completo.",
+            "title": "Commit Anterior"
+          },
+          "delta": {
+            "$ref": "#/$defs/DeltaIndice"
+          },
+          "lote": {
+            "minimum": 1,
+            "title": "Lote",
+            "type": "integer"
+          },
+          "lotes": {
+            "maximum": 10000,
+            "minimum": 1,
+            "title": "Lotes",
+            "type": "integer"
+          },
+          "rama": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Rama",
+            "type": "string"
+          },
+          "version_contrato": {
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
+            "title": "Version Contrato",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alcance",
+          "rama",
+          "commit",
+          "lote",
+          "lotes",
+          "delta"
+        ],
+        "title": "GraphIndexEntrada",
+        "type": "object"
+      },
+      "name": "graph.index",
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "aplicado": {
+            "description": "True cuando el canónico ya avanzó a este commit.",
+            "title": "Aplicado",
+            "type": "boolean"
+          },
+          "commit": {
+            "description": "SHA-1 completo de un commit git.",
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Commit",
+            "type": "string"
+          },
+          "lotes_recibidos": {
+            "minimum": 0,
+            "title": "Lotes Recibidos",
+            "type": "integer"
+          },
+          "version_contrato": {
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
+            "title": "Version Contrato",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commit",
+          "lotes_recibidos",
+          "aplicado"
+        ],
+        "title": "GraphIndexSalida",
+        "type": "object"
+      },
+      "rol_minimo": "desarrollador",
+      "superficies": [
+        "http"
+      ],
+      "tipos_actor": [
+        "servicio"
       ]
     },
     {
@@ -297,7 +698,7 @@
             "additionalProperties": false,
             "properties": {
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -340,6 +741,19 @@
           "ConsultaSearch": {
             "additionalProperties": false,
             "properties": {
+              "modelo_embedding": {
+                "anyOf": [
+                  {
+                    "const": "nomic-embed-code",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Modelo Embedding"
+              },
               "semantica": {
                 "default": false,
                 "description": "Similitud por vectores además de texto.",
@@ -358,6 +772,20 @@
                 },
                 "title": "Tipos",
                 "type": "array"
+              },
+              "vector_b64": {
+                "anyOf": [
+                  {
+                    "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.1: embedding del texto calculado por el cliente con el modelo local (int8, 768, base64). Sin él, el servidor codifica la consulta si tiene codificador o cae a búsqueda por texto.",
+                "title": "Vector B64"
               },
               "verbo": {
                 "const": "search",
@@ -398,7 +826,7 @@
                 "type": "array"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -507,8 +935,11 @@
             "title": "Unidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -668,7 +1099,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -836,8 +1267,11 @@
             "type": "boolean"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -854,6 +1288,11 @@
         "chat",
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -898,8 +1337,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -1233,8 +1675,11 @@
                 "$ref": "#/$defs/VeredictoGateSalida"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -1553,7 +1998,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -1730,8 +2175,11 @@
             "$ref": "#/$defs/Insumo"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -1747,6 +2195,11 @@
         "chat",
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -1811,8 +2264,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           },
@@ -1926,8 +2382,11 @@
             "type": "array"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -1942,6 +2401,11 @@
       "superficies": [
         "chat",
         "http"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -2002,8 +2466,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           },
@@ -2730,7 +3197,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -2865,8 +3332,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -3004,8 +3474,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -3147,8 +3620,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -3267,8 +3743,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -3586,7 +4065,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -3820,8 +4299,11 @@
             "title": "Avance"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           },
@@ -3841,6 +4323,11 @@
       "rol_minimo": "desarrollador",
       "superficies": [
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -3931,8 +4418,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -4583,8 +5073,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -5118,8 +5611,11 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -5134,6 +5630,11 @@
       "superficies": [
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -5214,8 +5715,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -5865,8 +6369,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -6400,8 +6907,11 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -6416,6 +6926,11 @@
       "superficies": [
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -6537,8 +7052,11 @@
             "title": "Repositorio"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -6683,8 +7201,11 @@
             "type": "array"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -6700,6 +7221,11 @@
         "chat",
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -6757,19 +7283,34 @@
             "additionalProperties": false,
             "properties": {
               "destino": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Destino",
                 "type": "string"
               },
               "origen": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Origen",
                 "type": "string"
               },
               "relacion": {
                 "$ref": "#/$defs/Relacion"
+              },
+              "repositorio_destino": {
+                "anyOf": [
+                  {
+                    "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.1: slug del vínculo del workspace donde vive el destino, si no es el repositorio del delta (aristas CROSS_* de codebase-memory-mcp).",
+                "title": "Repositorio Destino"
               }
             },
             "required": [
@@ -6910,7 +7451,7 @@
               },
               "simbolos_borrados": {
                 "items": {
-                  "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                  "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                   "pattern": "^[0-9a-f]{64}$",
                   "type": "string"
                 },
@@ -6953,7 +7494,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -7033,7 +7574,7 @@
               "simbolo": {
                 "anyOf": [
                   {
-                    "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                    "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                     "pattern": "^[0-9a-f]{64}$",
                     "type": "string"
                   },
@@ -7170,7 +7711,7 @@
             "additionalProperties": false,
             "properties": {
               "id": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Id",
                 "type": "string"
@@ -7314,8 +7855,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -7500,8 +8044,11 @@
             "default": null
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -7535,8 +8082,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           },
@@ -7555,6 +8105,11 @@
       "rol_minimo": "desarrollador",
       "superficies": [
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -7730,8 +8285,11 @@
             "type": "string"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           },
@@ -8389,8 +8947,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -8924,8 +9485,11 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           },
@@ -8946,6 +9510,11 @@
       "superficies": [
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     },
     {
@@ -9006,8 +9575,11 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -9837,8 +10409,11 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -10163,7 +10738,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -10335,8 +10910,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -10474,8 +11052,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -10617,8 +11198,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -10737,8 +11321,11 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "const": "1.0",
-                "default": "1.0",
+                "default": "1.1",
+                "enum": [
+                  "1.0",
+                  "1.1"
+                ],
                 "title": "Version Contrato",
                 "type": "string"
               }
@@ -11073,7 +11660,7 @@
                 "type": "string"
               },
               "simbolo": {
-                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>'.",
+                "description": "Identificador estable del símbolo: SHA-256 de '<repositorio>\\0<ruta>\\0<tipo>\\0<nombre calificado>', con el slug del repositorio tal como está vinculado en el workspace. Ver id_simbolo().",
                 "pattern": "^[0-9a-f]{64}$",
                 "title": "Simbolo",
                 "type": "string"
@@ -11525,8 +12112,11 @@
             "title": "Orden Vigente"
           },
           "version_contrato": {
-            "const": "1.0",
-            "default": "1.0",
+            "default": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ],
             "title": "Version Contrato",
             "type": "string"
           }
@@ -11542,8 +12132,13 @@
         "chat",
         "http",
         "mcp"
+      ],
+      "tipos_actor": [
+        "agente",
+        "humano",
+        "servicio"
       ]
     }
   ],
-  "version_contrato": "1.0"
+  "version_contrato": "1.1"
 }

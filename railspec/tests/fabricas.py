@@ -82,6 +82,7 @@ from railspec.contracts.repositorio import (
     politica_chat_por_defecto,
 )
 from railspec.contracts.snapshot import (
+    Arista,
     CambioArchivo,
     DeltaIndice,
     Embedding,
@@ -89,9 +90,11 @@ from railspec.contracts.snapshot import (
     EstadoArchivo,
     ModoDelta,
     MotorIndice,
+    Relacion,
     Simbolo,
     Snapshot,
     TipoSimbolo,
+    id_simbolo,
 )
 
 T0 = datetime(2026, 9, 30, 18, 0, tzinfo=UTC)
@@ -124,7 +127,8 @@ CI = Actor(
 )
 AUDITORIA = Auditoria(creado_por=JULIAN_WEB, creado_en=T0, actualizado_por=JULIAN_WEB, actualizado_en=T0)
 
-SIMBOLO_ID = sha("certificados-api\0src/pdf.py\0funcion\0pdf.emitir")
+SIMBOLO_ID = id_simbolo("certificados-api", "src/pdf.py", "funcion", "pdf.emitir")
+SIMBOLO_REPORTERIA = id_simbolo("reporteria", "src/informes.py", "funcion", "informes.registrar")
 
 
 def orden() -> OrdenImplementar:
@@ -176,6 +180,14 @@ def snapshot() -> Snapshot:
                     linea_inicio=10,
                     linea_fin=42,
                     sha256=sha("def emitir(): ..."),
+                )
+            ],
+            aristas_agregadas=[
+                Arista(
+                    origen=SIMBOLO_ID,
+                    destino=SIMBOLO_REPORTERIA,
+                    relacion=Relacion.llama,
+                    repositorio_destino="reporteria",
                 )
             ],
             embeddings=[Embedding(simbolo=SIMBOLO_ID, vector_b64=base64.b64encode(bytes(768)).decode())],

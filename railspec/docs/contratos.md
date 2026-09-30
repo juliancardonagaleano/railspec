@@ -58,6 +58,7 @@ HTTP de la consola (R1).
 | `unit.status` | lectura | sí | sí | sí |
 | `unit.list` | lectura | sí | sí | sí |
 | `graph.query` | lectura | sí | sí | sí |
+| `graph.index` | escritura | no | sí (solo servicio) | no |
 | `code.read` | lectura | no | no | sí (solo) |
 | `insumo.get` | lectura | sí | sí | sí |
 | `telemetry.query` | lectura | no | sí | sí |
@@ -69,6 +70,8 @@ HTTP de la consola (R1).
   `"x-railspec-clase": "codigo_interno"` en el esquema; `ToolDef.campos_codigo_interno()`
   los lista para que el gate de salida calcule huellas. Hoy solo
   `code.read → fragmentos[].texto`.
+- `ToolDef.tipos_actor` restringe quién puede llamar una tool; `graph.index`
+  solo acepta identidades de servicio (OIDC de GitHub Actions).
 - Errores de negocio: `ErrorTool` con un `CodigoError` común.
 - Bucle del arnés: `unit.start` → `unit.advance` → ejecutar la orden →
   `unit.report` → `unit.advance`… El arnés nunca decide fase ni gate; un
@@ -120,8 +123,21 @@ su prueba negativa.
   versión en `unit.start` (`version_contrato_cliente`) y el servidor responde
   en la mínima común (`version_contrato_negociada`) y rechaza mayores que no
   conoce con `version-contrato-no-soportada`.
+- Historial: `1.0` (fase 1); `1.1` añade `vector_b64` y `modelo_embedding`
+  opcionales en la búsqueda de `graph.query`, la tool `graph.index` para CI,
+  `repositorio_destino` en las aristas y `tipos_actor` en el registro.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
+
+## Ids de símbolo y referencias entre repositorios
+
+`id_simbolo(repositorio, ruta, tipo, nombre)` es SHA-256 de
+`repositorio\0ruta\0tipo\0nombre calificado`, donde `repositorio` es el
+slug del vínculo en el workspace, no el nombre del repositorio en GitHub.
+El proxy local y el CI calculan con la misma función el id de destino de
+una arista hacia otro repositorio del workspace, y marcan esa arista con
+`repositorio_destino`. Así la referencia resuelve contra el grafo de ese
+vínculo, y el servidor la corta si el repositorio destino no es visible.
 
 ## Almacenamiento e identidad
 
