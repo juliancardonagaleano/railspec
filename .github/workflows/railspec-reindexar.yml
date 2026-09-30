@@ -1,0 +1,68 @@
+# Reindexa el grafo canónico en cada push a la rama por defecto (contrato 1.1):
+# codebase-memory-mcp calcula el delta en el runner y railspec/deploy/ci/reindexar.py
+# lo sube por lotes a graph.index (HTTP) con un token OIDC de GitHub Actions
+# como actor de servicio. El servidor nunca indexa ni calcula embeddings.
+#
+# Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
+#   RAILSPEC_URL           URL base del servidor, sin /mcp (si falta, el job no corre)
+#   RAILSPEC_ORGANIZACION  slug de la organización en Railspec
+#   RAILSPEC_WORKSPACE     slug del workspace
+#   RAILSPEC_REPOSITORIO   slug del repositorio vinculado (por defecto, el nombre del repo)
+#   RAILSPEC_OIDC_AUDIENCIA audiencia que valida el servidor (por defecto "railspec")
+name: railspec-reindexar
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      completo:
+        description: "Forzar índice completo"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Los deltas se encadenan por commit: nunca dos a la vez ni cancelar uno a medias.
+concurrency:
+  group: railspec-reindexar
+  cancel-in-progress: false
+
+jobs:
+  reindexar:
+    if: vars.RAILSPEC_URL != '' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar indexador
+        run: |
+          python -m pip install -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local \
+            codebase-memory-mcp
+          codebase-memory-mcp --version
+      - name: Reindexar
+        env:
+          ANTERIOR: ${{ github.event_name == 'push' && github.event.before || '' }}
+          COMPLETO: ${{ inputs.completo }}
+          REPOSITORIO: ${{ vars.RAILSPEC_REPOSITORIO || github.event.repository.name }}
+        run: |
+          if [ "$COMPLETO" = "true" ]; then ANTERIOR=""; fi
+          python railspec/deploy/ci/reindexar.py \
+            --servidor "${{ vars.RAILSPEC_URL }}" \
+            --org "${{ vars.RAILSPEC_ORGANIZACION }}" \
+            --workspace "${{ vars.RAILSPEC_WORKSPACE }}" \
+            --repositorio "$REPOSITORIO" \
+            --rama "$GITHUB_REF_NAME" \
+            --commit "$GITHUB_SHA" \
+            --anterior "$ANTERIOR" \
+            --audiencia "${{ vars.RAILSPEC_OIDC_AUDIENCIA || 'railspec' }}" \
+            --raiz "$GITHUB_WORKSPACE"

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: railspec-server
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-server
+    app.kubernetes.io/part-of: railspec
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: railspec-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

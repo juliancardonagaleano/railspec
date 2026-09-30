@@ -1,0 +1,13 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: railspec-server
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-server
+    app.kubernetes.io/part-of: railspec
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: railspec-server

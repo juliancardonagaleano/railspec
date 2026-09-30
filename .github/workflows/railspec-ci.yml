@@ -1,0 +1,100 @@
+# CI de Railspec: lint, pruebas de cada paquete por separado (cada uno con
+# solo sus dependencias) y validación de lo desplegable. Sustituye al antiguo
+# railspec-contratos.yml.
+name: railspec-ci
+
+on:
+  pull_request:
+    paths: ["railspec/**", ".github/workflows/railspec-*.yml"]
+  push:
+    branches: [master]
+    paths: ["railspec/**", ".github/workflows/railspec-*.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railspec-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install ruff
+      - run: ruff check --config railspec/pyproject.toml railspec
+      - run: ruff format --config railspec/pyproject.toml --check railspec
+
+  pruebas:
+    name: pruebas (${{ matrix.paquete }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Las pruebas de railspec-contracts viven en railspec/tests.
+          - paquete: railspec-contracts
+            instalar: -e "railspec/packages/railspec-contracts[test]"
+            pruebas: railspec/tests
+            falkordb: false
+          - paquete: railspec-graph
+            instalar: -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-graph[falkordb,test]"
+            pruebas: railspec/packages/railspec-graph
+            falkordb: true
+          - paquete: railspec-server
+            instalar: >-
+              -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-graph[falkordb]"
+              -e "railspec/packages/railspec-server[motor,grafo,test-motor]"
+            pruebas: railspec/packages/railspec-server
+            falkordb: true
+          - paquete: railspec-local
+            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest codebase-memory-mcp
+            pruebas: railspec/packages/railspec-local
+            falkordb: false
+          - paquete: despliegue
+            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest pyyaml
+            pruebas: railspec/deploy/tests
+            falkordb: false
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar
+        run: python -m pip install ${{ matrix.instalar }}
+      - name: Configurar git para las pruebas que crean repositorios
+        run: |
+          git config --global user.email "ci@railspec.invalid"
+          git config --global user.name "railspec-ci"
+          git config --global init.defaultBranch master
+      - name: Probar
+        env:
+          RAILSPEC_FALKORDB_URL: ${{ matrix.falkordb && 'redis://localhost:6379' || '' }}
+        run: python -m pytest -c railspec/pyproject.toml --rootdir railspec ${{ matrix.pruebas }}
+
+  manifiestos:
+    runs-on: ubuntu-latest
+    env:
+      KUBECONFORM: "0.7.0"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar kubeconform
+        run: |
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar xz -C /usr/local/bin kubeconform
+      - name: Renderizar y validar contra el esquema de Kubernetes
+        env:
+          RAILSPEC_IMAGEN: registro.azurecr.io/railspec-server:ci
+          RAILSPEC_DOMINIO: railspec.example.com
+          RAILSPEC_TLS_SECRETO: railspec-tls
+        run: |
+          python3 railspec/deploy/renderizar.py > "$RUNNER_TEMP/railspec.yaml"
+          kubeconform -strict -summary -kubernetes-version 1.31.0 "$RUNNER_TEMP/railspec.yaml"
