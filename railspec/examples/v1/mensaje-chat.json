@@ -1,0 +1,97 @@
+{
+  "alcance": {
+    "org": "acme",
+    "workspace": "certificados"
+  },
+  "autor": {
+    "agente": "chat",
+    "canal": "consola",
+    "en_nombre_de": 83125327,
+    "proveedor_identidad": "github",
+    "tipo": "agente"
+  },
+  "conservar_en_insumo": true,
+  "conversacion": "00000000-0000-4000-8000-000000000004",
+  "creado_en": "2026-09-30T18:00:00Z",
+  "id": "00000000-0000-4000-8000-000000000005",
+  "llamadas_tool": [
+    {
+      "duracion_ms": 120,
+      "entrada_sha256": "8e35c2cd3bf6641bdb0e2050b76932cbb2e6034a0ddacc1d9bea82a6ba57f7cf",
+      "fragmentos_leidos": 0,
+      "tool": "graph.query"
+    }
+  ],
+  "modelo": "claude-sonnet-5-5",
+  "proveedor": "foundry",
+  "respuesta": {
+    "afirmaciones": [
+      {
+        "referencias": [
+          {
+            "commit": "4063ae9000000000000000000000000000000000",
+            "nombre": "pdf.emitir",
+            "repositorio": "certificados-api",
+            "ruta": "src/pdf.py",
+            "simbolo": "fd5e814c7d3a4757bc1cbd6ef29b15ce303a6043a226186cdaec35af2eae85b1",
+            "tipo": "simbolo",
+            "tipo_simbolo": "funcion"
+          }
+        ],
+        "texto": "La emisión del PDF vive en pdf.emitir y no firma el documento."
+      }
+    ],
+    "preguntas_abiertas": []
+  },
+  "rol": "asistente",
+  "veredicto_gate": {
+    "evaluado_en": "2026-09-30T18:00:00Z",
+    "permitido": true,
+    "reglas": [
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "esquema",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "huella-contexto",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "normalizacion",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "forma-codigo",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "secretos",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "alcance",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "presupuesto-fuga",
+        "resultado": "pasa"
+      }
+    ],
+    "version_gate": "1.0.0"
+  },
+  "version_contrato": "1.0"
+}

@@ -1,0 +1,14 @@
+# Raíz de Railspec dentro de sdd-mcp: solo configuración de pruebas.
+# Cada componente es un paquete propio en packages/.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["UP007"]  # Union explícito en uniones discriminadas legibles

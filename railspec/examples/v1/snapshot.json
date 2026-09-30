@@ -1,0 +1,57 @@
+{
+  "archivos": [
+    {
+      "estado": "modificado",
+      "ruta": "src/pdf.py",
+      "sha256_antes": "60a6c2661df4be46d85f0631c62372f69ac9800a8ec2866ba31dfd1b6658e63a",
+      "sha256_despues": "9191473f01a063226359aaf3f6aeaf57784d5dc67ed7e84ca6fda27b51322a9c"
+    }
+  ],
+  "base_commit": "4063ae9000000000000000000000000000000000",
+  "creado_en": "2026-09-30T19:00:00Z",
+  "delta_indice": {
+    "aristas_agregadas": [],
+    "aristas_borradas": [],
+    "embeddings": [
+      {
+        "cuantizacion": "int8",
+        "dimensiones": 768,
+        "modelo": "nomic-embed-code",
+        "simbolo": "fd5e814c7d3a4757bc1cbd6ef29b15ce303a6043a226186cdaec35af2eae85b1",
+        "vector_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ],
+    "motor": {
+      "nombre": "codebase-memory-mcp",
+      "version": "0.11.0"
+    },
+    "simbolos_borrados": [],
+    "simbolos_upsert": [
+      {
+        "id": "fd5e814c7d3a4757bc1cbd6ef29b15ce303a6043a226186cdaec35af2eae85b1",
+        "linea_fin": 42,
+        "linea_inicio": 10,
+        "nombre": "pdf.emitir",
+        "ruta": "src/pdf.py",
+        "sha256": "ba8bb5a354fecb0555b7d9039eff3d08bd1d70aa78c514d58af120962fe49cc3",
+        "tipo": "funcion"
+      }
+    ]
+  },
+  "escaneo_secretos": {
+    "hallazgos": 0,
+    "herramienta": "gitleaks",
+    "version": "8.21.0"
+  },
+  "hash_arbol": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "id": "00000000-0000-4000-8000-000000000002",
+  "modo_delta": "completo",
+  "nivel_codigo": "restringido",
+  "repositorio": "certificados-api",
+  "unidad": {
+    "org": "acme",
+    "unidad": "0001-emitir-pdf",
+    "workspace": "certificados"
+  },
+  "version_contrato": "1.0"
+}

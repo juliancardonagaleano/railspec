@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "Capacidades": {
+      "additionalProperties": false,
+      "properties": {
+        "contexto_max_tokens": {
+          "minimum": 1,
+          "title": "Contexto Max Tokens",
+          "type": "integer"
+        },
+        "efforts": {
+          "items": {
+            "$ref": "#/$defs/Effort"
+          },
+          "title": "Efforts",
+          "type": "array"
+        },
+        "structured_outputs": {
+          "default": false,
+          "title": "Structured Outputs",
+          "type": "boolean"
+        },
+        "thinking": {
+          "default": false,
+          "title": "Thinking",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contexto_max_tokens"
+      ],
+      "title": "Capacidades",
+      "type": "object"
+    },
+    "Effort": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "title": "Effort",
+      "type": "string"
+    },
+    "Proveedor": {
+      "enum": [
+        "foundry",
+        "anthropic"
+      ],
+      "title": "Proveedor",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/modelo-catalogo.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Leído por API del proveedor; no se edita a mano.",
+  "properties": {
+    "capacidades": {
+      "$ref": "#/$defs/Capacidades"
+    },
+    "despliegue": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Nombre en Foundry.",
+      "title": "Despliegue"
+    },
+    "hosting": {
+      "enum": [
+        "azure",
+        "anthropic"
+      ],
+      "title": "Hosting",
+      "type": "string"
+    },
+    "leido_en": {
+      "format": "date-time",
+      "title": "Leido En",
+      "type": "string"
+    },
+    "modelo": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Modelo",
+      "type": "string"
+    },
+    "org": {
+      "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Org",
+      "type": "string"
+    },
+    "proveedor": {
+      "$ref": "#/$defs/Proveedor"
+    },
+    "region": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region"
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "org",
+    "proveedor",
+    "modelo",
+    "hosting",
+    "capacidades",
+    "leido_en"
+  ],
+  "title": "ModeloCatalogo",
+  "type": "object"
+}

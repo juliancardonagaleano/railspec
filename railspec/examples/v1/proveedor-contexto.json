@@ -1,0 +1,32 @@
+{
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "credencial_ref": "secret://railspec-pce/api-key",
+  "fases": [
+    "spec",
+    "plan"
+  ],
+  "nombre": "pce",
+  "org": "acme",
+  "politica_fallo": "estricta",
+  "rol": "gobernanza",
+  "url": "https://pce.acme.internal/mcp",
+  "version": 1,
+  "version_contrato": "1.0"
+}

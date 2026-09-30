@@ -1,0 +1,29 @@
+{
+  "alcance": {
+    "org": "acme",
+    "workspace": "certificados"
+  },
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "nombre": "Certificados",
+  "perfil_por_defecto": "estandar",
+  "version": 3,
+  "version_contrato": "1.0",
+  "zona_datos_azure": "us"
+}

@@ -1,0 +1,55 @@
+{
+  "alcance": {
+    "permitidos": [
+      "src/pdf.py",
+      "tests/test_pdf.py"
+    ],
+    "prohibidos": []
+  },
+  "base_commit": "4063ae9000000000000000000000000000000000",
+  "comando_validacion": "pytest tests/test_pdf.py",
+  "complejidad": "simple",
+  "contexto": {
+    "gobernanza": [],
+    "gobernanza_consultada": "si",
+    "grafo": [],
+    "hallazgos_previos": [],
+    "insumos": []
+  },
+  "criterios": [
+    {
+      "id": "CA-01",
+      "texto": "El PDF emitido lleva firma verificable."
+    }
+  ],
+  "emitida_en": "2026-09-30T18:00:00Z",
+  "expira_en": "2026-10-01T02:00:00Z",
+  "fase": "implement",
+  "grupo": "G1",
+  "id": "00000000-0000-4000-8000-000000000001",
+  "instrucciones": "Implementa el grupo G1 del plan: emisión del PDF firmado.",
+  "presupuesto": {},
+  "reporte_requerido": {
+    "artefacto": false,
+    "snapshot": true,
+    "validacion": false
+  },
+  "repositorio": "certificados-api",
+  "secuencia": 4,
+  "tareas": [
+    {
+      "criterios": [
+        "CA-01"
+      ],
+      "descripcion": "Firmar el PDF al emitir.",
+      "id": "T-01"
+    }
+  ],
+  "tipo": "implementar",
+  "unidad": {
+    "org": "acme",
+    "unidad": "0001-emitir-pdf",
+    "workspace": "certificados"
+  },
+  "version_contrato": "1.0"
+}

@@ -1,0 +1,359 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+      "properties": {
+        "agente": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nodo o rol del agente, si tipo=agente.",
+          "title": "Agente"
+        },
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "en_nombre_de": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "github_id del humano por quien actúa un agente.",
+          "title": "En Nombre De"
+        },
+        "github_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github Id"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "description": "Login de GitHub; informativo, la identidad es github_id.",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcGithubActions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proveedor_identidad": {
+          "default": "github",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "title": "Proveedor Identidad",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoActor"
+        }
+      },
+      "required": [
+        "tipo",
+        "canal"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "AlcanceRepositorio": {
+      "additionalProperties": false,
+      "description": "Espacio de un repositorio vinculado a un workspace (grafo, vectores).",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace",
+        "repositorio"
+      ],
+      "title": "AlcanceRepositorio",
+      "type": "object"
+    },
+    "Auditoria": {
+      "additionalProperties": false,
+      "properties": {
+        "actualizado_en": {
+          "format": "date-time",
+          "title": "Actualizado En",
+          "type": "string"
+        },
+        "actualizado_por": {
+          "$ref": "#/$defs/Actor"
+        },
+        "creado_en": {
+          "format": "date-time",
+          "title": "Creado En",
+          "type": "string"
+        },
+        "creado_por": {
+          "$ref": "#/$defs/Actor"
+        }
+      },
+      "required": [
+        "creado_por",
+        "creado_en",
+        "actualizado_por",
+        "actualizado_en"
+      ],
+      "title": "Auditoria",
+      "type": "object"
+    },
+    "Canal": {
+      "enum": [
+        "arnes",
+        "consola",
+        "ci",
+        "servidor"
+      ],
+      "title": "Canal",
+      "type": "string"
+    },
+    "HostingChat": {
+      "enum": [
+        "azure-zona-datos",
+        "cualquiera"
+      ],
+      "title": "HostingChat",
+      "type": "string"
+    },
+    "NivelCodigo": {
+      "description": "Política de código propietario aprobada el 2026-09-30.",
+      "enum": [
+        "restringido",
+        "interno",
+        "abierto"
+      ],
+      "title": "NivelCodigo",
+      "type": "string"
+    },
+    "OidcGithubActions": {
+      "additionalProperties": false,
+      "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+      "properties": {
+        "repositorio": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "workflow": {
+          "description": "Claim workflow_ref.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "workflow"
+      ],
+      "title": "OidcGithubActions",
+      "type": "object"
+    },
+    "PoliticaChat": {
+      "additionalProperties": false,
+      "description": "``chat_contexto_codigo``: cómo usa el chat el código como contexto interno.",
+      "properties": {
+        "fragmentos_en_respuesta": {
+          "default": false,
+          "description": "Solo abierto: fragmentos cortos bajo el presupuesto de fuga.",
+          "title": "Fragmentos En Respuesta",
+          "type": "boolean"
+        },
+        "hosting": {
+          "$ref": "#/$defs/HostingChat"
+        },
+        "huella_tokens_n": {
+          "description": "Secuencia compartida máxima antes de bloquear (regla huella).",
+          "maximum": 64,
+          "minimum": 4,
+          "title": "Huella Tokens N",
+          "type": "integer"
+        },
+        "modelos_permitidos": {
+          "description": "Vacío = todos los del catálogo que cumplan hosting.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Modelos Permitidos",
+          "type": "array"
+        },
+        "permitido": {
+          "default": true,
+          "title": "Permitido",
+          "type": "boolean"
+        },
+        "presupuesto_fuga_conversacion": {
+          "minimum": 1,
+          "title": "Presupuesto Fuga Conversacion",
+          "type": "integer"
+        },
+        "presupuesto_fuga_usuario_dia": {
+          "minimum": 1,
+          "title": "Presupuesto Fuga Usuario Dia",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "hosting",
+        "huella_tokens_n",
+        "presupuesto_fuga_conversacion",
+        "presupuesto_fuga_usuario_dia"
+      ],
+      "title": "PoliticaChat",
+      "type": "object"
+    },
+    "RolRepositorio": {
+      "enum": [
+        "primario",
+        "transversal"
+      ],
+      "title": "RolRepositorio",
+      "type": "string"
+    },
+    "TipoActor": {
+      "enum": [
+        "humano",
+        "servicio",
+        "agente"
+      ],
+      "title": "TipoActor",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/vinculo-repositorio.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "alcance": {
+      "$ref": "#/$defs/AlcanceRepositorio"
+    },
+    "auditoria": {
+      "$ref": "#/$defs/Auditoria"
+    },
+    "chat_contexto_codigo": {
+      "$ref": "#/$defs/PoliticaChat"
+    },
+    "exclusiones": {
+      "description": "Patrones además de .railspecignore y los de secretos.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Exclusiones",
+      "type": "array"
+    },
+    "nivel_codigo": {
+      "$ref": "#/$defs/NivelCodigo",
+      "default": "restringido"
+    },
+    "rama_por_defecto": {
+      "default": "main",
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Rama Por Defecto",
+      "type": "string"
+    },
+    "retencion_snapshots_dias": {
+      "default": 30,
+      "minimum": 1,
+      "title": "Retencion Snapshots Dias",
+      "type": "integer"
+    },
+    "rol": {
+      "$ref": "#/$defs/RolRepositorio"
+    },
+    "url": {
+      "maxLength": 512,
+      "pattern": "^https://",
+      "title": "Url",
+      "type": "string"
+    },
+    "version": {
+      "description": "Bloqueo optimista; +1 en cada escritura.",
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "auditoria",
+    "alcance",
+    "url",
+    "rol",
+    "chat_contexto_codigo"
+  ],
+  "title": "VinculoRepositorio",
+  "type": "object"
+}

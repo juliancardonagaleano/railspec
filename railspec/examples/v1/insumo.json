@@ -1,0 +1,108 @@
+{
+  "alcance": {
+    "org": "acme",
+    "workspace": "certificados"
+  },
+  "autor": {
+    "canal": "consola",
+    "github_id": 83125327,
+    "login": "juliancardonagaleano",
+    "proveedor_identidad": "github",
+    "tipo": "humano"
+  },
+  "conversacion": "00000000-0000-4000-8000-000000000004",
+  "creado_en": "2026-09-30T18:00:00Z",
+  "formato": "railspec.insumo/v1",
+  "hallazgos": [
+    {
+      "referencias": [
+        {
+          "commit": "4063ae9000000000000000000000000000000000",
+          "nombre": "pdf.emitir",
+          "repositorio": "certificados-api",
+          "ruta": "src/pdf.py",
+          "simbolo": "fd5e814c7d3a4757bc1cbd6ef29b15ce303a6043a226186cdaec35af2eae85b1",
+          "tipo": "simbolo",
+          "tipo_simbolo": "funcion"
+        }
+      ],
+      "texto": "La emisión del PDF vive en pdf.emitir y no firma el documento."
+    },
+    {
+      "referencias": [
+        {
+          "criterio": "CA-01",
+          "tipo": "criterio",
+          "unidad": "0001-emitir-pdf",
+          "workspace": "certificados"
+        }
+      ],
+      "texto": "El criterio de firma verificable ya existe en una unidad previa."
+    }
+  ],
+  "id": "00000000-0000-4000-8000-000000000009",
+  "nivel_efectivo": "restringido",
+  "objetivo": "Firmar los certificados PDF al emitirlos.",
+  "preguntas_abiertas": [],
+  "repositorios": [
+    {
+      "base_commit": "4063ae9000000000000000000000000000000000",
+      "repositorio": "certificados-api",
+      "rol": "primario"
+    }
+  ],
+  "restricciones": [
+    "No cambiar el formato del número de certificado."
+  ],
+  "sha256": "f3a74c3b11d79ddaa1aea248ce3d7df42c7de608f610a12dd3fef3bf37d3d612",
+  "veredicto_gate": {
+    "evaluado_en": "2026-09-30T18:00:00Z",
+    "permitido": true,
+    "reglas": [
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "esquema",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "huella-contexto",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "normalizacion",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "forma-codigo",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "secretos",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "alcance",
+        "resultado": "pasa"
+      },
+      {
+        "huellas_coincidentes": [],
+        "referencias_eliminadas": 0,
+        "regla": "presupuesto-fuga",
+        "resultado": "pasa"
+      }
+    ],
+    "version_gate": "1.0.0"
+  },
+  "version_contrato": "1.0"
+}

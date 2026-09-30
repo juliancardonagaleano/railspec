@@ -1,0 +1,617 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+      "properties": {
+        "agente": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nodo o rol del agente, si tipo=agente.",
+          "title": "Agente"
+        },
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "en_nombre_de": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "github_id del humano por quien actúa un agente.",
+          "title": "En Nombre De"
+        },
+        "github_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github Id"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "description": "Login de GitHub; informativo, la identidad es github_id.",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcGithubActions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proveedor_identidad": {
+          "default": "github",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "title": "Proveedor Identidad",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoActor"
+        }
+      },
+      "required": [
+        "tipo",
+        "canal"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "AlcanceUnidad": {
+      "additionalProperties": false,
+      "description": "Espacio de nombres de una unidad.\n\nLa unidad cuelga del workspace, no de un repositorio, porque puede\nvincular N repositorios; cada snapshot dice a cuál pertenece. ``plan``\nagrupa unidades de un mismo mandato cuando lo hay.",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "plan": {
+          "anyOf": [
+            {
+              "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan"
+        },
+        "unidad": {
+          "description": "Identificador de unidad SDD con forma NNNN-slug.",
+          "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Unidad",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace",
+        "unidad"
+      ],
+      "title": "AlcanceUnidad",
+      "type": "object"
+    },
+    "Canal": {
+      "enum": [
+        "arnes",
+        "consola",
+        "ci",
+        "servidor"
+      ],
+      "title": "Canal",
+      "type": "string"
+    },
+    "CheckpointResuelto": {
+      "additionalProperties": false,
+      "properties": {
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "checkpoint_id": {
+          "format": "uuid4",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "checkpoint.resuelto",
+          "default": "checkpoint.resuelto",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "canal"
+      ],
+      "title": "CheckpointResuelto",
+      "type": "object"
+    },
+    "CheckpointSolicitado": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "format": "uuid4",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "checkpoint.solicitado",
+          "default": "checkpoint.solicitado",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id"
+      ],
+      "title": "CheckpointSolicitado",
+      "type": "object"
+    },
+    "CommitEmpujado": {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Commit",
+          "type": "string"
+        },
+        "rama": {
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Rama",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "commit.empujado",
+          "default": "commit.empujado",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "rama",
+        "commit"
+      ],
+      "title": "CommitEmpujado",
+      "type": "object"
+    },
+    "Direccion": {
+      "enum": [
+        "local-a-remoto",
+        "remoto-a-local"
+      ],
+      "title": "Direccion",
+      "type": "string"
+    },
+    "EstadoActualizado": {
+      "additionalProperties": false,
+      "properties": {
+        "estado": {
+          "$ref": "#/$defs/EstadoFase"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "tipo": {
+          "const": "estado.actualizado",
+          "default": "estado.actualizado",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "fase",
+        "estado"
+      ],
+      "title": "EstadoActualizado",
+      "type": "object"
+    },
+    "EstadoFase": {
+      "enum": [
+        "en-progreso",
+        "bloqueado",
+        "completado"
+      ],
+      "title": "EstadoFase",
+      "type": "string"
+    },
+    "Fase": {
+      "enum": [
+        "research",
+        "spec",
+        "plan",
+        "tasks",
+        "aprobacion",
+        "implement",
+        "done"
+      ],
+      "title": "Fase",
+      "type": "string"
+    },
+    "GateFase": {
+      "enum": [
+        "spec",
+        "plan",
+        "tasks",
+        "codigo"
+      ],
+      "title": "GateFase",
+      "type": "string"
+    },
+    "OidcGithubActions": {
+      "additionalProperties": false,
+      "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+      "properties": {
+        "repositorio": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "workflow": {
+          "description": "Claim workflow_ref.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "workflow"
+      ],
+      "title": "OidcGithubActions",
+      "type": "object"
+    },
+    "OrdenEmitida": {
+      "additionalProperties": false,
+      "properties": {
+        "orden_id": {
+          "format": "uuid4",
+          "title": "Orden Id",
+          "type": "string"
+        },
+        "secuencia_orden": {
+          "minimum": 1,
+          "title": "Secuencia Orden",
+          "type": "integer"
+        },
+        "tipo": {
+          "const": "orden.emitida",
+          "default": "orden.emitida",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "orden_id",
+        "secuencia_orden"
+      ],
+      "title": "OrdenEmitida",
+      "type": "object"
+    },
+    "OrdenReportada": {
+      "additionalProperties": false,
+      "properties": {
+        "orden_id": {
+          "format": "uuid4",
+          "title": "Orden Id",
+          "type": "string"
+        },
+        "secuencia_orden": {
+          "minimum": 1,
+          "title": "Secuencia Orden",
+          "type": "integer"
+        },
+        "tipo": {
+          "const": "orden.reportada",
+          "default": "orden.reportada",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "orden_id",
+        "secuencia_orden"
+      ],
+      "title": "OrdenReportada",
+      "type": "object"
+    },
+    "SnapshotSubido": {
+      "additionalProperties": false,
+      "properties": {
+        "base_commit": {
+          "description": "SHA-1 completo de un commit git.",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Base Commit",
+          "type": "string"
+        },
+        "hash_arbol": {
+          "description": "SHA-1 del árbol git del worktree incluyendo cambios sin commit (equivalente a `git add -A && git write-tree` en un índice temporal).",
+          "pattern": "^[0-9a-f]{40}$",
+          "title": "Hash Arbol",
+          "type": "string"
+        },
+        "repositorio": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "format": "uuid4",
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "tipo": {
+          "const": "snapshot.subido",
+          "default": "snapshot.subido",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "repositorio",
+        "base_commit",
+        "hash_arbol"
+      ],
+      "title": "SnapshotSubido",
+      "type": "object"
+    },
+    "TipoActor": {
+      "enum": [
+        "humano",
+        "servicio",
+        "agente"
+      ],
+      "title": "TipoActor",
+      "type": "string"
+    },
+    "UnidadIntegrada": {
+      "additionalProperties": false,
+      "properties": {
+        "especificacion_viva": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Especificacion Viva",
+          "type": "string"
+        },
+        "pr_url": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pr Url"
+        },
+        "tipo": {
+          "const": "unidad.integrada",
+          "default": "unidad.integrada",
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "especificacion_viva"
+      ],
+      "title": "UnidadIntegrada",
+      "type": "object"
+    },
+    "Veredicto": {
+      "enum": [
+        "aprobado",
+        "refinado",
+        "escalado"
+      ],
+      "title": "Veredicto",
+      "type": "string"
+    },
+    "VeredictoEmitido": {
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "$ref": "#/$defs/GateFase"
+        },
+        "tipo": {
+          "const": "veredicto.emitido",
+          "default": "veredicto.emitido",
+          "title": "Tipo",
+          "type": "string"
+        },
+        "veredicto": {
+          "$ref": "#/$defs/Veredicto"
+        }
+      },
+      "required": [
+        "gate",
+        "veredicto"
+      ],
+      "title": "VeredictoEmitido",
+      "type": "object"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/evento-sync.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "actor": {
+      "$ref": "#/$defs/Actor"
+    },
+    "carga": {
+      "discriminator": {
+        "mapping": {
+          "checkpoint.resuelto": "#/$defs/CheckpointResuelto",
+          "checkpoint.solicitado": "#/$defs/CheckpointSolicitado",
+          "commit.empujado": "#/$defs/CommitEmpujado",
+          "estado.actualizado": "#/$defs/EstadoActualizado",
+          "orden.emitida": "#/$defs/OrdenEmitida",
+          "orden.reportada": "#/$defs/OrdenReportada",
+          "snapshot.subido": "#/$defs/SnapshotSubido",
+          "unidad.integrada": "#/$defs/UnidadIntegrada",
+          "veredicto.emitido": "#/$defs/VeredictoEmitido"
+        },
+        "propertyName": "tipo"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SnapshotSubido"
+        },
+        {
+          "$ref": "#/$defs/OrdenReportada"
+        },
+        {
+          "$ref": "#/$defs/CommitEmpujado"
+        },
+        {
+          "$ref": "#/$defs/OrdenEmitida"
+        },
+        {
+          "$ref": "#/$defs/VeredictoEmitido"
+        },
+        {
+          "$ref": "#/$defs/EstadoActualizado"
+        },
+        {
+          "$ref": "#/$defs/CheckpointSolicitado"
+        },
+        {
+          "$ref": "#/$defs/CheckpointResuelto"
+        },
+        {
+          "$ref": "#/$defs/UnidadIntegrada"
+        }
+      ],
+      "title": "Carga"
+    },
+    "causado_por": {
+      "anyOf": [
+        {
+          "format": "uuid4",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Evento que lo originó.",
+      "title": "Causado Por"
+    },
+    "direccion": {
+      "$ref": "#/$defs/Direccion"
+    },
+    "emitido_en": {
+      "format": "date-time",
+      "title": "Emitido En",
+      "type": "string"
+    },
+    "id": {
+      "description": "Clave de idempotencia.",
+      "format": "uuid4",
+      "title": "Id",
+      "type": "string"
+    },
+    "secuencia": {
+      "description": "Monótona por (unidad, dirección).",
+      "minimum": 1,
+      "title": "Secuencia",
+      "type": "integer"
+    },
+    "unidad": {
+      "$ref": "#/$defs/AlcanceUnidad"
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "direccion",
+    "unidad",
+    "secuencia",
+    "emitido_en",
+    "actor",
+    "carga"
+  ],
+  "title": "EventoSync",
+  "type": "object"
+}

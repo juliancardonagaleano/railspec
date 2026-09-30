@@ -1,0 +1,42 @@
+{
+  "alcance": {
+    "org": "acme",
+    "repositorio": "certificados-api",
+    "workspace": "certificados"
+  },
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "chat_contexto_codigo": {
+    "fragmentos_en_respuesta": false,
+    "hosting": "azure-zona-datos",
+    "huella_tokens_n": 12,
+    "modelos_permitidos": [],
+    "permitido": true,
+    "presupuesto_fuga_conversacion": 1500,
+    "presupuesto_fuga_usuario_dia": 6000
+  },
+  "exclusiones": [],
+  "nivel_codigo": "restringido",
+  "rama_por_defecto": "main",
+  "retencion_snapshots_dias": 30,
+  "rol": "primario",
+  "url": "https://github.com/acme/certificados-api",
+  "version": 2,
+  "version_contrato": "1.0"
+}

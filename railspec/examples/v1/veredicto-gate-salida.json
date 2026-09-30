@@ -1,0 +1,49 @@
+{
+  "evaluado_en": "2026-09-30T18:00:00Z",
+  "permitido": true,
+  "reglas": [
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "esquema",
+      "resultado": "pasa"
+    },
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "huella-contexto",
+      "resultado": "pasa"
+    },
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "normalizacion",
+      "resultado": "pasa"
+    },
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "forma-codigo",
+      "resultado": "pasa"
+    },
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "secretos",
+      "resultado": "pasa"
+    },
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "alcance",
+      "resultado": "pasa"
+    },
+    {
+      "huellas_coincidentes": [],
+      "referencias_eliminadas": 0,
+      "regla": "presupuesto-fuga",
+      "resultado": "pasa"
+    }
+  ],
+  "version_gate": "1.0.0"
+}

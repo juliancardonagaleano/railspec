@@ -1,0 +1,32 @@
+{
+  "alcance": {
+    "org": "acme",
+    "workspace": "certificados"
+  },
+  "autor": {
+    "canal": "consola",
+    "github_id": 83125327,
+    "login": "juliancardonagaleano",
+    "proveedor_identidad": "github",
+    "tipo": "humano"
+  },
+  "bloqueos": 0,
+  "consumo_fuga": {
+    "caracteres": 120,
+    "tope": 1500
+  },
+  "consumo_fuga_usuario": {
+    "caracteres": 480,
+    "tope": 6000
+  },
+  "creada_en": "2026-09-30T18:00:00Z",
+  "expira_en": "2026-10-30T18:00:00Z",
+  "id": "00000000-0000-4000-8000-000000000004",
+  "limitada": false,
+  "nivel_efectivo": "restringido",
+  "repositorios": [
+    "certificados-api",
+    "reporteria"
+  ],
+  "version_contrato": "1.0"
+}

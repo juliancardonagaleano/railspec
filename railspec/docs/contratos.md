@@ -1,0 +1,156 @@
+# Contratos de Railspec v1 (fase 1)
+
+Esta fase fija los mensajes que cruzan las fronteras entre el motor remoto
+(`railspec-server`), el proxy local (`railspec-local`), los arneses y la
+consola web (`railspec-console`). Los hilos de las fases 2 (motor), 3 (proxy y
+adaptadores) y 4 (repositorio central) trabajan contra estos contratos sin
+esperarse entre sí.
+
+## Fuente de verdad y artefactos
+
+| Qué | Dónde |
+|---|---|
+| Modelos Pydantic (fuente de verdad) | `packages/railspec-contracts/src/railspec/contracts/` |
+| JSON Schema 2020-12 generados | `schemas/v1/*.schema.json` |
+| Manifiesto del registro de tools | `schemas/v1/tools.json` |
+| Ejemplo válido por mensaje | `examples/v1/*.json` |
+| Pruebas de deriva e invariantes | `tests/test_contratos.py` |
+
+Regenerar tras cambiar un modelo:
+
+```
+python -m railspec.contracts.esquemas railspec/schemas/v1
+python railspec/tests/fabricas.py
+python -m pytest railspec
+```
+
+Las pruebas fallan si los esquemas o los ejemplos en disco no coinciden con
+los modelos, así que un cambio de contrato siempre viaja con su esquema.
+
+## Mensajes
+
+| Mensaje | Módulo | Quién lo escribe | Quién lo lee |
+|---|---|---|---|
+| Orden de trabajo (`redactar`, `refinar`, `implementar`, `validar`) | `orden` | Motor | Arnés vía proxy |
+| Reporte de orden | `reporte` | Proxy | Motor |
+| Snapshot | `snapshot` | Proxy | Motor, grafo central |
+| Evento de sincronización | `eventos` | Ambos | Ambos; la consola lo consume en vivo (SSE) |
+| Estado de unidad (remoto) | `estado` | Solo el motor | Proxy (espejo), consola |
+| Estado local | `estado` | Proxy | Proxy |
+| Insumo `railspec.insumo/v1` | `insumo` | Chat de la consola | `unit.start`, `railspec insumo pull` |
+| Respuesta del chat y veredicto del gate de salida | `chat` | Agente del chat y gate | Consola |
+| Conversación y mensaje del chat | `chat` | Servidor | Consola |
+| Entidades de configuración, catálogo, telemetría y auditoría | `repositorio` | Servidor y consola | Todos |
+
+## Tools
+
+Un único registro (`tools.py`) define cada tool una vez, con efecto, rol
+mínimo y superficies. El servidor genera desde él el servidor MCP y la API
+HTTP de la consola (R1).
+
+| Tool | Efecto | MCP | HTTP | Chat |
+|---|---|---|---|---|
+| `unit.start` | escritura | sí | sí | no |
+| `unit.advance` | escritura | sí | no | no |
+| `unit.report` | escritura | sí | no | no |
+| `unit.approve` | escritura | sí | sí | no |
+| `unit.integrate` | escritura | sí | sí | no |
+| `unit.status` | lectura | sí | sí | sí |
+| `unit.list` | lectura | sí | sí | sí |
+| `graph.query` | lectura | sí | sí | sí |
+| `code.read` | lectura | no | no | sí (solo) |
+| `insumo.get` | lectura | sí | sí | sí |
+| `telemetry.query` | lectura | no | sí | sí |
+
+- El actor nunca viaja en la entrada: el servidor lo deriva del token
+  (GitHub OAuth para personas, OIDC de GitHub Actions para CI) y de la
+  superficie.
+- Los campos de salida con texto de código llevan
+  `"x-railspec-clase": "codigo_interno"` en el esquema; `ToolDef.campos_codigo_interno()`
+  los lista para que el gate de salida calcule huellas. Hoy solo
+  `code.read → fragmentos[].texto`.
+- Errores de negocio: `ErrorTool` con un `CodigoError` común.
+- Bucle del arnés: `unit.start` → `unit.advance` → ejecutar la orden →
+  `unit.report` → `unit.advance`… El arnés nunca decide fase ni gate; un
+  reporte que no corresponde a la orden vigente se rechaza.
+
+## Reglas que el contrato impone
+
+Estas reglas son validadores de los modelos, no convenciones; cada una tiene
+su prueba negativa.
+
+- **Política de código propietario.** Un snapshot `restringido` no lleva diff
+  ni fragmentos; en `interno` los fragmentos solo pueden ser de archivos
+  tocados; un snapshot con secretos detectados es inválido; `solo-hashes` no
+  lleva delta. Los embeddings llegan calculados en local (int8, 768 dimensiones).
+- **Gates.** Nunca aprueban por agotamiento (hallazgos alta o media sin
+  refutar obligan a escalar); nunca critican de memoria (sin gobernanza, el
+  gate escala con `sin-gobernanza`); un escalado siempre lleva causa y solo
+  un humano lo rehabilita.
+- **Unidad.** Nace `interactivo` y todo cambio de modo queda en
+  `modo_conversion`; no tiene a la vez orden vigente y checkpoint pendiente;
+  `done` exige el gate de código superado o rehabilitado; `integrado` solo
+  existe tras el cierre y no lo condiciona.
+- **Checkpoints (R7).** Se resuelven por cualquier canal (elicitation,
+  `unit.approve`, consola) y gana la primera resolución; la resolución
+  registra actor humano y canal. La consola nunca bloquea al desarrollador.
+- **Sincronización.** Eventos idempotentes por `id`, secuencia monótona por
+  unidad y dirección, y la dirección debe corresponder al tipo. La cola
+  local solo contiene eventos local→remoto aún no confirmados, en orden.
+  En el protocolo gana el remoto; en el código, el local.
+- **Chat (R9, R10).** La respuesta del modelo es estructurada (afirmaciones
+  y referencias tipadas) y su esquema rechaza bloques de código, HTML y
+  URL. El veredicto del gate evalúa las siete reglas exactamente una vez y
+  solo guarda hashes de huellas. Una respuesta bloqueada no se guarda y no
+  puede pasar a un insumo.
+- **Insumo (R6).** Sin texto de código en ningún nivel, protegido por un hash
+  de su contenido canónico y solo existe si el gate de salida lo permitió.
+- **Actor (R2).** Humano con `github_id` y login; servicio con su identidad
+  OIDC; agente con su nodo y, si actúa por alguien, `en_nombre_de`.
+- **Vínculo de repositorio (R4).** En `restringido` e `interno` el chat solo
+  usa modelos de la zona de datos de Azure y nunca devuelve fragmentos.
+
+## Versionado
+
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.0`.
+- Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
+  el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
+  `schemas/v2` en paralelo.
+- Los modelos rechazan campos desconocidos. Por eso el cliente declara su
+  versión en `unit.start` (`version_contrato_cliente`) y el servidor responde
+  en la mínima común (`version_contrato_negociada`) y rechaza mayores que no
+  conoce con `version-contrato-no-soportada`.
+- Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
+  (dominio sin reservar; el `$id` es solo un identificador).
+
+## Almacenamiento e identidad
+
+`almacen.py` define las interfaces que implementan los hilos siguientes:
+`StateStore` (Mongo), `GraphStore` y `VectorStore` (FalkorDB, un grafo por
+workspace y repositorio, con LadybugDB como alternativa) y
+`ProveedorIdentidad` (GitHub). Cada método exige su alcance tipado, así que
+no hay consulta sin workspace. `CheckpointStorage` es el de Microsoft Agent
+Framework y se implementa en la fase 2.
+
+`repositorio.py` fija las colecciones con su clave de aislamiento y su campo
+de TTL, y el nombre de grafo `railspec:<org>:<workspace>:<repositorio>`.
+
+## Variables de entorno del servidor
+
+Convención para las fases 2 y 4; los valores vienen de Kubernetes Secrets.
+
+| Variable | Uso |
+|---|---|
+| `RAILSPEC_MONGO_URI`, `RAILSPEC_MONGO_DB` | Estado, checkpoints, telemetría |
+| `RAILSPEC_FALKORDB_URL` | Grafo central y vectores |
+| `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Proveedor primario (sin clave = Entra ID) |
+| `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Adaptador de Anthropic tras bandera |
+| `RAILSPEC_GITHUB_APP_ID`, `RAILSPEC_GITHUB_APP_PRIVATE_KEY` | Identidad, clon canónico y webhooks |
+| `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Proveedor de gobernanza |
+
+## Lo que queda abierto
+
+- Umbrales del gate de salida (N de huella por nivel, presupuestos de fuga):
+  `politica_chat_por_defecto` fija valores iniciales editables por vínculo;
+  el hilo del chat los calibra con el corpus de ataques.
+- Framework del frontend: no afecta a estos contratos.

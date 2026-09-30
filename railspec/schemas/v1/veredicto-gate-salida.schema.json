@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "EvaluacionRegla": {
+      "additionalProperties": false,
+      "properties": {
+        "huellas_coincidentes": {
+          "description": "Hashes de las huellas que coincidieron; nunca texto.",
+          "items": {
+            "description": "SHA-256 en hexadecimal.",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Huellas Coincidentes",
+          "type": "array"
+        },
+        "referencias_eliminadas": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Referencias Eliminadas",
+          "type": "integer"
+        },
+        "regla": {
+          "$ref": "#/$defs/ReglaGate"
+        },
+        "resultado": {
+          "$ref": "#/$defs/ResultadoRegla"
+        }
+      },
+      "required": [
+        "regla",
+        "resultado"
+      ],
+      "title": "EvaluacionRegla",
+      "type": "object"
+    },
+    "ReglaGate": {
+      "enum": [
+        "esquema",
+        "huella-contexto",
+        "normalizacion",
+        "forma-codigo",
+        "secretos",
+        "alcance",
+        "presupuesto-fuga"
+      ],
+      "title": "ReglaGate",
+      "type": "string"
+    },
+    "ResultadoRegla": {
+      "enum": [
+        "pasa",
+        "recorta",
+        "bloquea"
+      ],
+      "title": "ResultadoRegla",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/veredicto-gate-salida.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "evaluado_en": {
+      "format": "date-time",
+      "title": "Evaluado En",
+      "type": "string"
+    },
+    "permitido": {
+      "title": "Permitido",
+      "type": "boolean"
+    },
+    "reglas": {
+      "items": {
+        "$ref": "#/$defs/EvaluacionRegla"
+      },
+      "minItems": 7,
+      "title": "Reglas",
+      "type": "array"
+    },
+    "version_gate": {
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "Version Gate",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version_gate",
+    "permitido",
+    "reglas",
+    "evaluado_en"
+  ],
+  "title": "VeredictoGateSalida",
+  "type": "object"
+}

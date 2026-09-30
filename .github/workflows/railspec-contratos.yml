@@ -1,0 +1,32 @@
+name: railspec-contratos
+
+on:
+  pull_request:
+    paths: ["railspec/**", ".github/workflows/railspec-contratos.yml"]
+  push:
+    branches: [master]
+    paths: ["railspec/**", ".github/workflows/railspec-contratos.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  contratos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar paquetes
+        run: |
+          python -m pip install ruff \
+            -e "railspec/packages/railspec-contracts[test]" \
+            -e railspec/packages/railspec-server \
+            -e railspec/packages/railspec-local
+      - name: Lint
+        run: |
+          ruff check --config railspec/pyproject.toml railspec
+          ruff format --config railspec/pyproject.toml --check railspec
+      - name: Pruebas de contratos
+        run: python -m pytest railspec

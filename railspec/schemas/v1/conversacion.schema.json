@@ -1,0 +1,283 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+      "properties": {
+        "agente": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nodo o rol del agente, si tipo=agente.",
+          "title": "Agente"
+        },
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "en_nombre_de": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "github_id del humano por quien actúa un agente.",
+          "title": "En Nombre De"
+        },
+        "github_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github Id"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "description": "Login de GitHub; informativo, la identidad es github_id.",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcGithubActions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proveedor_identidad": {
+          "default": "github",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "title": "Proveedor Identidad",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoActor"
+        }
+      },
+      "required": [
+        "tipo",
+        "canal"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "AlcanceWorkspace": {
+      "additionalProperties": false,
+      "description": "Espacio de nombres mínimo: todo dato persistido lo lleva.",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace"
+      ],
+      "title": "AlcanceWorkspace",
+      "type": "object"
+    },
+    "Canal": {
+      "enum": [
+        "arnes",
+        "consola",
+        "ci",
+        "servidor"
+      ],
+      "title": "Canal",
+      "type": "string"
+    },
+    "ConsumoFuga": {
+      "additionalProperties": false,
+      "description": "Caracteres de identificadores y literales citados, acumulados.",
+      "properties": {
+        "caracteres": {
+          "minimum": 0,
+          "title": "Caracteres",
+          "type": "integer"
+        },
+        "tope": {
+          "minimum": 1,
+          "title": "Tope",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "caracteres",
+        "tope"
+      ],
+      "title": "ConsumoFuga",
+      "type": "object"
+    },
+    "NivelCodigo": {
+      "description": "Política de código propietario aprobada el 2026-09-30.",
+      "enum": [
+        "restringido",
+        "interno",
+        "abierto"
+      ],
+      "title": "NivelCodigo",
+      "type": "string"
+    },
+    "OidcGithubActions": {
+      "additionalProperties": false,
+      "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+      "properties": {
+        "repositorio": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "workflow": {
+          "description": "Claim workflow_ref.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "workflow"
+      ],
+      "title": "OidcGithubActions",
+      "type": "object"
+    },
+    "TipoActor": {
+      "enum": [
+        "humano",
+        "servicio",
+        "agente"
+      ],
+      "title": "TipoActor",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/conversacion.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "alcance": {
+      "$ref": "#/$defs/AlcanceWorkspace"
+    },
+    "autor": {
+      "$ref": "#/$defs/Actor"
+    },
+    "bloqueos": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Bloqueos",
+      "type": "integer"
+    },
+    "consumo_fuga": {
+      "$ref": "#/$defs/ConsumoFuga"
+    },
+    "consumo_fuga_usuario": {
+      "$ref": "#/$defs/ConsumoFuga",
+      "description": "Acumulado del autor en la ventana vigente."
+    },
+    "creada_en": {
+      "format": "date-time",
+      "title": "Creada En",
+      "type": "string"
+    },
+    "expira_en": {
+      "description": "TTL de la conversación en Mongo.",
+      "format": "date-time",
+      "title": "Expira En",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid4",
+      "title": "Id",
+      "type": "string"
+    },
+    "limitada": {
+      "default": false,
+      "description": "Bloqueos repetidos limitan la conversación.",
+      "title": "Limitada",
+      "type": "boolean"
+    },
+    "nivel_efectivo": {
+      "$ref": "#/$defs/NivelCodigo",
+      "description": "El más restrictivo de los repositorios consultados."
+    },
+    "repositorios": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Repositorios",
+      "type": "array"
+    },
+    "version_contrato": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "alcance",
+    "repositorios",
+    "autor",
+    "nivel_efectivo",
+    "creada_en",
+    "expira_en",
+    "consumo_fuga",
+    "consumo_fuga_usuario"
+  ],
+  "title": "Conversacion",
+  "type": "object"
+}

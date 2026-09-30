@@ -1,0 +1,32 @@
+{
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "id": "00000000-0000-4000-8000-000000000006",
+  "org": "acme",
+  "rol": "desarrollador",
+  "sujeto": {
+    "equipo": "certificados-dev",
+    "equipo_id": 4242,
+    "github_org": "acme",
+    "tipo": "equipo"
+  },
+  "version": 1,
+  "version_contrato": "1.0",
+  "workspace": "certificados"
+}
