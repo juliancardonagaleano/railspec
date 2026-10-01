@@ -51,7 +51,7 @@ Las que Julian debe suministrar:
 | --- | --- | --- |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID` | Secret | Client ID de la GitHub App. Sin ella no hay botón "Entrar con GitHub". |
 | `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Secret | Client secret de la App. |
-| `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`). Sin ella cada réplica genera una efímera: las sesiones se pierden al reiniciar o cambiar de réplica. |
+| `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`), **mínimo 32 caracteres**. Obligatoria con URL pública https o con GitHub App: sin ella, o con una más corta, el servidor no arranca (el `state` de OAuth que entrega `/auth/github/inicio` es texto conocido más su MAC: una clave débil se rompe sin conexión y permite forjar sesiones). Solo en desarrollo (URL http local, sin GitHub App) se puede omitir: clave efímera con aviso, que no sobrevive a un reinicio ni se comparte entre réplicas. |
 | `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas. El de Julian es `83125327`. |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |

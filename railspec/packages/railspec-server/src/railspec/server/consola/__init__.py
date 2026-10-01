@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .config import ConfigConsola, ConfigGithubApp
+from .config import ConfigConsola, ConfigGithubApp, validar_secreto
 
 
 def montar_consola(app: Any, ctx: Any) -> None:
@@ -21,6 +21,10 @@ def montar_consola(app: Any, ctx: Any) -> None:
 
     from .api import RUTA_API, RUTA_SPA, crear_api
 
+    # Falla al arrancar, no al primer inicio de sesión: con https o GitHub App una clave
+    # efímera haría que la réplica B rechace la cookie de la A.
+    if ctx.config.exige_secreto and ctx.firmador.efimero:
+        validar_secreto(None, exigido=True)
     app.mount(RUTA_API, crear_api(ctx))
     if ctx.config.carpeta_spa is None:
         return

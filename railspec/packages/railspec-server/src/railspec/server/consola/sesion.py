@@ -28,6 +28,7 @@ from typing import Any
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, TipoActor
 
 from ..api.identidad import TokenInvalido
+from .config import validar_secreto
 
 log = logging.getLogger("railspec.consola")
 
@@ -58,6 +59,10 @@ class Sesion:
 
 class Firmador:
     def __init__(self, secreto: str | None, reloj: Any = None) -> None:
+        # Un secreto explícito débil nunca se acepta; la ausencia (clave efímera) la
+        # veta ``montar_consola`` cuando hay https o GitHub App.
+        validar_secreto(secreto, exigido=False)
+        self.efimero = not secreto
         if not secreto:
             log.warning(
                 "sin RAILSPEC_CONSOLA_SECRETO: clave de sesión efímera (no apta para varias réplicas)"

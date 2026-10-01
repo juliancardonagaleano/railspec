@@ -38,6 +38,8 @@ TOKENS = {
     "tk-luis": ("luis", LUIS_ID),
 }
 CSRF = {"X-Railspec-Consola": "1"}
+SECRETO = "secreto-de-pruebas-de-la-consola-0123456789"
+OTRO_SECRETO = "otro-secreto-de-pruebas-de-la-consola-9876"
 AHORA = datetime(2026, 9, 30, 12, tzinfo=UTC)
 
 
@@ -73,7 +75,7 @@ class Montaje:
         self.motor, _ = construir(nivel=nivel)
         self.almacen = self.motor.n.almacen
         self.reloj = lambda: datetime.now(UTC)
-        self.firmador = Firmador("secreto-de-pruebas")
+        self.firmador = Firmador(SECRETO)
         registro = Registro.del_motor(self.motor, AutorizadorRoles(self.almacen))
         identidad = IdentidadConConsola(IdentidadCompuesta(IdentidadDesarrollo(TOKENS), None), self.firmador)
         app_github = ConfigGithubApp("Iv1.cliente", "secreto-app") if github_http else None
@@ -198,11 +200,11 @@ def test_token_api_vale_como_bearer_en_v1_y_en_consola():
         sesion = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "sesion")
         with pytest.raises(TokenInvalido):
             m.ctx.identidad.actor_desde_token(sesion, "consola")
-        vencido = Firmador("secreto-de-pruebas", reloj=lambda: datetime.now(UTC) + timedelta(hours=2))
+        vencido = Firmador(SECRETO, reloj=lambda: datetime.now(UTC) + timedelta(hours=2))
         with pytest.raises(TokenInvalido, match="expirado"):
             vencido.sesion(token, "api")
         with pytest.raises(TokenInvalido, match="firma"):
-            Firmador("otro-secreto").sesion(token, "api")
+            Firmador(OTRO_SECRETO).sesion(token, "api")
 
     correr(caso())
 
@@ -689,7 +691,7 @@ def test_configuracion_desde_entorno():
             "RAILSPEC_GITHUB_APP_CLIENT_SECRET": "s",
             "RAILSPEC_CONSOLA_URL": "https://railspec.acme.com/",
             "RAILSPEC_CONSOLA_ADMINS": "83125327, 7",
-            "RAILSPEC_CONSOLA_SECRETO": "k",
+            "RAILSPEC_CONSOLA_SECRETO": SECRETO,
         }
     )
     assert c.github_app == ConfigGithubApp("Iv1.x", "s") and c.administradores == {83125327, 7}

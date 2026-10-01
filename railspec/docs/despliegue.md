@@ -54,7 +54,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
-   | `RAILSPEC_CONSOLA_SECRETO` | sí, con más de una réplica | Clave de las sesiones de la consola web; sin ella cada réplica inventa una y las sesiones se pierden al cambiar de réplica. |
+   | `RAILSPEC_CONSOLA_SECRETO` | sí | Clave de las sesiones de la consola web, de al menos 32 caracteres (`openssl rand -base64 48` da 64). El ConfigMap fija una URL pública https, así que sin ella, o con una más corta, el servidor no arranca. |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | para iniciar sesión en la consola | GitHub App de Railspec (ver `consola.md`). |
 
 ## Variables de los manifiestos
