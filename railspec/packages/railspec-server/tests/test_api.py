@@ -12,7 +12,7 @@ import pytest
 from apoyo_motor import ORG, WS, construir, entrada_start
 from railspec.contracts.comun import Actor, Canal, OidcGithubActions, TipoActor
 from railspec.contracts.repositorio import AsignacionRol, Auditoria, Rol, SujetoEquipo, SujetoUsuario
-from railspec.contracts.tools import Superficie
+from railspec.contracts.tools import TOOLS, Superficie
 from railspec.server.api import AutorizadorRoles, IdentidadDesarrollo, Registro
 from railspec.server.api.identidad import IdentidadGithub, TokenInvalido, con_equipos, token_de_cabecera
 from railspec.server.api.superficies import aplicacion
@@ -169,14 +169,14 @@ def test_autorizador_suma_los_roles_de_los_equipos_del_actor():
     # Persona y equipos: el mayor.
     assert autorizador.rol(_humano(9, {4242, 4243}), ORG, WS) == Rol.workspace_admin
     assert autorizador.rol(_humano(10, {4242, 4243}), ORG, "reportes") == Rol.desarrollador
-    # Un actor de servicio no recibe equipos (ni los necesita): su alcance lo fija la tool.
+    # Un actor de servicio no recibe equipos ni rol en ninguna org: solo alcanza ``graph.index``.
     servicio = Actor(
         tipo=TipoActor.servicio,
         canal=Canal.ci,
         oidc=OidcGithubActions(repositorio="acme/certificados-api", workflow="ci.yml"),
     )
     assert con_equipos(servicio, frozenset({777})) is servicio
-    assert autorizador.rol(servicio, "otra", WS) == Rol.desarrollador
+    assert autorizador.rol(servicio, "otra", WS) is None
     # ``abierto`` solo rellena a quien no tiene ninguna asignación, ni propia ni de equipo.
     abierto = AutorizadorRoles(almacen, abierto=True)
     assert abierto.rol(_humano(10), ORG, WS) == Rol.desarrollador
@@ -237,6 +237,68 @@ def test_superficie_y_tipo_de_actor():
     asyncio.run(caso())
 
 
+def test_actor_de_servicio_solo_alcanza_graph_index():
+    """A1: un OIDC de CI (de cualquier repositorio) no tiene rol en ninguna organización.
+
+    Antes cualquier actor ``servicio`` era ``desarrollador`` en toda org y workspace, así que
+    un workflow ajeno leía unit.list, unit.status (orden completa), unit.export, insumo.get,
+    telemetry.query y graph.query de cualquier tenant cuyos slugs adivinara."""
+
+    servicio = Actor(
+        tipo=TipoActor.servicio,
+        canal=Canal.ci,
+        oidc=OidcGithubActions(repositorio="atacante/repo", workflow="x.yml@refs/heads/main"),
+    )
+    alcance = {"org": ORG, "workspace": WS}
+    unidad = {"org": ORG, "workspace": WS, "unidad": "0001-emitir-pdf"}
+    lecturas = {
+        "unit.list": {"alcance": alcance},
+        "unit.status": {"unidad": unidad},
+        "unit.export": {"unidad": unidad},
+        "insumo.get": {"alcance": alcance, "id": str(uuid.uuid4())},
+        "telemetry.query": {
+            "org": ORG,
+            "workspace": WS,
+            "desde": "2026-01-01T00:00:00Z",
+            "hasta": "2026-12-31T00:00:00Z",
+            "agrupar_por": ["fase"],
+        },
+        "graph.query": {"alcance": alcance, "consulta": {"verbo": "resolve", "nombre": "firmar"}},
+    }
+    ejecutados: list[str] = []
+
+    def espia(nombre):
+        async def manejador(entrada, actor):
+            ejecutados.append(nombre)
+            raise AssertionError(f"{nombre} se ejecutó para un actor de servicio")
+
+        return manejador
+
+    async def caso():
+        for abierto in (False, True):
+            motor, _ = construir()
+            autorizador = AutorizadorRoles(motor.n.almacen, abierto=abierto)
+            extra = {n: espia(n) for n in ("unit.export", "insumo.get", "graph.query")}
+            registro = Registro.del_motor(motor, autorizador, extra)
+            for nombre, entrada in lecturas.items():
+                for superficie in (Superficie.http, Superficie.mcp):
+                    if superficie not in TOOLS[nombre].superficies:
+                        continue
+                    r = await registro.invocar(nombre, entrada, servicio, superficie)
+                    assert r.estado_http == 403, (nombre, superficie, abierto, r.cuerpo)
+                    assert r.cuerpo["codigo"] == "fuera-de-alcance"
+            assert not ejecutados
+            # Ninguna tool expuesta (salvo graph.index) admite al actor de servicio.
+            for superficie in (Superficie.http, Superficie.mcp):
+                for tool in registro.tools(superficie):
+                    if tool.nombre != "graph.index":
+                        assert TipoActor.servicio not in tool.tipos_actor, tool.nombre
+            # El autorizador tampoco le da rol por su cuenta (defensa en profundidad).
+            assert autorizador.rol(servicio, ORG, WS) is None
+
+    asyncio.run(caso())
+
+
 def test_registro_rechaza_manejadores_fuera_de_contrato():
     motor, _ = construir()
     with pytest.raises(ValueError):
@@ -283,24 +345,33 @@ def test_identidad():
     llamadas = []
 
     class Falso:
-        def get(self, url, headers):
-            llamadas.append(url.split("?")[0].rsplit("/", 1)[-1])
-            if headers["Authorization"] == "Bearer malo":
-                return httpx.Response(401)
-            if "/user/teams" in url:
-                return httpx.Response(200, json=[])
-            return httpx.Response(200, json={"login": "julian", "id": 83125327})
+        """api.github.com: la comprobación de la GitHub App (M3; antes bastaba ``GET /user``) y equipos."""
 
-    gh = IdentidadGithub(Falso())
+        def get(self, url, headers):
+            llamadas.append("teams")
+            assert "/user/teams" in url
+            return httpx.Response(200, json=[])
+
+        def post(self, url, *, auth, json, headers):
+            llamadas.append(json["access_token"])
+            if json["access_token"] == "malo":
+                return httpx.Response(404)
+            usuario = {"login": "julian", "id": 83125327}
+            return httpx.Response(200, json={"app": {"client_id": "Iv1.x"}, "user": usuario})
+
+    from railspec.server.consola.config import ConfigGithubApp
+
+    gh = IdentidadGithub(Falso(), app=ConfigGithubApp("Iv1.x", "secreto"))
     assert gh.actor_desde_token("bueno", "arnes").login == "julian"
     gh.actor_desde_token("bueno", "arnes")
-    assert llamadas == ["user", "teams"]  # una vez cada una: la segunda llamada sale del caché
+    assert llamadas == ["bueno", "teams"]  # una vez cada una: la segunda llamada sale del caché
     with pytest.raises(TokenInvalido):
         gh.actor_desde_token("malo", "arnes")
 
 
 def test_identidad_github_resuelve_los_equipos_con_el_token_del_usuario():
     from apoyo_github import (
+        APP,
         equipos_fijos,
         equipos_paginados,
         github_simulado,
@@ -318,12 +389,12 @@ def test_identidad_github_resuelve_los_equipos_con_el_token_del_usuario():
         "t-sin-red": ("ruben", 13, sin_red),
     }
     cliente_gh, llamadas = github_simulado(usuarios)
-    gh = IdentidadGithub(cliente_gh)
+    gh = IdentidadGithub(cliente_gh, app=APP)
 
     luis = gh.actor_desde_token("t-luis", "arnes")
     assert isinstance(luis, ActorConEquipos) and luis.github_id == 9
     assert luis.equipos == {4242, 777}  # sigue el Link de la segunda página
-    assert llamadas == ["/user", "/user/teams", "/user/teams"]
+    assert llamadas == ["/applications/Iv1.x/token", "/user/teams", "/user/teams"]
 
     # Cada token tiene los suyos. Sin equipos, o sin poder leerlos (permiso, respuesta rara, red), el
     # actor es el de siempre: el token sigue autenticando y solo cuentan las asignaciones personales.
@@ -335,20 +406,20 @@ def test_identidad_github_resuelve_los_equipos_con_el_token_del_usuario():
     antes = len(llamadas)
     assert gh.actor_desde_token("t-luis", "arnes").equipos == {4242, 777}
     assert len(llamadas) == antes
-    assert "t-luis" not in repr(gh._cache)
+    assert not any("t-luis" in clave for clave in gh._verificador._equipos._datos)
     # Un token que GitHub rechaza no es actor, y no se le piden equipos.
     antes = len(llamadas)
     with pytest.raises(TokenInvalido):
         gh.actor_desde_token("t-malo", "arnes")
-    assert llamadas[antes:] == ["/user"]
+    assert llamadas[antes:] == ["/applications/Iv1.x/token"]
 
 
 def test_identidad_github_refresca_los_equipos_al_vencer_el_cache():
-    from apoyo_github import equipos_fijos, github_simulado
+    from apoyo_github import APP, equipos_fijos, github_simulado
 
     usuarios = {"t-luis": ("luis", 9, equipos_fijos(4242))}
     cliente_gh, _ = github_simulado(usuarios)
-    gh = IdentidadGithub(cliente_gh, ttl_s=-1)  # vencido de inmediato
+    gh = IdentidadGithub(cliente_gh, ttl_s=-1, app=APP)  # vencido de inmediato
     assert gh.actor_desde_token("t-luis", "arnes").equipos == {4242}
     # Lo sacan del equipo: en la próxima resolución ya no lo tiene.
     usuarios["t-luis"] = ("luis", 9, equipos_fijos())
@@ -356,7 +427,7 @@ def test_identidad_github_refresca_los_equipos_al_vencer_el_cache():
 
 
 def test_v1_tools_con_token_de_github_resuelve_roles_por_equipo():
-    from apoyo_github import equipos_fijos, github_simulado, sin_permiso
+    from apoyo_github import APP, equipos_fijos, github_simulado, sin_permiso
     from railspec.server.api.identidad import IdentidadCompuesta
 
     async def caso():
@@ -371,7 +442,7 @@ def test_v1_tools_con_token_de_github_resuelve_roles_por_equipo():
             }
         )
         registro = Registro.del_motor(motor, AutorizadorRoles(almacen))
-        app = aplicacion(registro, IdentidadCompuesta(IdentidadGithub(cliente_gh), None))
+        app = aplicacion(registro, IdentidadCompuesta(IdentidadGithub(cliente_gh, app=APP), None))
         async with cliente(app) as c:
             r = await c.post(
                 "/v1/tools/unit.start", json=cuerpo_start(), headers={"Authorization": "Bearer t-luis"}

@@ -1,17 +1,22 @@
 """Identidad del actor a partir del token (R2): nunca viaja en la entrada de la tool.
 
-- ``IdentidadGithub``: token de usuario de GitHub (OAuth de la GitHub App).
-  Resuelve ``github_id`` y login con ``GET /user`` y los equipos con
-  ``GET /user/teams`` (el mismo token y el mismo permiso que el inicio de
-  sesión de la consola); cachea por hash del token, sin guardarlo.
+- ``IdentidadGithub``: token de usuario de la GitHub App de Railspec. Comprueba
+  con las credenciales de la App que el token lo emitió ella (no cualquier
+  OAuth app de terceros), resuelve ``github_id`` y login y, ya verificado el
+  token, los equipos con ``GET /user/teams`` (el mismo token y el mismo permiso
+  que el inicio de sesión de la consola); cachés acotadas, por hash del token y
+  sin guardarlo (``verificacion_github``). Sin App configurada rechaza todo token
+  de GitHub salvo en modo desarrollo explícito.
 - ``IdentidadDesarrollo``: tokens fijos por variable de entorno, solo para
   desarrollo sin GitHub App.
 
 - ``VerificadorOidcActions``: token OIDC de GitHub Actions (actor de
   servicio, canal ``ci``). Verifica firma contra el JWKS del emisor, ``iss``,
-  ``aud`` y, si se configura, que ``repository`` esté en la lista permitida.
-  El alcance fino (repositorio del vínculo y su rama por defecto) lo
-  comprueba la tool que lo usa (``graph.index``).
+  ``aud`` y que ``repository`` esté en la lista permitida, que es obligatoria:
+  cualquier repositorio de GitHub puede pedir un token con la audiencia que
+  quiera, así que la audiencia sola no autentica a nadie. El alcance fino
+  (repositorio del vínculo y su rama por defecto) lo comprueba la tool que lo
+  usa (``graph.index``); el actor de servicio no tiene rol en nada más.
 - ``IdentidadCompuesta``: un JWT de GitHub Actions va al verificador OIDC;
   cualquier otro token, a la identidad humana.
 
@@ -24,23 +29,34 @@ Leer los equipos falla cerrado: sin permiso o sin respuesta de GitHub, ninguno.
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import time
 from datetime import datetime
 from typing import Any
 
 from pydantic import Field
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, OidcGithubActions, TipoActor
 
-EMISOR_ACTIONS = "https://token.actions.githubusercontent.com"
-URL_EQUIPOS = "https://api.github.com/user/teams?per_page=100"
+from .verificacion_github import (
+    GithubNoDisponible,
+    TokenRechazado,
+    VerificadorTokenGithub,
+    equipos_de_usuario,
+)
 
-log = logging.getLogger("railspec.api")
+__all__ = ["equipos_de_usuario"]
+
+log = logging.getLogger("railspec.identidad")
+
+EMISOR_ACTIONS = "https://token.actions.githubusercontent.com"
 
 
 class TokenInvalido(Exception):
     pass
+
+
+class IdentidadNoDisponible(TokenInvalido):
+    """No se pudo comprobar el token (GitHub caído, límite de tasa, saturación). Se rechaza igual
+    (es un ``TokenInvalido``: falla cerrado), pero las superficies responden 503 en vez de 401."""
 
 
 class ActorConEquipos(Actor):
@@ -63,28 +79,6 @@ def con_equipos(actor: Actor, equipos: frozenset[int]) -> Actor:
     return ActorConEquipos(**actor.model_dump(), equipos=equipos)
 
 
-def equipos_de_usuario(cliente: Any, cabeceras: dict[str, str]) -> frozenset[int]:
-    """``equipo_id`` de los equipos del usuario del token (``GET /user/teams``, con paginación).
-
-    Necesita el permiso de la App (Members, lectura) o el alcance ``read:org``;
-    sin él, o ante una respuesta que no es la esperada, devuelve los que
-    haya leído hasta ahí (ninguno si falla la primera página).
-    """
-
-    equipos: set[int] = set()
-    url: str | None = URL_EQUIPOS
-    for _ in range(10):
-        if url is None:
-            break
-        r = cliente.get(url, headers=cabeceras)
-        cuerpo = r.json() if r.status_code == 200 else None
-        if not isinstance(cuerpo, list):
-            break
-        equipos.update(int(e["id"]) for e in cuerpo)
-        url = r.links.get("next", {}).get("url") if hasattr(r, "links") else None
-    return frozenset(equipos)
-
-
 class IdentidadDesarrollo:
     nombre = "desarrollo"
 
@@ -105,45 +99,60 @@ class IdentidadDesarrollo:
 
 
 class IdentidadGithub:
-    nombre = "github"
-    API = "https://api.github.com/user"
+    """Token de usuario de GitHub -> ``Actor`` humano, solo si es de la GitHub App de Railspec.
 
-    def __init__(self, cliente: Any | None = None, ttl_s: int = 300) -> None:
-        self._cliente = cliente
-        self._ttl = ttl_s
-        self._cache: dict[str, tuple[float, str, int, frozenset[int]]] = {}
+    ``app``: credenciales de la App (``client_id`` y ``client_secret``, p. ej. ``ConfigGithubApp``).
+    Sin ``app`` todos los tokens de GitHub se rechazan, salvo con ``permitir_sin_app`` (modo desarrollo
+    explícito: ``GET /user`` sin comprobar de qué app es el token). ``cliente``: ``httpx.Client`` o
+    un doble. El resto de argumentos acotan las cachés y la concurrencia (ver ``verificacion_github``).
+    """
+
+    nombre = "github"
+
+    def __init__(
+        self,
+        cliente: Any | None = None,
+        ttl_s: int = 300,
+        *,
+        app: Any | None = None,
+        permitir_sin_app: bool = False,
+        **limites: Any,
+    ) -> None:
+        self._verificador: VerificadorTokenGithub | None = None
+        if app is not None:
+            credenciales = (app.client_id, app.client_secret)
+            self._verificador = VerificadorTokenGithub(cliente, app=credenciales, ttl_s=ttl_s, **limites)
+        elif permitir_sin_app:
+            log.warning(
+                "tokens de GitHub sin GitHub App configurada (RAILSPEC_PERMITIR_DESARROLLO=1): no se "
+                "comprueba de qué app es el token. Solo para desarrollo."
+            )
+            self._verificador = VerificadorTokenGithub(cliente, app=None, ttl_s=ttl_s, **limites)
+        else:
+            log.warning(
+                "sin GitHub App (RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET): se rechazan los tokens de GitHub; "
+                "solo valen los tokens rsc1 de la consola, los de desarrollo y el OIDC de CI"
+            )
+
+    def tamanos_de_cache(self) -> tuple[int, int]:
+        """(tokens aceptados, tokens rechazados) en caché; ambas acotadas."""
+
+        return self._verificador.tamanos() if self._verificador else (0, 0)
 
     def actor_desde_token(self, token: str, canal: str) -> Actor:
-        clave = hashlib.sha256(token.encode()).hexdigest()
-        ahora = time.monotonic()
-        cacheado = self._cache.get(clave)
-        if cacheado is None or cacheado[0] < ahora:
-            import httpx
-
-            cliente = self._cliente or httpx.Client(timeout=10)
-            cabeceras = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-            r = cliente.get(self.API, headers=cabeceras)
-            if r.status_code != 200:
-                raise TokenInvalido(f"GitHub rechazó el token ({r.status_code})")
-            datos = r.json()
-            equipos = self._equipos(cliente, cabeceras)
-            cacheado = (ahora + self._ttl, datos["login"], int(datos["id"]), equipos)
-            self._cache[clave] = cacheado
-        _, login, github_id, equipos = cacheado
-        actor = Actor(tipo=TipoActor.humano, canal=Canal(canal), github_id=github_id, login=login)
-        return con_equipos(actor, equipos)
-
-    @staticmethod
-    def _equipos(cliente: Any, cabeceras: dict[str, str]) -> frozenset[int]:
-        # El token ya autenticó a la persona: que no se puedan leer sus equipos (permiso, red) no
-        # invalida la sesión, solo deja los roles por equipo sin aplicar hasta el próximo refresco.
-        try:
-            return equipos_de_usuario(cliente, cabeceras)
-        except Exception as exc:
-            log.warning(
-                "no se pudieron leer los equipos de GitHub (%s); sin roles por equipo", type(exc).__name__
+        if self._verificador is None:
+            raise TokenInvalido(
+                "la GitHub App de Railspec no está configurada: no se admiten tokens de GitHub"
             )
-            return frozenset()
+        try:
+            login, github_id = self._verificador.verificar(token)
+        except TokenRechazado as exc:
+            raise TokenInvalido(str(exc)) from exc
+        except GithubNoDisponible as exc:
+            raise IdentidadNoDisponible(str(exc)) from exc
+        actor = Actor(tipo=TipoActor.humano, canal=Canal(canal), github_id=github_id, login=login)
+        # Solo con el token ya verificado: un token basura nunca llega a pedir equipos.
+        return con_equipos(actor, self._verificador.equipos(token))
 
     def workspaces_visibles(self, actor: Actor, org: str) -> list[AlcanceWorkspace]:
         return []
@@ -171,7 +180,13 @@ class VerificadorOidcActions:
     ) -> None:
         self.audiencia = audiencia
         self.emisor = emisor.rstrip("/")
-        self.repositorios = frozenset(r.lower() for r in repositorios)
+        self.repositorios = frozenset(r.strip().lower() for r in repositorios if r.strip())
+        if not self.repositorios:
+            # Fallar cerrado: sin lista, cualquier workflow del mundo con ``id-token: write`` valdría.
+            raise ValueError(
+                "OIDC de CI activo sin RAILSPEC_OIDC_REPOSITORIOS: lista los owner/repo que pueden "
+                "presentar un token o deja RAILSPEC_OIDC_AUDIENCIA vacía para desactivarlo"
+            )
         self._margen = margen_s
         if claves is None:
             import jwt
@@ -211,7 +226,7 @@ class VerificadorOidcActions:
         except Exception as exc:  # JWKS inaccesible
             raise TokenInvalido(f"no se pudo verificar el token OIDC: {exc}") from exc
         repositorio = str(reclamos["repository"])
-        if self.repositorios and repositorio.lower() not in self.repositorios:
+        if repositorio.lower() not in self.repositorios:
             raise TokenInvalido(f"el repositorio {repositorio} no está autorizado para OIDC")
         run_id = reclamos.get("run_id")
         return Actor(

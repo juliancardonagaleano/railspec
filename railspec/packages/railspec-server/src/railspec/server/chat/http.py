@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, ValidationError
 from railspec.contracts.comun import AlcanceWorkspace, Slug
 
 from ..api.identidad import TokenInvalido
-from ..api.superficies import _actor
+from ..api.superficies import _actor, estado_de_identidad
 from .servicio import ErrorChat, Evento, InsumoBloqueado, ServicioChat
 
 
@@ -74,14 +74,15 @@ def router_chat(servicio: ServicioChat, identidad: Any) -> APIRouter:
                 "entrada-invalida", json.dumps(detalle, ensure_ascii=False) or "JSON inválido", 422
             ) from exc
 
-    def actor(request: Request):
-        return _actor(identidad, request.headers.get("authorization"), "consola")
+    async def actor(request: Request):
+        # Fuera del event loop: la identidad puede llamar a GitHub (ver ``api.superficies``).
+        return await _actor(identidad, request.headers.get("authorization"), "consola")
 
     async def atender(request: Request, accion) -> Any:
         try:
-            return await accion(actor(request))
+            return await accion(await actor(request))
         except TokenInvalido as exc:
-            return JSONResponse({"detalle": str(exc)}, status_code=401)
+            return JSONResponse({"detalle": str(exc)}, status_code=estado_de_identidad(exc))
         except ErrorChat as exc:
             return error(exc)
 

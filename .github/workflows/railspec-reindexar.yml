@@ -8,7 +8,8 @@
 #   RAILSPEC_ORGANIZACION  slug de la organización en Railspec
 #   RAILSPEC_WORKSPACE     slug del workspace
 #   RAILSPEC_REPOSITORIO   slug del repositorio vinculado (por defecto, el nombre del repo)
-#   RAILSPEC_OIDC_AUDIENCIA audiencia que valida el servidor (por defecto "railspec")
+#   RAILSPEC_OIDC_AUDIENCIA audiencia que valida el servidor (obligatoria, sin valor por defecto:
+#                          larga y no adivinable; la misma que RAILSPEC_OIDC_AUDIENCIA del servidor)
 name: railspec-reindexar
 
 on:
@@ -64,5 +65,5 @@ jobs:
             --rama "$GITHUB_REF_NAME" \
             --commit "$GITHUB_SHA" \
             --anterior "$ANTERIOR" \
-            --audiencia "${{ vars.RAILSPEC_OIDC_AUDIENCIA || 'railspec' }}" \
+            --audiencia "${{ vars.RAILSPEC_OIDC_AUDIENCIA }}" \
             --raiz "$GITHUB_WORKSPACE"

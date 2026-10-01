@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 
 import httpx
+from railspec.server.consola.config import ConfigGithubApp
+
+#: Credenciales de la GitHub App de Railspec que usan las pruebas.
+APP = ConfigGithubApp("Iv1.x", "secreto")
 
 #: Respuesta de ``GET /user/teams`` para un token.
 RespuestaEquipos = Callable[[httpx.Request], httpx.Response]
@@ -45,22 +50,28 @@ def github_simulado(
 ) -> tuple[httpx.Client, list[str]]:
     """``token -> (login, github_id, respuesta de /user/teams)``.
 
-    Devuelve el cliente y la lista de rutas pedidas; ``usuarios`` se puede
-    mutar para cambiar la membresía entre llamadas. Un token desconocido da 401.
+    Atiende la comprobación de la GitHub App (``POST /applications/{client_id}/token``) y
+    ``GET /user/teams``. Devuelve el cliente y la lista de rutas pedidas; ``usuarios`` se puede
+    mutar para cambiar la membresía entre llamadas. Un token desconocido da 404 en la comprobación
+    de la App (y 401 en ``/user/teams``).
     """
 
     llamadas: list[str] = []
 
     def responder(peticion: httpx.Request) -> httpx.Response:
         llamadas.append(peticion.url.path)
+        if peticion.method == "POST" and peticion.url.path == f"/applications/{APP.client_id}/token":
+            token = json.loads(peticion.content)["access_token"]
+            if token not in usuarios:
+                return httpx.Response(404, json={"message": "Not Found"})
+            login, github_id, _ = usuarios[token]
+            cuerpo = {"app": {"client_id": APP.client_id}, "user": {"login": login, "id": github_id}}
+            return httpx.Response(200, json=cuerpo)
         token = peticion.headers.get("authorization", "").removeprefix("Bearer ")
         if token not in usuarios:
             return httpx.Response(401, json={"message": "Bad credentials"})
-        login, github_id, equipos = usuarios[token]
-        if peticion.url.path == "/user":
-            return httpx.Response(200, json={"login": login, "id": github_id})
         if peticion.url.path == "/user/teams":
-            return equipos(peticion)
+            return usuarios[token][2](peticion)
         return httpx.Response(404)
 
     return httpx.Client(transport=httpx.MockTransport(responder)), llamadas

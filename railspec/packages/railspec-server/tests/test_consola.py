@@ -734,7 +734,7 @@ def test_chat_resuelve_roles_por_equipo_con_el_token_rsc1():
 
 
 def test_bearer_de_github_en_la_consola_trae_los_equipos_del_usuario():
-    from apoyo_github import equipos_fijos, github_simulado
+    from apoyo_github import APP, equipos_fijos, github_simulado
 
     async def caso():
         m = Montaje(admins=frozenset())
@@ -743,7 +743,7 @@ def test_bearer_de_github_en_la_consola_trae_los_equipos_del_usuario():
             {"t-luis": ("luis", LUIS_ID, equipos_fijos(4242)), "t-ana": ("ana", ANA_ID, equipos_fijos(1))}
         )
         m.ctx.identidad = IdentidadConConsola(
-            IdentidadCompuesta(IdentidadGithub(cliente_gh), None), m.firmador
+            IdentidadCompuesta(IdentidadGithub(cliente_gh, app=APP), None), m.firmador
         )
         async with m.cliente() as c:
             yo = (await c.get("/consola/api/yo", headers={"Authorization": "Bearer t-luis"})).json()

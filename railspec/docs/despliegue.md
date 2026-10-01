@@ -49,13 +49,22 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
 
    | Clave | Obligatoria | Uso |
    | --- | --- | --- |
-   | `RAILSPEC_MONGO_URI` | sí | Estado y checkpoints. Sin ella el contenedor no arranca: la imagen no trae el Mongo simulado de desarrollo. |
+   | `RAILSPEC_MONGO_URI` | sí | Estado y checkpoints. Sin ella el contenedor no arranca (ni con la imagen, que no trae el Mongo simulado, ni en memoria sin `RAILSPEC_PERMITIR_DESARROLLO=1`). |
    | `RAILSPEC_FALKORDB_URL` | no | Grafo central; sin él no hay `graph.query` ni impacto en el gate de código. |
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
    | `RAILSPEC_CONSOLA_SECRETO` | sí, con más de una réplica | Clave de las sesiones de la consola web; sin ella cada réplica inventa una y las sesiones se pierden al cambiar de réplica. |
-   | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | para iniciar sesión en la consola | GitHub App de Railspec (ver `consola.md`). |
+   | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
+
+**Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y
+`RAILSPEC_PERMITIR_DESARROLLO` no son variables del despliegue: el Deployment
+las fija vacías en `env`, que gana a `envFrom`, para que una clave sobrante
+en este Secret no pueda activar los tokens de desarrollo (identidad de
+GitHub sustituida y acceso por `POST /consola/api/auth/desarrollo`) ni el
+modo en memoria. Aun sin esa guarda, el servidor se niega a arrancar con
+tokens de desarrollo si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo
+`RAILSPEC_PERMITIR_DESARROLLO=1`.
 
 ## Variables de los manifiestos
 
@@ -87,9 +96,9 @@ no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
 | `RAILSPEC_CONTEXTO_CACHE_S` | `900` | Caché de consultas a las herramientas de contexto, en segundos; `0` la desactiva. |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | Anthropic directo. |
 | `RAILSPEC_AZURE_CLIENT_ID` | vacío | Identidad administrada para Workload Identity (Foundry por Entra ID). Activa la etiqueta del pod. |
-| `RAILSPEC_OIDC_AUDIENCIA` | `railspec` | Audiencia del token OIDC de CI; debe coincidir con la del workflow de reindexado. Vacía desactiva `graph.index`. |
+| `RAILSPEC_OIDC_AUDIENCIA` | vacío (OIDC desactivado) | Audiencia del token OIDC de CI; debe coincidir con la variable del mismo nombre del repositorio que corre el workflow de reindexado. **Un valor largo y no adivinable** (`openssl rand -hex 24`): cualquier repositorio de GitHub puede pedir un token con la audiencia que quiera, y `railspec` se rechaza. Vacía desactiva `graph.index` (el renderizador respeta la cadena vacía). |
 | `RAILSPEC_OIDC_EMISOR` | `https://token.actions.githubusercontent.com` | Emisor OIDC. |
-| `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista opcional `owner/repo,…` de repositorios que pueden llamar `graph.index`. |
+| `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista `owner/repo,…` de repositorios que pueden llamar `graph.index`. **Obligatoria con audiencia**: sin ella el renderizador y el servidor se niegan (antes, vacía admitía a cualquier repositorio con vínculo). |
 | `RAILSPEC_CONSOLA_ADMINS` | vacío | `github_id` (numéricos, separados por coma) que administran la plataforma en la consola: crean organizaciones y son `org-admin` en todas. |
 
 ## Desplegar
@@ -117,8 +126,8 @@ Service sin reiniciarla.
 `railspec-reindexar.yml` corre en cada push a `master` si la variable
 `RAILSPEC_URL` del repositorio está definida; además necesita
 `RAILSPEC_ORGANIZACION`, `RAILSPEC_WORKSPACE` y, si el slug no es el nombre
-del repositorio, `RAILSPEC_REPOSITORIO`. `RAILSPEC_OIDC_AUDIENCIA` (por
-defecto `railspec`) es la audiencia del token.
+del repositorio, `RAILSPEC_REPOSITORIO`. `RAILSPEC_OIDC_AUDIENCIA` (sin valor por defecto, la
+misma del servidor) es la audiencia del token.
 
 - Delta entre `github.event.before` y el commit empujado; índice completo si
   no hay commit anterior utilizable (rama nueva, force-push) o si el servidor
@@ -134,9 +143,12 @@ defecto `railspec`) es la audiencia del token.
   intermedios y el siguiente cae en índice completo.
 
 El servidor verifica el token: firma contra el JWKS del emisor, `iss`,
-`aud`, caducidad y, si se da, `RAILSPEC_OIDC_REPOSITORIOS`. La tool exige
-además que `repository` sea el de la URL del vínculo y que el `@ref` de
-`workflow_ref` sea `refs/heads/<rama por defecto>` del vínculo.
+`aud`, caducidad y que `repository` esté en `RAILSPEC_OIDC_REPOSITORIOS`
+(obligatoria). La tool exige además que `repository` sea el de la URL del
+vínculo y que el `@ref` de `workflow_ref` sea `refs/heads/<rama por defecto>`
+del vínculo. La identidad de servicio no tiene rol en ninguna organización ni
+workspace: `graph.index` es la única tool que la admite (`tipos_actor`), así
+que un OIDC válido no puede leer unidades, órdenes, telemetría ni grafo.
 
 ## Pendiente fuera de este directorio
 

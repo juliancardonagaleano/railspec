@@ -96,7 +96,7 @@ class Guion:
 
 def montar(*pasos, nivel=NivelCodigo.restringido, zona=frozenset({"eastus2"}), politica=None, fuente=None):
     proveedor = ProveedorGuionado(Guion(*pasos), region="eastus2")
-    config = Configuracion(tokens_desarrollo=TOKENS, chat_zona_datos=zona)
+    config = Configuracion(tokens_desarrollo=TOKENS, chat_zona_datos=zona, permitir_desarrollo=True)
     fuente = fuente or FuenteEnMemoria({(REPO, BASE): {RUTA: CODIGO, ".env": "CLAVE=x"}}, {REPO: BASE})
     motor, app = ensamblar(
         config,
