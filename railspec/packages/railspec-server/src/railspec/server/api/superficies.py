@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import json
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -26,12 +27,20 @@ from railspec.contracts.tools import Superficie
 from .identidad import TokenInvalido, token_de_cabecera
 from .registro import Registro
 
+#: Hilos para resolver identidades. ``actor_desde_token`` es síncrono y, con un token que no está en
+#: caché, llama a GitHub (hasta 10 s): en el event loop bastaban unas decenas de ``Bearer`` basura por
+#: segundo para colgar /livez. Un grupo propio y acotado tampoco deja que esas esperas agoten el grupo
+#: por defecto, que usan las sondas de /healthz y la consola.
+_HILOS_IDENTIDAD = ThreadPoolExecutor(max_workers=16, thread_name_prefix="railspec-identidad")
 
-def _actor(identidad: Any, autorizacion: str | None, canal: str) -> Actor:
+
+async def _actor(identidad: Any, autorizacion: str | None, canal: str) -> Actor:
     token = token_de_cabecera(autorizacion)
     if token is None:
         raise TokenInvalido("falta Authorization: Bearer")
-    return identidad.actor_desde_token(token, canal)
+    return await asyncio.get_running_loop().run_in_executor(
+        _HILOS_IDENTIDAD, identidad.actor_desde_token, token, canal
+    )
 
 
 def servidor_mcp(registro: Registro, identidad: Any):
@@ -54,7 +63,7 @@ def servidor_mcp(registro: Registro, identidad: Any):
     async def llamar(ctx, params) -> types.CallToolResult:
         cabecera = ctx.request.headers.get("authorization") if ctx.request is not None else None
         try:
-            actor = _actor(identidad, cabecera, "arnes")
+            actor = await _actor(identidad, cabecera, "arnes")
         except TokenInvalido as exc:
             return types.CallToolResult(
                 content=[types.TextContent(type="text", text=str(exc))], is_error=True
@@ -125,7 +134,7 @@ def aplicacion(
     @app.post("/v1/tools/{nombre}")
     async def invocar(nombre: str, request: Request) -> JSONResponse:
         try:
-            actor = _actor(identidad, request.headers.get("authorization"), "consola")
+            actor = await _actor(identidad, request.headers.get("authorization"), "consola")
         except TokenInvalido as exc:
             return JSONResponse({"detalle": str(exc)}, status_code=401)
         try:
