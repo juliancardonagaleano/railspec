@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import json
+from datetime import timedelta
+
 import httpx
 import pytest
 from railspec.server.api.identidad import TokenInvalido
@@ -103,3 +107,63 @@ def test_ruta_de_la_spa_con_byte_nulo_no_da_500(tmp_path):
                 assert r.status_code in (200, 404), (ruta, r.status_code)
 
     correr(caso())
+
+
+# --- B9: una subclave por tipo y ``abrir`` exige el tipo --------------------------------------------------
+
+
+def _carga(token: str) -> dict:
+    texto = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(texto + "=" * (-len(texto) % 4)))
+
+
+def _uno_de_cada_tipo(f: Firmador) -> dict[str, str]:
+    vida = timedelta(hours=1)
+    return {
+        "sesion": f.emitir("ana", 7, frozenset(), vida, "sesion"),
+        "api": f.emitir("ana", 7, frozenset(), vida, "api"),
+        "oauth": f.firmar("oauth", {"n": "nonce", "v": "/", "exp": int(f.ahora().timestamp()) + 600}),
+    }
+
+
+def test_un_token_solo_se_abre_con_su_tipo():
+    f = Firmador(SECRETO)
+    tokens = _uno_de_cada_tipo(f)
+    for tipo, token in tokens.items():
+        assert f.abrir(token, tipo)["t"] == tipo
+        for otro in set(tokens) - {tipo}:
+            # La firma ya no cuadra: el tipo no es solo un claim, cambia la clave del MAC.
+            with pytest.raises(TokenInvalido, match="firma"):
+                f.abrir(token, otro)
+    # El estado de OAuth es público (lo entrega /auth/github/inicio): no sirve de sesión ni de api.
+    for otro in ("sesion", "api"):
+        with pytest.raises(TokenInvalido):
+            f.sesion(tokens["oauth"], otro)
+
+
+def test_abrir_exige_el_tipo_esperado():
+    f = Firmador(SECRETO)
+    token = _uno_de_cada_tipo(f)["api"]
+    with pytest.raises(TypeError):
+        f.abrir(token)  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="tipo"):
+        f.abrir(token, "admin")
+
+
+def test_cambiar_el_claim_de_tipo_no_convierte_un_token_en_otro():
+    f = Firmador(SECRETO)
+    token = _uno_de_cada_tipo(f)["api"]
+    cabecera, carga, firma = token.split(".")
+    datos = _carga(token) | {"t": "sesion"}
+    manipulada = base64.urlsafe_b64encode(json.dumps(datos).encode()).decode().rstrip("=")
+    with pytest.raises(TokenInvalido):
+        f.sesion(f"{cabecera}.{manipulada}.{firma}", "sesion")
+    with pytest.raises(TokenInvalido):
+        f.sesion(f"{cabecera}.{manipulada}.{firma}", "api")
+
+
+def test_la_clave_depende_del_secreto_y_el_token_lleva_audiencia():
+    token = _uno_de_cada_tipo(Firmador(SECRETO))
+    assert (_carga(token["api"])["aud"], _carga(token["sesion"])["aud"]) == ("v1", "consola")
+    with pytest.raises(TokenInvalido, match="firma"):
+        Firmador("t" * 40).sesion(token["api"], "api")

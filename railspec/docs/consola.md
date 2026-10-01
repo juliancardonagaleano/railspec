@@ -74,9 +74,12 @@ con token de desarrollo, solo para entornos sin GitHub App.
 ## Sesión, tokens y anti-CSRF
 
 - **Cookie** `railspec_sesion`: HttpOnly, SameSite=Lax, `Path=/consola`,
-  `Secure` con URL https. Formato `rsc1.<carga>.<firma HMAC-SHA256>`, sin
-  estado en el servidor; lleva login, `github_id`, equipos de GitHub y
-  expiración.
+  `Secure` con URL https. Formato `rsc1.<carga>.<firma HMAC-SHA256>`; lleva
+  login, `github_id`, equipos de GitHub y expiración. La carga trae el tipo
+  (`t`: `sesion`, `api` u `oauth`) y la audiencia (`aud`), y cada tipo se firma
+  con su propia subclave (HKDF-SHA256 del secreto): el `state` de OAuth, que es
+  público, no sirve de cookie ni de token `api`, y el servidor siempre abre un
+  token exigiendo el tipo que espera.
 - **Anti-CSRF**: con cookie, toda petición que no sea GET exige la cabecera
   `X-Railspec-Consola: 1` (un formulario de otro sitio no puede ponerla).
 - **Token para `/v1/*`**: `POST /consola/api/auth/token` devuelve

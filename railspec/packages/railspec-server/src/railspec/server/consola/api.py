@@ -107,12 +107,12 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
             raise HTTPException(404, "la GitHub App no está configurada")
         nonce = secrets.token_urlsafe(16)
         estado = ctx.firmador.firmar(
+            "oauth",
             {
-                "t": "oauth",
                 "n": nonce,
                 "v": _volver(volver),
                 "exp": int(ctx.firmador.ahora().timestamp()) + 600,
-            }
+            },
         )
         r = RedirectResponse(ctx.github.url_autorizar(_redireccion_oauth(), estado), status_code=302)
         r.set_cookie(
@@ -131,10 +131,10 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         import asyncio
 
         try:
-            estado = ctx.firmador.abrir(state)
+            estado = ctx.firmador.abrir(state, "oauth")
         except TokenInvalido as exc:
             raise HTTPException(400, f"estado de OAuth inválido: {exc}") from exc
-        if estado.get("t") != "oauth" or estado.get("n") != request.cookies.get(COOKIE_ESTADO):
+        if estado.get("n") != request.cookies.get(COOKIE_ESTADO):
             raise HTTPException(400, "el estado de OAuth no corresponde a este navegador")
         if not code:
             raise HTTPException(400, "GitHub no devolvió código")

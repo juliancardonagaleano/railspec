@@ -1,16 +1,20 @@
 """Sesiones de la consola y tokens ``rsc1`` (R2: el actor siempre sale del token).
 
-Un único formato firmado con HMAC-SHA256, sin estado en el servidor:
-``rsc1.<carga en base64url>.<firma en base64url>``. La carga lleva el tipo:
+Un único formato firmado con HMAC-SHA256:
+``rsc1.<carga en base64url>.<firma en base64url>``. La carga lleva el tipo
+(``t``) y la audiencia (``aud``):
 
-- ``sesion``: vive en la cookie HttpOnly ``railspec_sesion`` y solo vale para
-  ``/consola/api``. Lleva los equipos de GitHub leídos al iniciar sesión, que
-  la consola usa para resolver roles asignados a equipos (R3).
-- ``api``: lo pide la SPA con ``POST /consola/api/auth/token`` y vale como
-  ``Authorization: Bearer`` en ``/v1/*`` (tools y chat), canal ``consola``.
-  Vida corta; la SPA lo renueva.
+- ``sesion`` (aud ``consola``): vive en la cookie HttpOnly ``railspec_sesion``
+  y solo vale para ``/consola/api``. Lleva los equipos de GitHub leídos al
+  iniciar sesión, que la consola usa para resolver roles asignados a equipos (R3).
+- ``api`` (aud ``v1``): lo pide la SPA con ``POST /consola/api/auth/token`` (con
+  la cookie) y vale como ``Authorization: Bearer`` en ``/v1/*`` (tools y chat),
+  canal ``consola``. Vida corta; la SPA lo renueva. No vale en ``/consola/api``.
+- ``oauth`` (aud ``oauth``): el ``state`` firmado del flujo de GitHub.
 
-Cerrar sesión borra la cookie; un token ya emitido vale hasta que expira.
+Cada tipo se firma con su propia subclave (HKDF-SHA256 del secreto): ``abrir``
+exige el tipo esperado y un token de un tipo no se abre como otro aunque se
+reescriba su claim.
 """
 
 from __future__ import annotations
@@ -35,6 +39,8 @@ log = logging.getLogger("railspec.consola")
 PREFIJO = "rsc1"
 COOKIE = "railspec_sesion"
 COOKIE_ESTADO = "railspec_oauth"
+#: Tipo de token → audiencia (claim ``aud``) en la que vale.
+AUDIENCIAS = {"sesion": "consola", "api": "v1", "oauth": "oauth"}
 
 
 def _b64(datos: bytes) -> str:
@@ -68,30 +74,49 @@ class Firmador:
                 "sin RAILSPEC_CONSOLA_SECRETO: clave de sesión efímera (no apta para varias réplicas)"
             )
             secreto = secrets.token_urlsafe(32)
-        self._clave = hashlib.sha256(("railspec-consola:" + secreto).encode()).digest()
+        # HKDF (RFC 5869) con SHA-256: una subclave por tipo de token. Extract con sal fija
+        # y Expand de un bloque (32 bytes) con el tipo como ``info``.
+        prk = hmac.new(b"railspec-consola/rsc1", secreto.encode(), hashlib.sha256).digest()
+        self._claves = {
+            tipo: hmac.new(prk, f"railspec-consola/rsc1/{tipo}".encode() + b"\x01", hashlib.sha256).digest()
+            for tipo in AUDIENCIAS
+        }
         self._reloj = reloj or (lambda: datetime.now(UTC))
 
-    def _firma(self, texto: str) -> str:
-        return _b64(hmac.new(self._clave, texto.encode("utf-8", "replace"), hashlib.sha256).digest())
+    def _firma(self, tipo: str, texto: str) -> str:
+        return _b64(hmac.new(self._claves[tipo], texto.encode("utf-8", "replace"), hashlib.sha256).digest())
 
-    def firmar(self, datos: dict[str, Any]) -> str:
-        carga = _b64(json.dumps(datos, separators=(",", ":"), sort_keys=True).encode())
-        return f"{PREFIJO}.{carga}.{self._firma(f'{PREFIJO}.{carga}')}"
+    def firmar(self, tipo: str, datos: dict[str, Any]) -> str:
+        """Firma ``datos`` como token de ``tipo`` (pone ``t`` y ``aud``)."""
 
-    def abrir(self, token: str) -> dict[str, Any]:
+        if tipo not in AUDIENCIAS:
+            raise ValueError(f"tipo de token de consola desconocido: {tipo!r}")
+        completos = {**datos, "t": tipo, "aud": AUDIENCIAS[tipo]}
+        carga = _b64(json.dumps(completos, separators=(",", ":"), sort_keys=True).encode())
+        return f"{PREFIJO}.{carga}.{self._firma(tipo, f'{PREFIJO}.{tipo}.{carga}')}"
+
+    def abrir(self, token: str, tipo: str) -> dict[str, Any]:
+        """Verifica firma (con la subclave de ``tipo``), tipo, audiencia y vigencia."""
+
+        if tipo not in AUDIENCIAS:
+            raise ValueError(f"tipo de token de consola desconocido: {tipo!r}")
         partes = token.split(".")
         if len(partes) != 3 or partes[0] != PREFIJO:
             raise TokenInvalido("token de consola mal formado")
         # Bytes, no texto: compare_digest lanza TypeError con un ``str`` no ASCII.
-        esperada = self._firma(f"{partes[0]}.{partes[1]}").encode()
+        esperada = self._firma(tipo, f"{partes[0]}.{tipo}.{partes[1]}").encode()
         if not hmac.compare_digest(esperada, partes[2].encode("utf-8", "replace")):
             raise TokenInvalido("firma de token de consola inválida")
         try:
             datos = json.loads(_desb64(partes[1]))
-            caduca = float(datos.get("exp", 0)) if isinstance(datos, dict) else 0.0
+            if not isinstance(datos, dict):
+                raise ValueError("la carga no es un objeto")
+            caduca = float(datos.get("exp", 0))
         except (ValueError, TypeError) as exc:
             raise TokenInvalido("carga de token de consola ilegible") from exc
-        if caduca <= self._reloj().timestamp():
+        if datos.get("t") != tipo or datos.get("aud") != AUDIENCIAS[tipo]:
+            raise TokenInvalido(f"se esperaba un token de {tipo}")
+        if not caduca > self._reloj().timestamp():
             raise TokenInvalido("token de consola expirado")
         return datos
 
@@ -100,13 +125,11 @@ class Firmador:
     def emitir(self, login: str, github_id: int, equipos: frozenset[int], vida: timedelta, tipo: str) -> str:
         exp = self._reloj() + vida
         return self.firmar(
-            {"t": tipo, "l": login, "g": github_id, "e": sorted(equipos), "exp": int(exp.timestamp())}
+            tipo, {"l": login, "g": github_id, "e": sorted(equipos), "exp": int(exp.timestamp())}
         )
 
     def sesion(self, token: str, tipo: str) -> Sesion:
-        datos = self.abrir(token)
-        if datos.get("t") != tipo:
-            raise TokenInvalido(f"se esperaba un token de {tipo}")
+        datos = self.abrir(token, tipo)
         try:
             return Sesion(
                 login=str(datos["l"]),
