@@ -147,11 +147,13 @@ def test_un_arnes_no_se_da_por_instalado_por_piezas_ajenas(tmp_path):
 
 def test_cli_desinstalar_todo_no_deja_piezas_compartidas(tmp_path, capsys):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    avisos_por_arnes = {}
     for arnes in ("claude-code", "copilot", "codex"):
         args = ["--repo", str(tmp_path), "instalar", "--org", "a", "--workspace", "w", "--repositorio", "r"]
         assert cli.main([*args, "--arnes", arnes]) == 0
-        avisos = json.loads(capsys.readouterr().out)["avisos"]
-    assert any("codex --add-dir" in a for a in avisos)
+        # `avisos` solo sale si hay algo que avisar: claude-code no trae ninguno con `railspec` en el PATH.
+        avisos_por_arnes[arnes] = json.loads(capsys.readouterr().out).get("avisos", [])
+    assert any("codex --add-dir" in a for a in avisos_por_arnes["codex"])
 
     assert cli.main(["--repo", str(tmp_path), "desinstalar", "--config"]) == 0
     restos = sorted(p.name for p in tmp_path.iterdir() if p.name != ".git")
