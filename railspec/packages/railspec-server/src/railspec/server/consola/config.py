@@ -17,6 +17,24 @@ from dataclasses import dataclass
 
 #: Largo mínimo del secreto de sesión (``openssl rand -base64 48`` da 64).
 MIN_SECRETO = 32
+#: Vida por defecto de la sesión y tope configurable (horas).
+HORAS_SESION = 4
+MAX_HORAS_SESION = 24
+
+
+def _horas_sesion(crudo: str | None) -> int:
+    if not crudo:
+        return HORAS_SESION
+    try:
+        horas = int(crudo)
+    except ValueError:
+        horas = 0
+    if not 1 <= horas <= MAX_HORAS_SESION:
+        raise ValueError(
+            f"RAILSPEC_CONSOLA_SESION_HORAS debe ser un entero de 1 a {MAX_HORAS_SESION} "
+            "(los equipos de GitHub de la cookie quedan congelados durante toda la sesión)"
+        )
+    return horas
 
 
 def validar_secreto(secreto: str | None, *, exigido: bool) -> None:
@@ -56,7 +74,9 @@ class ConfigConsola:
     administradores: frozenset[int] = frozenset()
     #: Carpeta con la SPA compilada (``dist`` de railspec-console). None = no se sirve.
     carpeta_spa: str | None = None
-    horas_sesion: int = 8
+    #: Vida de la sesión. También es cuánto tiempo quedan congelados los equipos de GitHub que
+    #: lleva la cookie (se leen al iniciar sesión): por eso es corta y tiene tope.
+    horas_sesion: int = HORAS_SESION
     minutos_token: int = 60
 
     @property
@@ -92,7 +112,7 @@ class ConfigConsola:
             github_app=app,
             administradores=frozenset(admins),
             carpeta_spa=env.get("RAILSPEC_CONSOLA_DIR") or None,
-            horas_sesion=int(env.get("RAILSPEC_CONSOLA_SESION_HORAS") or 8),
+            horas_sesion=_horas_sesion(env.get("RAILSPEC_CONSOLA_SESION_HORAS")),
         )
         validar_secreto(config.secreto_sesion, exigido=config.exige_secreto)
         return config

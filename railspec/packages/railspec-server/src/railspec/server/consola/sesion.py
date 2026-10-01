@@ -15,6 +15,12 @@ Un único formato firmado con HMAC-SHA256:
 Cada tipo se firma con su propia subclave (HKDF-SHA256 del secreto): ``abrir``
 exige el tipo esperado y un token de un tipo no se abre como otro aunque se
 reescriba su claim.
+
+Cookie y tokens ``api`` llevan el id de su sesión (``sid``). Cerrar sesión lo
+guarda en la colección de revocados (``revocados.py``, compartida por todas las
+réplicas) y desde entonces la cookie y todos los tokens ``api`` de esa sesión
+dejan de valer. Sin esa colección (pruebas, ``Firmador`` suelto) no hay
+revocación: el cierre solo borra la cookie.
 """
 
 from __future__ import annotations
@@ -58,13 +64,18 @@ class Sesion:
     expira: datetime
     equipos: frozenset[int] = field(default_factory=frozenset)
     tipo: str = "sesion"
+    #: Id de la sesión del navegador de la que sale (cookie y tokens api); vacío si no hay
+    #: sesión propia (Bearer de GitHub o de desarrollo).
+    sid: str = ""
 
     def actor(self, canal: Canal = Canal.consola) -> Actor:
         return Actor(tipo=TipoActor.humano, canal=canal, github_id=self.github_id, login=self.login)
 
 
 class Firmador:
-    def __init__(self, secreto: str | None, reloj: Any = None) -> None:
+    def __init__(self, secreto: str | None, reloj: Any = None, revocados: Any = None) -> None:
+        #: Colección de sesiones revocadas (``RevocadosMongo``); la asigna ``montar_consola``.
+        self.revocados = revocados
         # Un secreto explícito débil nunca se acepta; la ausencia (clave efímera) la
         # veta ``montar_consola`` cuando hay https o GitHub App.
         validar_secreto(secreto, exigido=False)
@@ -122,24 +133,56 @@ class Firmador:
 
     # --- sesiones -----------------------------------------------------------------
 
-    def emitir(self, login: str, github_id: int, equipos: frozenset[int], vida: timedelta, tipo: str) -> str:
+    def emitir(
+        self,
+        login: str,
+        github_id: int,
+        equipos: frozenset[int],
+        vida: timedelta,
+        tipo: str,
+        sid: str | None = None,
+    ) -> str:
+        """Token ``sesion`` o ``api``. ``sid``: la sesión de la que sale (por defecto, una nueva)."""
+
         exp = self._reloj() + vida
         return self.firmar(
-            tipo, {"l": login, "g": github_id, "e": sorted(equipos), "exp": int(exp.timestamp())}
+            tipo,
+            {
+                "l": login,
+                "g": github_id,
+                "e": sorted(equipos),
+                "exp": int(exp.timestamp()),
+                "sid": sid or secrets.token_urlsafe(16),
+            },
         )
 
     def sesion(self, token: str, tipo: str) -> Sesion:
         datos = self.abrir(token, tipo)
         try:
-            return Sesion(
+            sesion = Sesion(
                 login=str(datos["l"]),
                 github_id=int(datos["g"]),
                 expira=datetime.fromtimestamp(int(datos["exp"]), UTC),
                 equipos=frozenset(int(e) for e in datos.get("e", [])),
                 tipo=tipo,
+                sid=str(datos["sid"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise TokenInvalido("carga de token de consola incompleta") from exc
+        if not sesion.sid:
+            raise TokenInvalido("carga de token de consola incompleta")
+        if self.revocados is not None and self.revocados.revocada(sesion.sid):
+            raise TokenInvalido("sesión cerrada")
+        return sesion
+
+    def revocar(self, sesion: Sesion) -> bool:
+        """Invalida la sesión y los tokens api que salieron de ella. False si no hay dónde guardarlo."""
+
+        if self.revocados is None:
+            log.warning("sin colección de revocados: cerrar sesión solo borra la cookie")
+            return False
+        self.revocados.revocar(sesion.sid, sesion.expira)
+        return True
 
     def ahora(self) -> datetime:
         return self._reloj()

@@ -19,7 +19,7 @@ from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.tools import Superficie
 
 from ..api.identidad import TokenInvalido
-from .contexto import AutorizadorConsola, ContextoConsola
+from .contexto import CABECERA_CSRF, AutorizadorConsola, ContextoConsola
 from .github import ErrorGithub
 from .sesion import COOKIE, COOKIE_ESTADO
 
@@ -159,7 +159,19 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         return r
 
     @api.post("/auth/salir")
-    async def salir() -> Response:
+    async def salir(request: Request) -> Response:
+        # Con la misma cabecera anti-CSRF que el resto de escrituras: un sitio ajeno no puede
+        # cerrar la sesión de nadie.
+        if request.headers.get(CABECERA_CSRF) != "1":
+            raise HTTPException(403, f"falta la cabecera {CABECERA_CSRF}: 1")
+        cookie = request.cookies.get(COOKIE)
+        if cookie:
+            try:
+                # Revocación real: la cookie (copiada o no) y los tokens api de esta sesión dejan
+                # de valer en todas las réplicas. Una cookie ya vencida o ajena solo se borra.
+                ctx.firmador.revocar(ctx.firmador.sesion(cookie, "sesion"))
+            except TokenInvalido:
+                pass
         r = Response(status_code=204)
         r.delete_cookie(COOKIE, path=RUTA_SPA)
         return r
@@ -173,7 +185,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         vida = min(
             timedelta(minutes=ctx.config.minutos_token), sesion.expira - ctx.firmador.ahora()
         )
-        token = ctx.firmador.emitir(sesion.login, sesion.github_id, sesion.equipos, vida, "api")
+        token = ctx.firmador.emitir(sesion.login, sesion.github_id, sesion.equipos, vida, "api", sesion.sid)
         return {"token": token, "expira_en": (ctx.firmador.ahora() + vida).isoformat()}
 
     # --- quién soy -------------------------------------------------------------------------

@@ -11,14 +11,17 @@ import pytest
 from railspec.contracts.repositorio import Rol
 from railspec.server.api.identidad import TokenInvalido
 from railspec.server.api.superficies import aplicacion
-from railspec.server.consola import ConfigConsola, montar_consola
+from railspec.server.consola import ConfigConsola, ConfigGithubApp, montar_consola
+from railspec.server.consola.github import ClienteGithub, ErrorGithub
+from railspec.server.consola.revocados import RevocadosMongo
 from railspec.server.consola.sesion import COOKIE, Firmador
-from test_consola import ANA_ID, CSRF, JULIAN_ID, ORG, WS, Montaje, asignar, correr
+from railspec.server.estado import almacen_en_memoria
+from test_consola import ANA_ID, CSRF, JULIAN_ID, LUIS_ID, ORG, WS, Montaje, asignar, correr
 
 SECRETO = "s" * 40
 
 
-# --- B1: secreto de sesión fuerte -----------------------------------------------------------------
+# --- B1: secreto de sesión fuerte ------------------------------------------------------------------
 
 
 def test_firmador_rechaza_un_secreto_debil():
@@ -67,7 +70,7 @@ def test_montar_consola_rechaza_un_firmador_efimero_con_https():
         montar_consola(app, m.ctx)
 
 
-# --- B2: tokens malformados dan 401, no 500 ------------------------------------------------------------
+# --- B2: tokens malformados dan 401, no 500 --------------------------------------------------------
 
 # Latin-1 que no es ASCII: así llega por HTTP un token con "é" en la firma.
 FIRMA_NO_ASCII = b"rsc1.e30.firma-\xe9"
@@ -110,7 +113,7 @@ def test_ruta_de_la_spa_con_byte_nulo_no_da_500(tmp_path):
     correr(caso())
 
 
-# --- B9: una subclave por tipo y ``abrir`` exige el tipo --------------------------------------------------
+# --- B9: una subclave por tipo y ``abrir`` exige el tipo -------------------------------------------
 
 
 def _carga(token: str) -> dict:
@@ -170,7 +173,7 @@ def test_la_clave_depende_del_secreto_y_el_token_lleva_audiencia():
         Firmador("t" * 40).sesion(token["api"], "api")
 
 
-# --- A3: el token api no se renueva solo ni vale en /consola/api -----------------------------------------
+# --- A3: el token api no se renueva solo ni vale en /consola/api -----------------------------------
 
 
 async def _token_api(m: Montaje, token_dev: str) -> str:
@@ -268,3 +271,157 @@ def test_el_token_api_no_dura_mas_que_la_sesion():
         assert timedelta(minutes=9) < restante <= timedelta(minutes=10)
 
     correr(caso())
+
+
+# --- B4: cerrar sesión exige la cabecera anti-CSRF -------------------------------------------------
+
+SALIR = "/consola/api/auth/salir"
+
+
+def test_salir_exige_la_cabecera_anti_csrf():
+    async def caso():
+        m = Montaje()
+        async with m.cliente("tk-ana") as c:
+            # Un formulario de otro sitio no puede poner la cabecera: no cierra la sesión.
+            assert (await c.post(SALIR)).status_code == 403
+            assert (await c.get("/consola/api/yo")).status_code == 200
+            assert (await c.post(SALIR, headers=CSRF)).status_code == 204
+            assert (await c.get("/consola/api/yo")).status_code == 401
+
+    correr(caso())
+
+
+# --- B10: el cierre de sesión revoca de verdad -----------------------------------------------------
+
+
+def test_salir_revoca_la_cookie_y_los_tokens_api_de_esa_sesion():
+    async def caso():
+        m = Montaje()
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        alcance = {"alcance": {"org": ORG, "workspace": WS}}
+        async with m.cliente("tk-ana") as c:
+            cookie = c.cookies.get(COOKIE)
+            api = (await c.post("/consola/api/auth/token", headers=CSRF)).json()["token"]
+            bearer = {"Authorization": f"Bearer {api}"}
+            assert (await c.post("/v1/tools/unit.list", json=alcance, headers=bearer)).status_code == 200
+            assert (await c.post(SALIR, headers=CSRF)).status_code == 204
+        # Quien se quedó con la cookie o con el token no entra: el logout no es solo borrar la cookie.
+        async with m.cliente() as otro:
+            otro.cookies.set(COOKIE, cookie, domain="railspec.test", path="/consola")
+            r = await otro.get("/consola/api/yo")
+            assert r.status_code == 401 and "cerrada" in r.json()["detalle"]
+            r = await otro.post("/v1/tools/unit.list", json=alcance, headers=bearer)
+            assert r.status_code == 401, r.text
+            r = await otro.post("/consola/api/auth/token", headers=CSRF)
+            assert r.status_code == 401
+
+    correr(caso())
+
+
+def test_salir_solo_cierra_esa_sesion():
+    async def caso():
+        m = Montaje()
+        async with m.cliente("tk-ana") as uno, m.cliente("tk-ana") as dos, m.cliente("tk-luis") as luis:
+            assert (await uno.post(SALIR, headers=CSRF)).status_code == 204
+            assert (await uno.get("/consola/api/yo")).status_code == 401
+            assert (await dos.get("/consola/api/yo")).json()["login"] == "ana"
+            assert (await luis.get("/consola/api/yo")).json()["github_id"] == LUIS_ID
+
+    correr(caso())
+
+
+def test_revocados_compartidos_entre_replicas_y_con_ttl():
+    db = almacen_en_memoria().db
+    a = Firmador(SECRETO, revocados=RevocadosMongo(db))
+    b = Firmador(SECRETO, revocados=RevocadosMongo(db))  # otra réplica, misma base
+    token = a.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "api")
+    sesion = b.sesion(token, "api")
+    assert sesion.sid
+    a.revocar(sesion)
+    with pytest.raises(TokenInvalido, match="cerrada"):
+        b.sesion(token, "api")
+    # El registro caduca solo, cuando la sesión revocada ya habría expirado.
+    indices = db.sesiones_revocadas.index_information().values()
+    assert any(i.get("expireAfterSeconds") == 0 for i in indices)
+
+
+def test_las_sesiones_emitidas_llevan_un_id_propio():
+    f = Firmador(SECRETO)
+    vida = timedelta(hours=1)
+    uno = f.sesion(f.emitir("ana", ANA_ID, frozenset(), vida, "sesion"), "sesion")
+    dos = f.sesion(f.emitir("ana", ANA_ID, frozenset(), vida, "sesion"), "sesion")
+    assert uno.sid and dos.sid and uno.sid != dos.sid
+
+
+def _github(responder) -> ClienteGithub:
+    http = httpx.Client(transport=httpx.MockTransport(responder))
+    return ClienteGithub(ConfigGithubApp("Iv1.cliente", "secreto-app"), http)
+
+
+def _github_ok(llamadas: list[httpx.Request], borrar: httpx.Response | Exception):
+    def responder(peticion: httpx.Request) -> httpx.Response:
+        llamadas.append(peticion)
+        if peticion.url.path == "/login/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "ghu_secreto"})
+        if peticion.url.path == "/user":
+            return httpx.Response(200, json={"login": "luis", "id": LUIS_ID})
+        if peticion.url.path == "/user/teams":
+            return httpx.Response(200, json=[{"id": 4242}])
+        if peticion.method == "DELETE":
+            if isinstance(borrar, Exception):
+                raise borrar
+            return borrar
+        return httpx.Response(404)
+
+    return responder
+
+
+def test_el_token_de_usuario_de_github_se_revoca_tras_el_callback():
+    llamadas: list[httpx.Request] = []
+    cliente = _github(_github_ok(llamadas, httpx.Response(204)))
+    usuario = cliente.usuario_desde_codigo("codigo", "https://railspec.test/cb")
+    assert (usuario.login, usuario.equipos) == ("luis", frozenset({4242}))
+    borrar = [r for r in llamadas if r.method == "DELETE"]
+    assert len(borrar) == 1
+    assert borrar[0].url.path == "/applications/Iv1.cliente/token"
+    assert json.loads(borrar[0].content) == {"access_token": "ghu_secreto"}
+    esperado = "Basic " + base64.b64encode(b"Iv1.cliente:secreto-app").decode()
+    assert borrar[0].headers["authorization"] == esperado
+    # Se revoca al final: antes hubo que leer el usuario y sus equipos con ese token.
+    assert llamadas[-1].method == "DELETE"
+
+
+@pytest.mark.parametrize(
+    "borrar", [httpx.Response(500), httpx.Response(404), httpx.ConnectError("sin red")], ids=str
+)
+def test_si_la_revocacion_en_github_falla_el_login_sigue(borrar, caplog):
+    llamadas: list[httpx.Request] = []
+    cliente = _github(_github_ok(llamadas, borrar))
+    assert cliente.usuario_desde_codigo("codigo", "https://railspec.test/cb").login == "luis"
+    assert "ghu_secreto" not in caplog.text
+
+
+def test_el_token_se_revoca_aunque_falle_la_lectura_del_usuario():
+    llamadas: list[httpx.Request] = []
+
+    def responder(peticion: httpx.Request) -> httpx.Response:
+        llamadas.append(peticion)
+        if peticion.url.path == "/login/oauth/access_token":
+            return httpx.Response(200, json={"access_token": "ghu_secreto"})
+        if peticion.method == "DELETE":
+            return httpx.Response(204)
+        return httpx.Response(401)
+
+    with pytest.raises(ErrorGithub):
+        _github(responder).usuario_desde_codigo("codigo", "https://railspec.test/cb")
+    assert [r.method for r in llamadas].count("DELETE") == 1
+
+
+def test_la_ventana_de_equipos_congelados_esta_acotada():
+    # Los equipos de GitHub viajan en la cookie y se congelan hasta que expira: vida corta y con tope.
+    assert ConfigConsola().horas_sesion == 4
+    assert ConfigConsola.desde_entorno({}).horas_sesion == 4
+    assert ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_SESION_HORAS": "12"}).horas_sesion == 12
+    for malo in ("0", "-1", "25", "mucho"):
+        with pytest.raises(ValueError, match="RAILSPEC_CONSOLA_SESION_HORAS"):
+            ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_SESION_HORAS": malo})

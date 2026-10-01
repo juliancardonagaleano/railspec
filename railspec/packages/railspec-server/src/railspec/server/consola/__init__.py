@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import ConfigConsola, ConfigGithubApp, validar_secreto
+from .revocados import RevocadosMongo
 
 
 def montar_consola(app: Any, ctx: Any) -> None:
@@ -25,6 +26,9 @@ def montar_consola(app: Any, ctx: Any) -> None:
     # efímera haría que la réplica B rechace la cookie de la A.
     if ctx.config.exige_secreto and ctx.firmador.efimero:
         validar_secreto(None, exigido=True)
+    # Cerrar sesión debe valer en todas las réplicas: los revocados viven en la base.
+    if ctx.firmador.revocados is None:
+        ctx.firmador.revocados = RevocadosMongo(ctx.datos.db)
     app.mount(RUTA_API, crear_api(ctx))
     if ctx.config.carpeta_spa is None:
         return

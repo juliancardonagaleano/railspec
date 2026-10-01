@@ -41,7 +41,7 @@ GitHub Apps):
 - Instalarla en la organización de GitHub cuyos equipos se usen en roles.
 
 El token de usuario de GitHub solo se usa dentro del callback (leer el usuario
-y sus equipos) y se descarta.
+y sus equipos); no se guarda y al terminar se revoca en GitHub.
 
 ## Variables de entorno
 
@@ -55,7 +55,7 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas. El de Julian es `83125327`. |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
-| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión en horas (4 por defecto, de 1 a 24). Es también la ventana en que quedan congelados los equipos de GitHub de la cookie. |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
 con token de desarrollo, solo para entornos sin GitHub App.
@@ -101,7 +101,41 @@ con token de desarrollo, solo para entornos sin GitHub App.
   no necesita `POST /auth/token`. El token `rsc1` `api` no vale en
   `/consola/api` (ni en lecturas ni en escrituras): la SPA usa la cookie y
   solo manda el token al chat.
-- Cerrar sesión borra la cookie; un token ya emitido vale hasta su expiración.
+- **Cerrar sesión** (`POST /auth/salir`, con la cabecera anti-CSRF como toda
+  escritura) borra la cookie y además **revoca** la sesión: cookie y tokens `api`
+  llevan el id de su sesión (`sid`) y el servidor lo guarda en la colección
+  `sesiones_revocadas` de Mongo (índice TTL: el registro desaparece cuando la
+  sesión habría expirado), que consulta cada réplica al validar. Una cookie
+  copiada o un token `api` pedido antes del cierre dejan de valer en el acto.
+  Solo se cierra esa sesión (no las demás de la misma persona).
+- **Tras el callback de OAuth** el token de usuario de GitHub se revoca
+  (`DELETE /applications/{client_id}/token`, mejor esfuerzo: si GitHub no
+  responde, el inicio de sesión sigue).
+- **Vida de la sesión**: 4 horas por defecto (`RAILSPEC_CONSOLA_SESION_HORAS`,
+  de 1 a 24). Es también cuánto quedan congelados los equipos de GitHub de la
+  cookie (ver límites).
+
+### Límites conocidos
+
+- **Equipos de GitHub congelados.** Los equipos se leen una vez, al iniciar
+  sesión, y viajan en la cookie y en los tokens `api` que salen de ella. Quitar
+  a alguien de un equipo en GitHub no le quita el rol heredado de ese equipo
+  hasta que la sesión expire (como mucho `RAILSPEC_CONSOLA_SESION_HORAS`) o se
+  cierre. No se pueden refrescar sin guardar el token de GitHub del usuario, y
+  la consola decide no guardarlo. Quitar una *asignación* de rol en Railspec sí
+  surte efecto de inmediato: los roles se leen de la base en cada petición.
+- **Administradores de plataforma.** `RAILSPEC_CONSOLA_ADMINS` es configuración
+  del ConfigMap: añadir o quitar a alguien exige cambiar el ConfigMap y
+  reiniciar las réplicas (no hay edición desde la consola). Tras el reinicio la
+  baja es inmediata, porque la cookie no lleva el permiso: se compara con la
+  configuración en cada petición.
+- **Revocación solo de lo que emite la consola.** Cierra la cookie y los
+  tokens `api` de la sesión. Los tokens de GitHub o de desarrollo que un script
+  mande como `Bearer` se invalidan donde nacen (GitHub, `RAILSPEC_TOKENS_DESARROLLO`).
+  No hay (todavía) una operación de "cerrar todas las sesiones de una persona".
+- **Cambio de formato.** Las cookies y los tokens `rsc1` emitidos por versiones
+  anteriores dejan de valer al desplegar esta (subclaves por tipo): hay que
+  volver a iniciar sesión una vez.
 
 ## Autorización
 
@@ -156,7 +190,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /auth/github/inicio?volver=` | Redirige a GitHub; `volver` es una ruta interna de la SPA. |
 | `GET /auth/github/callback` | Lo llama GitHub; pone la cookie y vuelve a la SPA. |
 | `POST /auth/desarrollo` `{token}` | Sesión con token de desarrollo. |
-| `POST /auth/salir` | Borra la cookie. |
+| `POST /auth/salir` | Borra la cookie y revoca la sesión y sus tokens `api`; exige `X-Railspec-Consola: 1`. |
 | `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`; exige la cookie de sesión y `X-Railspec-Consola: 1`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
 | `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola` (`unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`). |
