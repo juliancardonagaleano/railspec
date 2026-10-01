@@ -278,6 +278,9 @@ class Motor:
     async def start(self, e: UnitStartEntrada, actor: Actor) -> UnitStartSalida:
         negociada = negociar(e.version_contrato_cliente)
         self._humano(actor, "arrancar una unidad")
+        for insumo in e.insumos:
+            if self.n.insumos is None or not self.n.insumos.existe(e.alcance, insumo):
+                raise ErrorNegocio(CodigoError.no_encontrado, f"insumo {insumo} no existe en este workspace")
         motivos = await self.n.validar_perfil(
             e.alcance, e.perfil or Perfil.estandar, e.repositorios[0].repositorio, triaje(e)
         )

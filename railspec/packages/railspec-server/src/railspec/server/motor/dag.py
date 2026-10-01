@@ -208,7 +208,8 @@ class Nodo(Executor):
     async def contexto(self, fase: GateFase, datos: DatosUnidad) -> ContextoArmado:
         estado = self.n.leer(self.alcance)
         r = await self.n.gobernanza.consultar(self.alcance, fase, _objeto(estado.titulo, datos))
-        return ContextoArmado(gobernanza=r.items, gobernanza_consultada=r.consultada)
+        insumos = self.n.insumos.resolver(estado) if self.n.insumos is not None and estado.insumos else []
+        return ContextoArmado(gobernanza=r.items, gobernanza_consultada=r.consultada, insumos=insumos)
 
     async def emitir_orden(self, ctx: WorkflowContext, orden: Any) -> None:
         self.n.almacen.guardar_orden(orden)

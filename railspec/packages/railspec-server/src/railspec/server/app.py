@@ -23,10 +23,12 @@ def ensamblar(
     gobernanza: ProveedorGobernanza | None = None,
     motor_grafo: Any | None = None,
     verificador_oidc: Any | None = None,
+    fuente_codigo: Any | None = None,
 ) -> tuple[Motor, Any]:
     """Construye motor y app ASGI. ``proveedores``, ``gobernanza``, ``motor_grafo`` (un
-    ``MotorGrafo`` de railspec-graph) y ``verificador_oidc`` permiten inyectar dobles
-    (pruebas y entorno de integración sin credenciales)."""
+    ``MotorGrafo`` de railspec-graph), ``verificador_oidc`` y ``fuente_codigo`` (clones
+    canónicos para ``code.read``) permiten inyectar dobles (pruebas y entorno de
+    integración sin credenciales)."""
 
     from .api.identidad import (
         IdentidadCompuesta,
@@ -74,9 +76,34 @@ def ensamblar(
 
         extra["graph.query"] = manejador_graph_query(grafo, almacen)
         extra["graph.index"] = manejador_graph_index(IndexadorCanonico(acceso, grafo), almacen)
-    registro = Registro.del_motor(motor, AutorizadorRoles(almacen, abierto=config.modo_memoria), extra)
+    from .chat.almacen import AlmacenChat
+    from .chat.codigo import ClonesGit, manejador_code_read
+    from .chat.http import router_chat
+    from .chat.resolucion import ResolutorInsumos
+    from .chat.servicio import ConfigChat, ServicioChat, manejador_insumo_get
+
+    chat = AlmacenChat(almacen.db)
+    if fuente_codigo is None and config.chat_clones:
+        fuente_codigo = ClonesGit(config.chat_clones)
+    nucleo.insumos = ResolutorInsumos(chat, almacen, fuente_codigo)
+    if fuente_codigo is not None:
+        extra["code.read"] = manejador_code_read(fuente_codigo, almacen)
+    extra["insumo.get"] = manejador_insumo_get(chat)
+    autorizador = AutorizadorRoles(almacen, abierto=config.modo_memoria)
+    registro = Registro.del_motor(motor, autorizador, extra)
+    servicio_chat = ServicioChat(
+        almacen=almacen,
+        chat=chat,
+        registro=registro,
+        autorizador=autorizador,
+        proveedores=proveedores,
+        fuente=fuente_codigo,
+        config=ConfigChat(modelos={Proveedor.foundry: config.chat_modelo}, zona_datos=config.chat_zona_datos),
+    )
     sondas = _sondas(config, almacen, motor_grafo)
-    return motor, aplicacion(registro, identidad, host=config.host, sondas=sondas)
+    app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
+    app.include_router(router_chat(servicio_chat, identidad))
+    return motor, app
 
 
 def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dict[str, Any]:

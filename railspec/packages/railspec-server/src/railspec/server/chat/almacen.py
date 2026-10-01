@@ -1,0 +1,159 @@
+"""Persistencia del chat en Mongo: conversaciones, mensajes, huellas, consumo de fuga e insumos.
+
+Todo documento lleva el espacio de nombres del workspace y toda consulta lo
+exige (misma regla que ``estado/mongo.py``). Conversaciones, mensajes y
+huellas caducan con el TTL de la conversación (``_expira``); los fragmentos
+de código leídos nunca se guardan, solo sus huellas. Los insumos no caducan:
+los consumen unidades que pueden arrancar días después.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+from pymongo import ASCENDING
+from pymongo.database import Database
+from railspec.contracts.chat import Conversacion, MensajeChat
+from railspec.contracts.comun import AlcanceWorkspace
+from railspec.contracts.insumo import Insumo
+
+from .normalizacion import HuellasContexto
+
+
+def _doc(modelo: Any) -> dict[str, Any]:
+    return json.loads(modelo.model_dump_json())
+
+
+def _ws(alcance: AlcanceWorkspace) -> dict[str, str]:
+    return {"alcance.org": alcance.org, "alcance.workspace": alcance.workspace}
+
+
+class AlmacenChat:
+    def __init__(self, db: Database, *, crear_indices: bool = True) -> None:
+        self.db = db
+        if crear_indices:
+            self.crear_indices()
+
+    def crear_indices(self) -> None:
+        db = self.db
+        for coleccion in ("chat_conversaciones", "chat_mensajes", "chat_huellas", "chat_fuga_usuario"):
+            db[coleccion].create_index("_expira", expireAfterSeconds=0)
+        db.chat_mensajes.create_index([("_conversacion", ASCENDING), ("_orden", ASCENDING)])
+        db.chat_huellas.create_index("_conversacion")
+        db.insumos.create_index([("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING)])
+
+    # --- conversaciones ---------------------------------------------------------------------
+
+    def guardar_conversacion(
+        self, c: Conversacion, *, n_tokens: int, commits: dict[str, str], autor_id: int
+    ) -> None:
+        self.db.chat_conversaciones.replace_one(
+            {"_id": str(c.id)},
+            {
+                "_id": str(c.id),
+                "_expira": c.expira_en.astimezone(UTC),
+                "_n_tokens": n_tokens,
+                "_commits": commits,
+                "_autor": autor_id,
+                **_doc(c),
+            },
+            upsert=True,
+        )
+
+    def conversacion(self, id_: UUID) -> tuple[Conversacion, dict[str, Any]] | None:
+        """La conversación y sus metadatos internos (``n_tokens``, ``commits``, ``autor``)."""
+
+        doc = self.db.chat_conversaciones.find_one({"_id": str(id_)})
+        if doc is None:
+            return None
+        meta = {
+            "n_tokens": doc["_n_tokens"],
+            "commits": dict(doc.get("_commits", {})),
+            "autor": doc["_autor"],
+        }
+        return Conversacion.model_validate({k: v for k, v in doc.items() if not k.startswith("_")}), meta
+
+    def actualizar_commits(self, id_: UUID, commits: dict[str, str]) -> None:
+        """Fija el commit visto de cada repositorio la primera vez que aparece (nunca lo cambia)."""
+
+        for repo, commit in commits.items():
+            self.db.chat_conversaciones.update_one(
+                {"_id": str(id_), f"_commits.{repo}": {"$exists": False}},
+                {"$set": {f"_commits.{repo}": commit}},
+            )
+
+    # --- mensajes -----------------------------------------------------------------------------
+
+    def agregar_mensaje(self, m: MensajeChat, expira: datetime) -> None:
+        orden = self.db.chat_mensajes.count_documents({"_conversacion": str(m.conversacion)})
+        self.db.chat_mensajes.insert_one(
+            {
+                "_id": str(m.id),
+                "_conversacion": str(m.conversacion),
+                "_orden": orden,
+                "_expira": expira.astimezone(UTC),
+                **_doc(m),
+            }
+        )
+
+    def reemplazar_mensaje(self, m: MensajeChat) -> None:
+        self.db.chat_mensajes.update_one(
+            {"_id": str(m.id), "_conversacion": str(m.conversacion), **_ws(m.alcance)}, {"$set": _doc(m)}
+        )
+
+    def mensajes(self, conversacion: UUID) -> list[MensajeChat]:
+        cursor = self.db.chat_mensajes.find({"_conversacion": str(conversacion)}).sort("_orden", ASCENDING)
+        return [
+            MensajeChat.model_validate({k: v for k, v in d.items() if not k.startswith("_")}) for d in cursor
+        ]
+
+    # --- huellas --------------------------------------------------------------------------------
+
+    def agregar_huellas(self, conversacion: UUID, h: HuellasContexto, expira: datetime) -> None:
+        self.db.chat_huellas.insert_one(
+            {
+                "_conversacion": str(conversacion),
+                "_expira": expira.astimezone(UTC),
+                "tokens": sorted(h.tokens),
+                "caracteres": sorted(h.caracteres),
+                "identificadores": sorted(h.identificadores),
+            }
+        )
+
+    def huellas(self, conversacion: UUID) -> HuellasContexto:
+        total = HuellasContexto()
+        for d in self.db.chat_huellas.find({"_conversacion": str(conversacion)}):
+            total.unir([HuellasContexto(set(d["tokens"]), set(d["caracteres"]), set(d["identificadores"]))])
+        return total
+
+    # --- presupuesto de fuga por persona y día -----------------------------------------------------
+
+    @staticmethod
+    def _clave_fuga(org: str, github_id: int, ahora: datetime) -> str:
+        return f"{org}/{github_id}/{ahora.astimezone(UTC).date().isoformat()}"
+
+    def fuga_usuario(self, org: str, github_id: int, ahora: datetime) -> int:
+        doc = self.db.chat_fuga_usuario.find_one({"_id": self._clave_fuga(org, github_id, ahora)})
+        return int(doc["caracteres"]) if doc else 0
+
+    def sumar_fuga_usuario(self, org: str, github_id: int, ahora: datetime, caracteres: int) -> int:
+        clave = self._clave_fuga(org, github_id, ahora)
+        dia = datetime.combine(ahora.astimezone(UTC).date(), datetime.min.time(), tzinfo=UTC)
+        self.db.chat_fuga_usuario.update_one(
+            {"_id": clave},
+            {"$inc": {"caracteres": caracteres}, "$set": {"_expira": dia + timedelta(days=2)}},
+            upsert=True,
+        )
+        return self.fuga_usuario(org, github_id, ahora)
+
+    # --- insumos ----------------------------------------------------------------------------------
+
+    def guardar_insumo(self, insumo: Insumo) -> None:
+        self.db.insumos.insert_one({"_id": str(insumo.id), **_doc(insumo)})
+
+    def obtener_insumo(self, alcance: AlcanceWorkspace, id_: UUID) -> Insumo | None:
+        doc = self.db.insumos.find_one({"_id": str(id_), **_ws(alcance)})
+        return Insumo.model_validate({k: v for k, v in doc.items() if not k.startswith("_")}) if doc else None

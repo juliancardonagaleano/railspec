@@ -63,6 +63,8 @@ class Nucleo:
     nuevo_id: Callable[[], uuid.UUID] = uuid.uuid4
     #: Oyentes de eventos (SSE de la consola, pruebas).
     oyentes: list[Callable[[EventoSync], None]] = field(default_factory=list)
+    #: Insumos del chat (``chat.resolucion.ResolutorInsumos``); sin él, ``unit.start`` no acepta insumos.
+    insumos: Any | None = None
 
     # --- estado -------------------------------------------------------------------
 
