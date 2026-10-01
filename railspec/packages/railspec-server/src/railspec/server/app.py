@@ -23,10 +23,12 @@ def ensamblar(
     gobernanza: ProveedorGobernanza | None = None,
     motor_grafo: Any | None = None,
     verificador_oidc: Any | None = None,
+    cliente_github: Any | None = None,
 ) -> tuple[Motor, Any]:
     """Construye motor y app ASGI. ``proveedores``, ``gobernanza``, ``motor_grafo`` (un
-    ``MotorGrafo`` de railspec-graph) y ``verificador_oidc`` permiten inyectar dobles
-    (pruebas y entorno de integración sin credenciales)."""
+    ``MotorGrafo`` de railspec-graph), ``verificador_oidc`` y ``cliente_github`` (HTTP
+    del inicio de sesión de la consola) permiten inyectar dobles (pruebas y entorno de
+    integración sin credenciales)."""
 
     from .api.identidad import (
         IdentidadCompuesta,
@@ -36,6 +38,11 @@ def ensamblar(
     )
     from .api.registro import AutorizadorRoles, Registro
     from .api.superficies import aplicacion
+    from .consola import montar_consola
+    from .consola.almacen import AlmacenConsola
+    from .consola.contexto import ContextoConsola
+    from .consola.github import ClienteGithub
+    from .consola.sesion import Firmador, IdentidadConConsola
 
     if config.modo_memoria:
         log.warning("sin RAILSPEC_MONGO_URI: estado en memoria, solo para desarrollo")
@@ -67,7 +74,9 @@ def ensamblar(
         verificador_oidc = VerificadorOidcActions(
             config.oidc_audiencia, config.oidc_emisor, config.oidc_repositorios
         )
-    identidad = IdentidadCompuesta(humana, verificador_oidc)
+    firmador = Firmador(config.consola.secreto_sesion)
+    # Los tokens ``rsc1`` de la consola valen como Bearer en /v1 (tools y chat).
+    identidad = IdentidadConConsola(IdentidadCompuesta(humana, verificador_oidc), firmador)
     extra = {}
     if grafo is not None:
         from railspec.graph import IndexadorCanonico
@@ -78,7 +87,23 @@ def ensamblar(
         extra["graph.index"] = manejador_graph_index(IndexadorCanonico(acceso, grafo), almacen)
     registro = Registro.del_motor(motor, AutorizadorRoles(almacen, abierto=config.modo_memoria), extra)
     sondas = _sondas(config, almacen, motor_grafo)
-    return motor, aplicacion(registro, identidad, host=config.host, sondas=sondas)
+    app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
+    consola = ContextoConsola(
+        config=config.consola,
+        firmador=firmador,
+        datos=AlmacenConsola(almacen.db),
+        almacen=almacen,
+        registro=registro,
+        identidad=identidad,
+        github=ClienteGithub(config.consola.github_app, cliente_github),
+        logins_desarrollo={login: gid for login, gid in config.tokens_desarrollo.values()},
+        tokens_desarrollo=dict(config.tokens_desarrollo),
+        grafo=grafo,
+        acceso_grafo=acceso,
+        abierto=config.modo_memoria,
+    )
+    montar_consola(app, consola)
+    return motor, app
 
 
 def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dict[str, Any]:

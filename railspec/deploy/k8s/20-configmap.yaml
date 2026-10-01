@@ -17,6 +17,11 @@ data:
   RAILSPEC_OIDC_AUDIENCIA: "${RAILSPEC_OIDC_AUDIENCIA}"
   RAILSPEC_OIDC_EMISOR: "${RAILSPEC_OIDC_EMISOR}"
   RAILSPEC_OIDC_REPOSITORIOS: "${RAILSPEC_OIDC_REPOSITORIOS}"
+  # Consola web: base pública de la redirección de OAuth de la GitHub App y
+  # administradores de la plataforma. Client id/secret de la App y
+  # RAILSPEC_CONSOLA_SECRETO van en el Secret (ver railspec/docs/consola.md).
+  RAILSPEC_CONSOLA_URL: "https://${RAILSPEC_DOMINIO}"
+  RAILSPEC_CONSOLA_ADMINS: "${RAILSPEC_CONSOLA_ADMINS}"
   RAILSPEC_HOST: "0.0.0.0"
   RAILSPEC_PUERTO: "8080"
   # uvicorn confía en X-Forwarded-* del ingress (esquema https en redirecciones).

@@ -1,0 +1,169 @@
+"""Contexto compartido por las rutas de la consola: sesión, permisos y utilidades.
+
+Autorización (R3): el rol efectivo en un workspace es el mayor entre las
+asignaciones de la persona y las de sus equipos de GitHub, a nivel
+organización o de ese workspace. Quien figura en ``RAILSPEC_CONSOLA_ADMINS``
+administra la plataforma y actúa como ``org-admin`` en toda organización.
+La consola oculta lo que el rol no permite, pero quien decide es esto.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import HTTPException, Request
+from railspec.contracts.comun import Actor, AlcanceWorkspace
+from railspec.contracts.repositorio import Auditoria, EventoAuditoria, RegistroAuditoria, Rol
+
+from ..api.identidad import TokenInvalido, token_de_cabecera
+from .almacen import WORKSPACE_ORG, AlmacenConsola
+from .config import ConfigConsola
+from .github import ClienteGithub
+from .sesion import COOKIE, Firmador, Sesion
+
+JERARQUIA = [Rol.lector, Rol.desarrollador, Rol.workspace_admin, Rol.org_admin]
+CABECERA_CSRF = "x-railspec-consola"
+
+
+def mayor(roles: list[Rol]) -> Rol | None:
+    return max(roles, key=JERARQUIA.index) if roles else None
+
+
+def alcanza(rol: Rol | None, minimo: Rol) -> bool:
+    return rol is not None and JERARQUIA.index(rol) >= JERARQUIA.index(minimo)
+
+
+@dataclass
+class ContextoConsola:
+    """Lo que necesitan las rutas; también lo recibe el módulo del chat (``router_consola``)."""
+
+    config: ConfigConsola
+    firmador: Firmador
+    datos: AlmacenConsola
+    #: ``AlmacenMongo`` del motor (estado, eventos, telemetría).
+    almacen: Any
+    registro: Any
+    #: Identidad del servidor (GitHub/OIDC/desarrollo) ya envuelta con ``IdentidadConConsola``.
+    identidad: Any
+    github: ClienteGithub
+    #: ``login → github_id`` para tokens de desarrollo (resuelve sujetos sin llamar a GitHub).
+    logins_desarrollo: dict[str, int] = field(default_factory=dict)
+    tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
+    grafo: Any | None = None
+    acceso_grafo: Any | None = None
+    #: Sin Mongo (solo desarrollo): toda persona sin asignaciones es ``desarrollador``.
+    abierto: bool = False
+    reloj: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    sse_intervalo_s: float = 1.0
+    sse_duracion_max_s: float = 300.0
+    sse_ping_s: float = 15.0
+
+    # --- sesión ----------------------------------------------------------------------
+
+    async def sesion(self, request: Request) -> Sesion:
+        token = token_de_cabecera(request.headers.get("authorization"))
+        try:
+            if token is not None:
+                if token.startswith("rsc1."):
+                    return self.firmador.sesion(token, "api")
+                actor = await asyncio.to_thread(self.identidad.actor_desde_token, token, "consola")
+                if actor.github_id is None or actor.login is None:
+                    raise HTTPException(403, "la consola solo admite personas")
+                return Sesion(actor.login, actor.github_id, self.reloj())
+            cookie = request.cookies.get(COOKIE)
+            if cookie is None:
+                raise HTTPException(401, "sin sesión")
+            sesion = self.firmador.sesion(cookie, "sesion")
+        except TokenInvalido as exc:
+            raise HTTPException(401, str(exc)) from exc
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(CABECERA_CSRF) != "1":
+            raise HTTPException(403, f"falta la cabecera {CABECERA_CSRF}: 1")
+        return sesion
+
+    def permisos(self, sesion: Sesion) -> Permisos:
+        return Permisos(self, sesion)
+
+    # --- auditoría ---------------------------------------------------------------------
+
+    def auditar(
+        self,
+        actor: Actor,
+        org: str,
+        workspace: str | None,
+        evento: EventoAuditoria,
+        *,
+        repositorio: str | None = None,
+        **detalle: str | int | bool,
+    ) -> None:
+        self.datos.registrar_auditoria(
+            RegistroAuditoria(
+                id=uuid.uuid4(),
+                alcance=AlcanceWorkspace(org=org, workspace=workspace or WORKSPACE_ORG),
+                evento=evento,
+                actor=actor,
+                en=self.reloj(),
+                repositorio=repositorio,
+                detalle={k: v for k, v in detalle.items() if v is not None},
+            )
+        )
+
+    def auditoria_entidad(self, actor: Actor, previa: Auditoria | None) -> Auditoria:
+        ahora = self.reloj()
+        if previa is None:
+            return Auditoria(creado_por=actor, creado_en=ahora, actualizado_por=actor, actualizado_en=ahora)
+        return Auditoria(
+            creado_por=previa.creado_por,
+            creado_en=previa.creado_en,
+            actualizado_por=actor,
+            actualizado_en=max(ahora, previa.creado_en),
+        )
+
+
+class Permisos:
+    def __init__(self, ctx: ContextoConsola, sesion: Sesion) -> None:
+        self.ctx = ctx
+        self.sesion = sesion
+        self.plataforma = sesion.github_id in ctx.config.administradores
+        self._cache: dict[str, list] = {}
+
+    def _asignaciones(self, org: str) -> list:
+        if org not in self._cache:
+            self._cache[org] = self.ctx.datos.asignaciones(org, self.sesion.github_id, self.sesion.equipos)
+        return self._cache[org]
+
+    def rol(self, org: str, workspace: str | None) -> Rol | None:
+        if self.plataforma:
+            return Rol.org_admin
+        asignaciones = self._asignaciones(org)
+        rol = mayor([a.rol for a in asignaciones if a.workspace is None or a.workspace == workspace])
+        if rol is None and self.ctx.abierto:
+            return Rol.desarrollador
+        return rol
+
+    def exigir(self, org: str, workspace: str | None, minimo: Rol) -> Rol:
+        rol = self.rol(org, workspace)
+        if not alcanza(rol, minimo):
+            donde = f"{org}/{workspace}" if workspace else org
+            raise HTTPException(403, f"hace falta rol {minimo.value} en {donde}")
+        return rol  # type: ignore[return-value]
+
+    def exigir_plataforma(self) -> None:
+        if not self.plataforma:
+            raise HTTPException(403, "solo quien administra la plataforma (RAILSPEC_CONSOLA_ADMINS)")
+
+
+class AutorizadorConsola:
+    """``Autorizador`` del registro de tools para llamadas desde la consola (resuelve equipos)."""
+
+    def __init__(self, permisos: Permisos) -> None:
+        self.permisos = permisos
+
+    def rol(self, actor: Actor, org: str, workspace: str | None) -> Rol | None:
+        if actor.github_id != self.permisos.sesion.github_id:
+            return None
+        return self.permisos.rol(org, workspace)

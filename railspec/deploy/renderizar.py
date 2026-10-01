@@ -40,6 +40,7 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_OIDC_AUDIENCIA": ("railspec", "Audiencia del token OIDC de CI; la del workflow de reindexado."),
     "RAILSPEC_OIDC_EMISOR": ("https://token.actions.githubusercontent.com", "Emisor OIDC de CI."),
     "RAILSPEC_OIDC_REPOSITORIOS": ("", "owner/repo separados por comas que pueden llamar graph.index."),
+    "RAILSPEC_CONSOLA_ADMINS": ("", "github_id que administran la plataforma en la consola (coma)."),
 }
 _MARCA = re.compile(r"\$\{([A-Z0-9_]+)\}")
 

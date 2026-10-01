@@ -80,6 +80,23 @@ jobs:
           RAILSPEC_FALKORDB_URL: ${{ matrix.falkordb && 'redis://localhost:6379' || '' }}
         run: python -m pytest -c railspec/pyproject.toml --rootdir railspec ${{ matrix.pruebas }}
 
+  consola:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: railspec/packages/railspec-console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: railspec/packages/railspec-console/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   manifiestos:
     runs-on: ubuntu-latest
     env:
