@@ -15,7 +15,7 @@ from railspec.contracts.repositorio import Auditoria, Organizacion, Rol, Vinculo
 from railspec.server.api.grafo import repositorio_de_url
 from railspec.server.chat.codigo import ClonesGit
 from railspec.server.consola.github import ClienteGithub
-from test_consola import ANA_ID, CSRF, Montaje, asignar
+from test_consola import ANA_ID, CSRF, LUIS_ID, Montaje, asignar
 
 AHORA = datetime(2026, 9, 30, 12, tzinfo=UTC)
 
@@ -436,5 +436,139 @@ def test_zona_de_datos_del_workspace_solo_se_amplia_con_org_admin_y_motivo():
             assert r.status_code == 200, r.text
             d = (await _auditoria(c))[0]["detalle"]
             assert d["cambio_zona_datos_azure"] == "- -> eu" and "relaja" not in d
+
+    correr(caso())
+
+
+# --- A2: proveedores de contexto (URL, credencial y lectura) ---------------------------------------------
+
+PROVEEDORES = f"/consola/api/orgs/{ORG}/proveedores-contexto"
+RUTA_PCE = f"{PROVEEDORES}/gobernanza/pce"
+PROV = {
+    "url": "https://pce.acme.com/mcp",
+    "politica_fallo": "estricta",
+    "credencial_ref": "secret://acme--pce/key",
+}
+HOSTS = "pce.acme.com, *.mcp.acme.com"
+
+
+def test_solo_el_org_admin_fija_url_y_credencial_del_proveedor_y_se_validan(monkeypatch):
+    monkeypatch.setenv("RAILSPEC_PROVEEDORES_HOSTS", HOSTS)
+
+    async def caso():
+        m = Montaje()
+        asignar(m.almacen, Rol.org_admin, ANA_ID, workspace=None)
+        asignar(m.almacen, Rol.workspace_admin, LUIS_ID)  # workspace-admin de WS
+        ws = {"workspace": WS}
+        async with m.cliente("tk-luis") as c:
+            # El workspace-admin no crea proveedores: crear exige url (y credencial).
+            r = await c.put(RUTA_PCE, params=ws, json=PROV, headers=CSRF)
+            assert r.status_code == 403 and "org-admin" in r.json()["detalle"], r.text
+        async with m.cliente("tk-ana") as c:
+            invalidos = [
+                # Escenario del hallazgo: servidor del atacante y secreto de otro tenant.
+                PROV
+                | {"url": "https://attacker.example/mcp", "credencial_ref": "secret://pce-tenant-a/token"},
+                PROV | {"url": "https://attacker.example/mcp"},  # host fuera de la allowlist
+                PROV | {"url": "http://pce.acme.com/mcp"},
+                PROV | {"url": "https://10.0.0.5/mcp"},
+                PROV | {"url": "https://pce.acme.com@attacker.example/mcp"},
+                PROV | {"url": "https://127.0.0.1/mcp"},
+                PROV | {"credencial_ref": "secret://pce-tenant-a/token"},  # sin namespace de la org
+                PROV | {"credencial_ref": "secret://otra--pce/token"},  # de otra org
+                PROV | {"credencial_ref": "secret://acme-pce/token"},
+            ]
+            for cuerpo in invalidos:
+                r = await c.put(RUTA_PCE, params=ws, json=cuerpo, headers=CSRF)
+                assert r.status_code == 422, (cuerpo, r.text)
+            assert m.ctx.datos.proveedores_contexto(ORG, WS) == []
+            r = await c.put(RUTA_PCE, params=ws, json=PROV, headers=CSRF)
+            assert r.status_code == 200, r.text
+            assert (
+                r.json()["credencial_ref"] == "secret://acme--pce/key" and r.json()["credencial_configurada"]
+            )
+            # La auditoría guarda la URL y la referencia (no el valor del secreto).
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["entidad"] == "proveedor-contexto" and d["accion"] == "crear"
+            assert d["url"] == PROV["url"] and d["credencial_ref"] == PROV["credencial_ref"]
+            assert d["rol"] == "gobernanza" and d["nombre"] == "pce"
+        async with m.cliente("tk-luis") as c:
+            edicion = PROV | {"version": 1, "politica_fallo": "estricta", "presupuesto_tokens": 500}
+            # Cambiar url o credencial_ref no es del workspace-admin.
+            for cambio in (
+                {"url": "https://x.mcp.acme.com/mcp"},
+                {"credencial_ref": "secret://acme--otro/key"},
+            ):
+                r = await c.put(RUTA_PCE, params=ws, json=edicion | cambio, headers=CSRF)
+                assert r.status_code == 403, (cambio, r.text)
+            # Lo demás sí; sin ver la referencia, la omite (None) y se conserva la que había.
+            r = await c.put(RUTA_PCE, params=ws, json=edicion | {"credencial_ref": None}, headers=CSRF)
+            assert r.status_code == 200, r.text
+            assert r.json()["presupuesto_tokens"] == 500 and "credencial_ref" not in r.json()
+            assert r.json()["credencial_configurada"] is True
+            guardado = m.ctx.datos.proveedor_contexto(ORG, WS, "gobernanza", "pce")
+            assert guardado.credencial_ref == "secret://acme--pce/key" and guardado.url == PROV["url"]
+            # Repetir la misma referencia (la sabe de otra fuente) tampoco cambia nada.
+            r = await c.put(RUTA_PCE, params=ws, json=edicion | {"version": 2}, headers=CSRF)
+            assert r.status_code == 200, r.text
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["accion"] == "editar" and "url_previa" not in d and d["url"] == PROV["url"]
+        async with m.cliente("tk-ana") as c:
+            nuevo = PROV | {"url": "https://x.mcp.acme.com/mcp", "credencial_ref": None, "version": 3}
+            r = await c.put(RUTA_PCE, params=ws, json=nuevo, headers=CSRF)
+            assert r.status_code == 200, r.text
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["url"] == "https://x.mcp.acme.com/mcp" and d["url_previa"] == PROV["url"]
+            assert "credencial_ref" not in d and d["credencial_ref_previa"] == PROV["credencial_ref"]
+            # Borrar también deja la URL y la referencia que había.
+            r = await c.delete(RUTA_PCE, params=ws, headers=CSRF)
+            assert r.status_code == 204
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["accion"] == "borrar" and d["url"] == "https://x.mcp.acme.com/mcp"
+
+    correr(caso())
+
+
+def test_sin_allowlist_de_plataforma_nadie_configura_proveedores(monkeypatch):
+    monkeypatch.delenv("RAILSPEC_PROVEEDORES_HOSTS", raising=False)
+    monkeypatch.delenv("RAILSPEC_PCE_URL", raising=False)
+
+    async def caso():
+        m = Montaje()
+        async with m.cliente("tk-julian") as c:  # ni la plataforma esquiva la allowlist
+            r = await c.put(RUTA_PCE, params={"workspace": WS}, json=PROV, headers=CSRF)
+            assert r.status_code == 422 and "RAILSPEC_PROVEEDORES_HOSTS" in r.json()["detalle"], r.text
+            # El proveedor conocido (RAILSPEC_PCE_URL) sí se permite.
+            monkeypatch.setenv("RAILSPEC_PCE_URL", "https://pce.acme.com/otra-ruta")
+            r = await c.put(RUTA_PCE, params={"workspace": WS}, json=PROV, headers=CSRF)
+            assert r.status_code == 200, r.text
+
+    correr(caso())
+
+
+def test_los_lectores_no_ven_la_referencia_de_credencial(monkeypatch):
+    monkeypatch.setenv("RAILSPEC_PROVEEDORES_HOSTS", HOSTS)
+
+    async def caso():
+        m = Montaje()
+        asignar(m.almacen, Rol.org_admin, ANA_ID, workspace=None)
+        asignar(m.almacen, Rol.lector, LUIS_ID)
+        sin_credencial = {"url": "https://docs.mcp.acme.com/mcp", "politica_fallo": "blanda"}
+        async with m.cliente("tk-ana") as c:
+            for ruta, cuerpo in ((RUTA_PCE, PROV), (f"{PROVEEDORES}/documentacion/docs", sin_credencial)):
+                r = await c.put(ruta, params={"workspace": WS}, json=cuerpo, headers=CSRF)
+                assert r.status_code == 200, r.text
+            lista = (await c.get(PROVEEDORES, params={"workspace": WS})).json()
+            assert {p["nombre"]: p.get("credencial_ref") for p in lista} == {
+                "docs": None,
+                "pce": "secret://acme--pce/key",
+            }
+        async with m.cliente("tk-julian") as c:  # la plataforma actúa como org-admin
+            lista = (await c.get(PROVEEDORES, params={"workspace": WS})).json()
+            assert [p["credencial_ref"] for p in lista if p["nombre"] == "pce"] == ["secret://acme--pce/key"]
+        async with m.cliente("tk-luis") as c:
+            lista = (await c.get(PROVEEDORES, params={"workspace": WS})).json()
+            assert {p["nombre"]: p["credencial_configurada"] for p in lista} == {"docs": False, "pce": True}
+            assert all("credencial_ref" not in p for p in lista)
 
     correr(caso())

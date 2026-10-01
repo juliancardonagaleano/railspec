@@ -56,6 +56,7 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
 | `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_PROVEEDORES_HOSTS` | ConfigMap (`renderizar.py`) | Hosts permitidos para los proveedores de contexto que configura una organización (`host`, `*.dominio`, coma); se suma el de `RAILSPEC_PCE_URL`. Vacía: ninguno ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
 | `RAILSPEC_VINCULOS_OWNERS` | ConfigMap (`renderizar.py`) | Owners de GitHub (coma) que puede vincular una organización que **no** tiene `github_org`. Vacía (por defecto): esas organizaciones no pueden vincular repositorios. Una organización con `github_org` solo vincula repositorios de ese owner, con o sin esta variable. |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
@@ -106,6 +107,7 @@ oculta lo que el rol no permite, pero decide el servidor.
 | Ver unidades, estadísticas, auditoría, grafo, configuración | `lector` |
 | Aprobar checkpoints, integrar, cambiar modo, arrancar unidades (tools) | el `rol_minimo` de la tool (`desarrollador`) |
 | Editar workspace, vínculos, roles del workspace, configuración del workspace (**salvo relajar la política**, abajo) | `workspace-admin` |
+| Fijar la `url` y la `credencial_ref` de un proveedor de contexto (y crearlo) | `org-admin`; el `workspace-admin` edita el resto del proveedor |
 | Relajar la política de código: bajar `nivel_codigo`, habilitar `chat_contexto_codigo.permitido`, subir los presupuestos de fuga o `huella_tokens_n`, ampliar `modelos_permitidos`, `hosting` o `fragmentos_en_respuesta`, crear un vínculo menos restrictivo que el por defecto, o quitar o cambiar `zona_datos_azure`; siempre con motivo | `org-admin` |
 | Crear workspaces, roles `org-admin`, configuración de la organización | `org-admin` |
 | Crear organizaciones; fijar o cambiar su `github_org` | administrador de la plataforma |
@@ -195,7 +197,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /orgs/{org}/catalogo`, `POST …/catalogo/sincronizar` | Catálogo de modelos. Sincronizar responde 501 hasta que el servidor sepa leer el catálogo de cada proveedor. |
 | `GET/PUT /orgs/{org}/perfiles[/{nombre}]?workspace=` | Perfiles; validados contra el catálogo (422 si un modelo no está o no admite el effort, las salidas estructuradas o el contexto pedidos; aviso si no hay catálogo de ese proveedor). |
 | `GET/PUT /orgs/{org}/presupuestos?workspace=` | Presupuestos. |
-| `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<secreto>/<clave>`. |
+| `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<org>--<nombre>/<clave>` (namespace de la organización). La `url` debe ser de un host permitido por la plataforma. Solo `org-admin` fija `url` y `credencial_ref`; los demás roles reciben `credencial_configurada` en vez de `credencial_ref`. |
 | `GET /orgs/{org}/workspaces/{ws}/resumen` | Unidades por fase y estado, integradas, checkpoints pendientes, convergencia de gates, gasto del mes contra presupuesto, commit del grafo por repositorio. |
 | `GET /orgs/{org}/workspaces/{ws}/auditoria?evento=&repositorio=&unidad=&desde=&hasta=&cursor=&limite=` | Auditoría, más reciente primero. |
 | `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado y resumen de la orden vigente. |

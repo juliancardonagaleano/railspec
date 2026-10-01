@@ -6,14 +6,18 @@ se conecta igual. Ver ``railspec/docs/proveedores.md``.
 """
 
 from .conectable import ContextoConectable, FuenteContexto, fuente_de_config
+from .destinos import DestinoNoPermitido, PoliticaDestinos
 from .pce import ClienteContexto, ClientePce
-from .secretos import ResolutorSecretos
+from .secretos import ReferenciaInvalida, ResolutorSecretos
 
 __all__ = [
     "ClienteContexto",
     "ClientePce",
     "ContextoConectable",
+    "DestinoNoPermitido",
     "FuenteContexto",
+    "PoliticaDestinos",
+    "ReferenciaInvalida",
     "ResolutorSecretos",
     "fuente_de_config",
 ]

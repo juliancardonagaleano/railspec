@@ -48,6 +48,7 @@ necesita acceso de inferencia al recurso y lectura del proyecto si se usa
 | `RAILSPEC_PCE_API_KEY` | vacío | Secret | Clave de esa PCE por defecto (cabecera `X-API-Key`). |
 | `RAILSPEC_CONTEXTO_CACHE_S` | `900` | ConfigMap | Caché de consultas a las herramientas de contexto, en segundos; `0` la desactiva. |
 | `RAILSPEC_SECRETOS_DIR` | `/var/run/secrets/railspec` | entorno del contenedor | Directorio donde se montan los Secrets que resuelven `credencial_ref`. No pasa por el renderizador. |
+| `RAILSPEC_PROVEEDORES_HOSTS` | vacío | ConfigMap | Hosts a los que una organización puede apuntar un proveedor de contexto: nombres separados por coma o espacio, `*.dominio` para sus subdominios (no el propio dominio). Se suma el host de `RAILSPEC_PCE_URL`. Vacía y sin `RAILSPEC_PCE_URL`: ninguna organización puede configurar proveedores. Ver «Herramientas de contexto». |
 
 `renderizar.py` pone cada valor entre comillas dobles en el ConfigMap y no
 escapa. Por eso rechaza un `RAILSPEC_FOUNDRY_DESPLIEGUES` con comillas o barras
@@ -223,8 +224,8 @@ El servidor es cliente MCP de cada herramienta de contexto. Hay cuatro roles:
 | `org`, `workspace` | Sin `workspace`, vale para toda la organización. Con él, vale para ese workspace y sustituye a la de la organización con el mismo rol y nombre. |
 | `rol` | Uno de los cuatro de arriba. |
 | `nombre` | Nombre libre; junto con el rol identifica la herramienta. |
-| `url` | Endpoint MCP por HTTPS (streamable HTTP). |
-| `credencial_ref` | `secret://<secreto>/<clave>` o vacío. Nunca el valor. |
+| `url` | Endpoint MCP por HTTPS (streamable HTTP) en un host que permita la plataforma (`RAILSPEC_PROVEEDORES_HOSTS`). |
+| `credencial_ref` | `secret://<org>--<nombre>/<clave>` o vacío. Nunca el valor. El secreto lleva la organización como prefijo. |
 | `politica_fallo` | `estricta` o `blanda`. `gobernanza` solo admite `estricta`. |
 | `fases` | Fases en las que aplica; vacía = todas. El gate `codigo` cuenta como la fase `implement`. |
 | `presupuesto_tokens` | Recorta los ítems de esa herramienta (orden estable por id, unos 4 caracteres por token) para acotar el prefijo del prompt. |
@@ -233,30 +234,68 @@ El servidor es cliente MCP de cada herramienta de contexto. Hay cuatro roles:
 por defecto. Un rol configurado en Mongo para el workspace o su organización
 sustituye entero al valor por defecto del entorno para ese rol.
 
+**Quién edita y qué se valida.** Lo que guarda una organización no es de
+confianza: la `url` recibe la consulta del gate (hasta 500 caracteres del objeto) y
+la credencial viaja en `X-API-Key`. Por eso:
+
+- Solo un `org-admin` (o quien administra la plataforma) fija `url` y
+  `credencial_ref`, también en proveedores de un workspace. El `workspace-admin`
+  edita política de fallo, fases y presupuesto, pero no crea proveedores ni cambia
+  a dónde va la consulta ni con qué clave.
+- La `url` se valida al guardar **y cada vez que se usa** (los datos viejos de
+  Mongo no se salvan): `https`, sin credenciales ni fragmento, y host en
+  `RAILSPEC_PROVEEDORES_HOSTS` (más el de `RAILSPEC_PCE_URL`). **Por defecto no hay
+  ninguno**: sin la variable ni `RAILSPEC_PCE_URL`, ninguna organización puede
+  configurar proveedores y los ya guardados cuentan como consulta fallida.
+- La IP *resuelta* se comprueba al conectar, y se conecta a esa IP ya comprobada:
+  loopback, privadas, link-local (el metadata de la nube), CGNAT, multicast y las
+  IPv6 que envuelven una IPv4 no pública se rechazan aunque el nombre esté
+  permitido. El cliente no sigue redirecciones ni usa `HTTPS_PROXY` (un proveedor
+  de organización necesita salida directa). Un servicio interno con IP privada solo
+  sirve como el `RAILSPEC_PCE_URL` por defecto, que fija la plataforma y no pasa
+  por estas comprobaciones.
+- La consola audita cada alta, cambio y borrado con `url`, `credencial_ref` y, si
+  cambiaron, `url_previa` y `credencial_ref_previa`.
+- `GET …/proveedores-contexto` solo devuelve `credencial_ref` a `org-admin` y a la
+  plataforma; el resto recibe `credencial_configurada` (si hay una).
+
 **Credenciales.** `credencial_ref` se resuelve en cada consulta, primero desde
 el archivo `RAILSPEC_SECRETOS_DIR/<secreto>/<clave>` y, si no está montado,
 desde la variable `RAILSPEC_SECRETO_<SECRETO>_<CLAVE>` (mayúsculas, con `-` y
 `.` como `_`). El valor se envía como `X-API-Key` y nunca se registra. Si no
 se encuentra, las consultas de esa herramienta cuentan como fallidas.
 
+El pool de secretos del servidor es uno solo, así que cada organización tiene
+su **namespace**: el secreto se llama `<org>--<nombre>` (la organización `acme`
+usa `secret://acme--pce/api-key`, montado en `RAILSPEC_SECRETOS_DIR/acme--pce/api-key`
+o en `RAILSPEC_SECRETO_ACME__PCE_API_KEY`). El `<nombre>` no lleva `--` y la clave
+empieza por letra o dígito. La consola rechaza al guardar toda referencia que no
+sea del namespace de la organización de la ruta, y el resolutor la rechaza otra
+vez al usarla, con la organización que consulta: la referencia de otro tenant ni
+se lee ni sale hacia ninguna URL. **Compatibilidad**: las referencias sin prefijo
+(`secret://pce-equipo/api-key`) dejan de resolverse; hay que renombrar el Secret
+(y su montaje o variable) a `<org>--<nombre>` y actualizar la referencia en la
+consola. Un secreto compartido por varias organizaciones se monta una vez por
+organización, o se usa `RAILSPEC_PCE_API_KEY` si es la gobernanza por defecto.
+
 Los manifiestos de `deploy/k8s` no montan ningún Secret para esto. Si se usan
 herramientas con `credencial_ref`, se añade al Deployment un volumen por
-Secret; por ejemplo, para `secret://pce-equipo/api-key`:
+Secret; por ejemplo, para `secret://acme--pce/api-key` (organización `acme`):
 
 ```yaml
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: pce-equipo
-              mountPath: /var/run/secrets/railspec/pce-equipo
+            - name: acme-pce
+              mountPath: /var/run/secrets/railspec/acme--pce
               readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
-        - name: pce-equipo
+        - name: acme-pce
           secret:
-            secretName: pce-equipo
+            secretName: acme--pce
 ```
 
 **Caché.** Cada consulta `(tipo, texto)` se cachea por URL y credencial

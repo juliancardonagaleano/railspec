@@ -472,7 +472,10 @@ PERFIL = {
 }
 
 
-def test_perfil_validado_contra_catalogo_y_presupuesto():
+def test_perfil_validado_contra_catalogo_y_presupuesto(monkeypatch):
+    # Los proveedores de contexto solo van a hosts que la plataforma permita (RAILSPEC_PROVEEDORES_HOSTS).
+    monkeypatch.setenv("RAILSPEC_PROVEEDORES_HOSTS", "pce.example")
+
     async def caso():
         m = Montaje()
         async with m.cliente("tk-julian") as c:
@@ -535,7 +538,7 @@ def test_perfil_validado_contra_catalogo_y_presupuesto():
                 json={
                     "url": "https://pce.example",
                     "politica_fallo": "estricta",
-                    "credencial_ref": "secret://pce/api-key",
+                    "credencial_ref": f"secret://{ORG}--pce/api-key",  # el secreto es del namespace de la org
                 },
                 headers=CSRF,
             )

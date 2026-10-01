@@ -21,6 +21,9 @@ data:
   RAILSPEC_CATALOGO_TTL_S: "${RAILSPEC_CATALOGO_TTL_S}"
   RAILSPEC_CACHE_NODOS_S: "${RAILSPEC_CACHE_NODOS_S}"
   RAILSPEC_PCE_URL: "${RAILSPEC_PCE_URL}"
+  # Hosts a los que una organización puede apuntar un proveedor de contexto (se suma el de
+  # RAILSPEC_PCE_URL). Vacío = ninguno (ver railspec/docs/proveedores.md).
+  RAILSPEC_PROVEEDORES_HOSTS: "${RAILSPEC_PROVEEDORES_HOSTS}"
   RAILSPEC_CONTEXTO_CACHE_S: "${RAILSPEC_CONTEXTO_CACHE_S}"
   # Owners de GitHub que vincula una organización sin github_org (vacío = ninguno).
   RAILSPEC_VINCULOS_OWNERS: "${RAILSPEC_VINCULOS_OWNERS}"

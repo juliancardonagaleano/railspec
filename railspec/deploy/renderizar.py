@@ -45,6 +45,10 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_CACHE_NODOS_S": ("86400", "Caché de nodos de modelo por hash de entradas (s); 0 la apaga."),
     "RAILSPEC_PCE_URL": ("", "URL MCP de la gobernanza (PCE)."),
     "RAILSPEC_CONTEXTO_CACHE_S": ("900", "Caché de consultas a proveedores de contexto, en segundos."),
+    "RAILSPEC_PROVEEDORES_HOSTS": (
+        "",
+        "Hosts permitidos (coma, *.dominio) para proveedores de contexto de las organizaciones.",
+    ),
     "RAILSPEC_VINCULOS_OWNERS": (
         "",
         "Owners de GitHub (coma) que vincula una organización sin github_org; vacío = ninguno.",
@@ -85,6 +89,10 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     for nombre in ("RAILSPEC_VINCULOS_OWNERS",):
         if not re.fullmatch(r"[A-Za-z0-9,\s-]*", salida[nombre]):
             raise ErrorRender(f"{nombre} solo admite owners de GitHub separados por comas")
+    if not re.fullmatch(r"[A-Za-z0-9.*,\s-]*", salida["RAILSPEC_PROVEEDORES_HOSTS"]):
+        raise ErrorRender(
+            "RAILSPEC_PROVEEDORES_HOSTS solo admite hosts (nombre o *.dominio) separados por comas"
+        )
     if re.search(r"[\"\\]", salida["RAILSPEC_FOUNDRY_DESPLIEGUES"]):
         raise ErrorRender(
             "RAILSPEC_FOUNDRY_DESPLIEGUES va entre comillas en el ConfigMap: "
