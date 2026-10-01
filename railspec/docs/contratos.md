@@ -83,7 +83,11 @@ HTTP de la consola (R1).
   los lista para que el gate de salida calcule huellas. Hoy solo
   `code.read → fragmentos[].texto`.
 - `ToolDef.tipos_actor` restringe quién puede llamar una tool; `graph.index`
-  solo acepta identidades de servicio (OIDC de GitHub Actions).
+  solo acepta identidades de servicio (OIDC de GitHub Actions) y es la única
+  tool que las admite: el valor por defecto es `{humano, agente}` y un
+  `ToolDef` con `servicio` en otra tool no valida. Ajuste restrictivo sin
+  cambio de versión: antes el defecto incluía `servicio` y cualquier workflow
+  de GitHub Actions leía las tools de lectura de cualquier organización.
 - Errores de negocio: `ErrorTool` con un `CodigoError` común.
 - Bucle del arnés: `unit.start` → `unit.advance` → ejecutar la orden →
   `unit.report` → `unit.advance`… El arnés nunca decide fase ni gate; un

@@ -11,7 +11,7 @@ import pytest
 from apoyo_motor import ORG, WS, construir, entrada_start
 from railspec.contracts.comun import Actor, Canal, OidcGithubActions, TipoActor
 from railspec.contracts.repositorio import AsignacionRol, Auditoria, Rol, SujetoUsuario
-from railspec.contracts.tools import Superficie
+from railspec.contracts.tools import TOOLS, Superficie
 from railspec.server.api import AutorizadorRoles, IdentidadDesarrollo, Registro
 from railspec.server.api.identidad import IdentidadGithub, TokenInvalido, token_de_cabecera
 from railspec.server.api.superficies import aplicacion
@@ -151,6 +151,68 @@ def test_superficie_y_tipo_de_actor():
         for t in solo_http:
             r = await registro.invocar(t.nombre, {}, servicio, Superficie.mcp)
             assert r.cuerpo["codigo"] == "fuera-de-alcance"
+
+    asyncio.run(caso())
+
+
+def test_actor_de_servicio_solo_alcanza_graph_index():
+    """A1: un OIDC de CI (de cualquier repositorio) no tiene rol en ninguna organización.
+
+    Antes cualquier actor ``servicio`` era ``desarrollador`` en toda org y workspace, así que
+    un workflow ajeno leía unit.list, unit.status (orden completa), unit.export, insumo.get,
+    telemetry.query y graph.query de cualquier tenant cuyos slugs adivinara."""
+
+    servicio = Actor(
+        tipo=TipoActor.servicio,
+        canal=Canal.ci,
+        oidc=OidcGithubActions(repositorio="atacante/repo", workflow="x.yml@refs/heads/main"),
+    )
+    alcance = {"org": ORG, "workspace": WS}
+    unidad = {"org": ORG, "workspace": WS, "unidad": "0001-emitir-pdf"}
+    lecturas = {
+        "unit.list": {"alcance": alcance},
+        "unit.status": {"unidad": unidad},
+        "unit.export": {"unidad": unidad},
+        "insumo.get": {"alcance": alcance, "id": str(uuid.uuid4())},
+        "telemetry.query": {
+            "org": ORG,
+            "workspace": WS,
+            "desde": "2026-01-01T00:00:00Z",
+            "hasta": "2026-12-31T00:00:00Z",
+            "agrupar_por": ["fase"],
+        },
+        "graph.query": {"alcance": alcance, "consulta": {"verbo": "resolve", "nombre": "firmar"}},
+    }
+    ejecutados: list[str] = []
+
+    def espia(nombre):
+        async def manejador(entrada, actor):
+            ejecutados.append(nombre)
+            raise AssertionError(f"{nombre} se ejecutó para un actor de servicio")
+
+        return manejador
+
+    async def caso():
+        for abierto in (False, True):
+            motor, _ = construir()
+            autorizador = AutorizadorRoles(motor.n.almacen, abierto=abierto)
+            extra = {n: espia(n) for n in ("unit.export", "insumo.get", "graph.query")}
+            registro = Registro.del_motor(motor, autorizador, extra)
+            for nombre, entrada in lecturas.items():
+                for superficie in (Superficie.http, Superficie.mcp):
+                    if superficie not in TOOLS[nombre].superficies:
+                        continue
+                    r = await registro.invocar(nombre, entrada, servicio, superficie)
+                    assert r.estado_http == 403, (nombre, superficie, abierto, r.cuerpo)
+                    assert r.cuerpo["codigo"] == "fuera-de-alcance"
+            assert not ejecutados
+            # Ninguna tool expuesta (salvo graph.index) admite al actor de servicio.
+            for superficie in (Superficie.http, Superficie.mcp):
+                for tool in registro.tools(superficie):
+                    if tool.nombre != "graph.index":
+                        assert TipoActor.servicio not in tool.tipos_actor, tool.nombre
+            # El autorizador tampoco le da rol por su cuenta (defensa en profundidad).
+            assert autorizador.rol(servicio, ORG, WS) is None
 
     asyncio.run(caso())
 

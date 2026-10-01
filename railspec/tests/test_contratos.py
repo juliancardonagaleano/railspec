@@ -449,6 +449,20 @@ def test_graph_index_solo_ci_por_http() -> None:
         ToolDef(**{**tool.__dict__, "tipos_actor": frozenset(TipoActor)})
 
 
+def test_actor_de_servicio_solo_en_graph_index() -> None:
+    """A1: el OIDC de CI (de cualquier repositorio) solo admite graph.index; el resto, personas y agentes."""
+
+    from railspec.contracts.tools import ToolDef
+
+    for nombre, tool in TOOLS.items():
+        assert (TipoActor.servicio in tool.tipos_actor) == (nombre == "graph.index"), nombre
+    lectura = TOOLS["unit.list"]
+    # El valor por defecto ya no incluye al servicio y declararlo en otra tool es un error de contrato.
+    assert lectura.tipos_actor == {TipoActor.humano, TipoActor.agente}
+    with pytest.raises(ValidationError, match="solo graph.index admite identidades de servicio"):
+        ToolDef(**{**lectura.__dict__, "tipos_actor": frozenset(TipoActor)})
+
+
 def test_graph_index_lotes_coherentes() -> None:
     delta = f.snapshot().delta_indice.model_dump(mode="json")
     base = {

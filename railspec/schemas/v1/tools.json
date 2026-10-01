@@ -285,8 +285,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -1428,8 +1427,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -2345,8 +2343,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -3627,8 +3624,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -5568,8 +5564,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -6913,8 +6908,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -7356,8 +7350,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -10406,8 +10399,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -10708,8 +10700,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -11602,8 +11593,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -14406,8 +14396,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     },
     {
@@ -17078,8 +17067,7 @@
       ],
       "tipos_actor": [
         "agente",
-        "humano",
-        "servicio"
+        "humano"
       ]
     }
   ],

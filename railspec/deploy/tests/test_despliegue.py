@@ -88,6 +88,42 @@ def test_render_rechaza_despliegues_json_y_ttl_no_numerico():
         renderizar.renderizar({**MINIMO, "RAILSPEC_CATALOGO_TTL_S": "una hora"})
 
 
+def _configmap(entorno: dict[str, str]) -> dict[str, str]:
+    yaml = pytest.importorskip("yaml")
+    texto = renderizar.renderizar({**MINIMO, **entorno})
+    return next(d for d in yaml.safe_load_all(texto) if d and d["kind"] == "ConfigMap")["data"]
+
+
+def test_render_oidc_desactivado_por_defecto_y_con_audiencia_vacia():
+    """A1: antes ``valor or defecto`` volvía a "railspec" aunque se vaciara la audiencia."""
+
+    assert _configmap({})["RAILSPEC_OIDC_AUDIENCIA"] == ""
+    assert _configmap({"RAILSPEC_OIDC_AUDIENCIA": ""})["RAILSPEC_OIDC_AUDIENCIA"] == ""
+    assert (
+        _configmap({"RAILSPEC_OIDC_AUDIENCIA": "", "RAILSPEC_OIDC_REPOSITORIOS": "a/b"})[
+            "RAILSPEC_OIDC_AUDIENCIA"
+        ]
+        == ""
+    )
+
+
+def test_render_oidc_exige_repositorios_y_una_audiencia_no_adivinable():
+    with pytest.raises(renderizar.ErrorRender, match="RAILSPEC_OIDC_REPOSITORIOS"):
+        renderizar.renderizar({**MINIMO, "RAILSPEC_OIDC_AUDIENCIA": "una-audiencia-larga-y-aleatoria"})
+    with pytest.raises(renderizar.ErrorRender, match="adivinable"):
+        renderizar.renderizar(
+            {**MINIMO, "RAILSPEC_OIDC_AUDIENCIA": "railspec", "RAILSPEC_OIDC_REPOSITORIOS": "acme/api"}
+        )
+    mapa = _configmap(
+        {
+            "RAILSPEC_OIDC_AUDIENCIA": "una-audiencia-larga-y-aleatoria",
+            "RAILSPEC_OIDC_REPOSITORIOS": "acme/api,acme/web",
+        }
+    )
+    assert mapa["RAILSPEC_OIDC_AUDIENCIA"] == "una-audiencia-larga-y-aleatoria"
+    assert mapa["RAILSPEC_OIDC_REPOSITORIOS"] == "acme/api,acme/web"
+
+
 def test_render_rechaza_variable_desconocida(tmp_path):
     (tmp_path / "x.yaml").write_text("a: ${RAILSPEC_NO_EXISTE}\n")
     with pytest.raises(renderizar.ErrorRender, match="desconocida"):

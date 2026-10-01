@@ -69,6 +69,12 @@ def ensamblar(
     motor = Motor(nucleo, CheckpointsMongo(almacen.db))
     humana = IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
     if verificador_oidc is None and config.oidc_audiencia:
+        if config.oidc_audiencia.lower() == "railspec":
+            raise ValueError(
+                "RAILSPEC_OIDC_AUDIENCIA=railspec es adivinable (era el valor de los ejemplos): "
+                "usa un valor largo y aleatorio, el mismo que la variable del workflow de reindexado"
+            )
+        # Lanza ValueError si falta RAILSPEC_OIDC_REPOSITORIOS: el servidor no arranca.
         verificador_oidc = VerificadorOidcActions(
             config.oidc_audiencia, config.oidc_emisor, config.oidc_repositorios
         )

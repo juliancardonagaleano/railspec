@@ -23,7 +23,9 @@ data:
   RAILSPEC_PCE_URL: "${RAILSPEC_PCE_URL}"
   RAILSPEC_CONTEXTO_CACHE_S: "${RAILSPEC_CONTEXTO_CACHE_S}"
   RAILSPEC_ANTHROPIC_HABILITADO: "${RAILSPEC_ANTHROPIC_HABILITADO}"
-  # Identidad de servicio de CI para graph.index. Audiencia vacía = OIDC desactivado.
+  # Identidad de servicio de CI para graph.index. Audiencia vacía = OIDC desactivado (el
+  # defecto). Con audiencia, RAILSPEC_OIDC_REPOSITORIOS es obligatoria: el servidor no arranca
+  # sin ella. La audiencia debe ser larga y no adivinable.
   RAILSPEC_OIDC_AUDIENCIA: "${RAILSPEC_OIDC_AUDIENCIA}"
   RAILSPEC_OIDC_EMISOR: "${RAILSPEC_OIDC_EMISOR}"
   RAILSPEC_OIDC_REPOSITORIOS: "${RAILSPEC_OIDC_REPOSITORIOS}"

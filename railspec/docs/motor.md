@@ -83,9 +83,9 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Anthropic directo (solo nivel `abierto`). |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Gobernanza por MCP. Sin ella, todo gate escala con `sin-gobernanza`. |
 | `RAILSPEC_FALKORDB_URL` | Grafo central (`railspec-graph`, extra `grafo`). |
-| `RAILSPEC_OIDC_AUDIENCIA` | Audiencia de los tokens OIDC de GitHub Actions (por defecto `railspec`, la misma que usa el workflow de reindexado). Vacía desactiva la identidad de servicio. |
+| `RAILSPEC_OIDC_AUDIENCIA` | Audiencia de los tokens OIDC de GitHub Actions: un valor largo y no adivinable, el mismo que usa el workflow de reindexado. Sin valor (el defecto) la identidad de servicio queda desactivada; `railspec` se rechaza. |
 | `RAILSPEC_OIDC_EMISOR` | Emisor y JWKS (por defecto `https://token.actions.githubusercontent.com`). |
-| `RAILSPEC_OIDC_REPOSITORIOS` | Lista `owner/repo` separada por comas que puede presentar tokens OIDC. Vacía: cualquiera, siempre que coincida con el vínculo. |
+| `RAILSPEC_OIDC_REPOSITORIOS` | Lista `owner/repo` separada por comas que puede presentar tokens OIDC. Obligatoria con audiencia: vacía, el servidor no arranca. |
 | `RAILSPEC_TOKENS_DESARROLLO` | `token=login:github_id,…` para desarrollo sin GitHub App. |
 | `RAILSPEC_HOST`, `RAILSPEC_PUERTO` | Escucha HTTP (por defecto `0.0.0.0:8080`). |
 

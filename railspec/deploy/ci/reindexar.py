@@ -292,10 +292,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rama", required=True)
     p.add_argument("--commit", required=True)
     p.add_argument("--anterior", default=None, help="Commit anterior del push (github.event.before).")
-    p.add_argument("--audiencia", default="railspec", help="Audiencia del token OIDC.")
+    p.add_argument(
+        "--audiencia", required=True, help="Audiencia del token OIDC (la del servidor; sin defecto)."
+    )
     p.add_argument("--raiz", type=Path, default=Path.cwd())
     p.add_argument("--tamano-lote", type=int, default=2000)
     a = p.parse_args(argv)
+    if not a.audiencia.strip():
+        p.error("--audiencia vacía: define la variable RAILSPEC_OIDC_AUDIENCIA del repositorio")
 
     from railspec.local import indexador_cbm, secretos
 

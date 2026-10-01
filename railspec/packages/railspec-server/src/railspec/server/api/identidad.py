@@ -7,9 +7,11 @@
 
 - ``VerificadorOidcActions``: token OIDC de GitHub Actions (actor de
   servicio, canal ``ci``). Verifica firma contra el JWKS del emisor, ``iss``,
-  ``aud`` y, si se configura, que ``repository`` esté en la lista permitida.
-  El alcance fino (repositorio del vínculo y su rama por defecto) lo
-  comprueba la tool que lo usa (``graph.index``).
+  ``aud`` y que ``repository`` esté en la lista permitida, que es obligatoria:
+  cualquier repositorio de GitHub puede pedir un token con la audiencia que
+  quiera, así que la audiencia sola no autentica a nadie. El alcance fino
+  (repositorio del vínculo y su rama por defecto) lo comprueba la tool que lo
+  usa (``graph.index``); el actor de servicio no tiene rol en nada más.
 - ``IdentidadCompuesta``: un JWT de GitHub Actions va al verificador OIDC;
   cualquier otro token, a la identidad humana.
 """
@@ -104,7 +106,13 @@ class VerificadorOidcActions:
     ) -> None:
         self.audiencia = audiencia
         self.emisor = emisor.rstrip("/")
-        self.repositorios = frozenset(r.lower() for r in repositorios)
+        self.repositorios = frozenset(r.strip().lower() for r in repositorios if r.strip())
+        if not self.repositorios:
+            # Fallar cerrado: sin lista, cualquier workflow del mundo con ``id-token: write`` valdría.
+            raise ValueError(
+                "OIDC de CI activo sin RAILSPEC_OIDC_REPOSITORIOS: lista los owner/repo que pueden "
+                "presentar un token o deja RAILSPEC_OIDC_AUDIENCIA vacía para desactivarlo"
+            )
         self._margen = margen_s
         if claves is None:
             import jwt
@@ -144,7 +152,7 @@ class VerificadorOidcActions:
         except Exception as exc:  # JWKS inaccesible
             raise TokenInvalido(f"no se pudo verificar el token OIDC: {exc}") from exc
         repositorio = str(reclamos["repository"])
-        if self.repositorios and repositorio.lower() not in self.repositorios:
+        if repositorio.lower() not in self.repositorios:
             raise TokenInvalido(f"el repositorio {repositorio} no está autorizado para OIDC")
         run_id = reclamos.get("run_id")
         return Actor(

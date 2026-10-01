@@ -87,9 +87,9 @@ no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
 | `RAILSPEC_CONTEXTO_CACHE_S` | `900` | Caché de consultas a las herramientas de contexto, en segundos; `0` la desactiva. |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | Anthropic directo. |
 | `RAILSPEC_AZURE_CLIENT_ID` | vacío | Identidad administrada para Workload Identity (Foundry por Entra ID). Activa la etiqueta del pod. |
-| `RAILSPEC_OIDC_AUDIENCIA` | `railspec` | Audiencia del token OIDC de CI; debe coincidir con la del workflow de reindexado. Vacía desactiva `graph.index`. |
+| `RAILSPEC_OIDC_AUDIENCIA` | vacío (OIDC desactivado) | Audiencia del token OIDC de CI; debe coincidir con la variable del mismo nombre del repositorio que corre el workflow de reindexado. **Un valor largo y no adivinable** (`openssl rand -hex 24`): cualquier repositorio de GitHub puede pedir un token con la audiencia que quiera, y `railspec` se rechaza. Vacía desactiva `graph.index` (el renderizador respeta la cadena vacía). |
 | `RAILSPEC_OIDC_EMISOR` | `https://token.actions.githubusercontent.com` | Emisor OIDC. |
-| `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista opcional `owner/repo,…` de repositorios que pueden llamar `graph.index`. |
+| `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista `owner/repo,…` de repositorios que pueden llamar `graph.index`. **Obligatoria con audiencia**: sin ella el renderizador y el servidor se niegan (antes, vacía admitía a cualquier repositorio con vínculo). |
 | `RAILSPEC_CONSOLA_ADMINS` | vacío | `github_id` (numéricos, separados por coma) que administran la plataforma en la consola: crean organizaciones y son `org-admin` en todas. |
 
 ## Desplegar
@@ -117,8 +117,8 @@ Service sin reiniciarla.
 `railspec-reindexar.yml` corre en cada push a `master` si la variable
 `RAILSPEC_URL` del repositorio está definida; además necesita
 `RAILSPEC_ORGANIZACION`, `RAILSPEC_WORKSPACE` y, si el slug no es el nombre
-del repositorio, `RAILSPEC_REPOSITORIO`. `RAILSPEC_OIDC_AUDIENCIA` (por
-defecto `railspec`) es la audiencia del token.
+del repositorio, `RAILSPEC_REPOSITORIO`. `RAILSPEC_OIDC_AUDIENCIA` (sin valor por defecto, la
+misma del servidor) es la audiencia del token.
 
 - Delta entre `github.event.before` y el commit empujado; índice completo si
   no hay commit anterior utilizable (rama nueva, force-push) o si el servidor
@@ -134,9 +134,12 @@ defecto `railspec`) es la audiencia del token.
   intermedios y el siguiente cae en índice completo.
 
 El servidor verifica el token: firma contra el JWKS del emisor, `iss`,
-`aud`, caducidad y, si se da, `RAILSPEC_OIDC_REPOSITORIOS`. La tool exige
-además que `repository` sea el de la URL del vínculo y que el `@ref` de
-`workflow_ref` sea `refs/heads/<rama por defecto>` del vínculo.
+`aud`, caducidad y que `repository` esté en `RAILSPEC_OIDC_REPOSITORIOS`
+(obligatoria). La tool exige además que `repository` sea el de la URL del
+vínculo y que el `@ref` de `workflow_ref` sea `refs/heads/<rama por defecto>`
+del vínculo. La identidad de servicio no tiene rol en ninguna organización ni
+workspace: `graph.index` es la única tool que la admite (`tipos_actor`), así
+que un OIDC válido no puede leer unidades, órdenes, telemetría ni grafo.
 
 ## Pendiente fuera de este directorio
 

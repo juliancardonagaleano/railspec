@@ -63,10 +63,13 @@ class Configuracion:
     #: Tokens de desarrollo ``token=login:github_id`` separados por coma. Solo
     #: para entornos sin GitHub App; en producción la identidad es GitHub.
     tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
-    #: OIDC de GitHub Actions (actor de servicio de ``graph.index``). Audiencia vacía = desactivado.
-    oidc_audiencia: str | None = "railspec"
+    #: OIDC de GitHub Actions (actor de servicio de ``graph.index``). Sin audiencia = desactivado.
+    #: Debe ser un valor largo y no adivinable (cualquier repositorio puede pedir un token con la
+    #: audiencia que quiera); no hay valor por defecto a propósito.
+    oidc_audiencia: str | None = None
     oidc_emisor: str = "https://token.actions.githubusercontent.com"
-    #: ``owner/repo`` que pueden presentar un token OIDC; vacío = cualquiera con vínculo.
+    #: ``owner/repo`` que pueden presentar un token OIDC. Obligatoria con audiencia: vacía, el
+    #: servidor no arranca (ver ``VerificadorOidcActions``).
     oidc_repositorios: frozenset[str] = frozenset()
     #: Chat de contexto: carpeta con un clon de solo lectura por repositorio (``<owner>/<repo>``)
     #: para ``code.read``; sin ella el chat responde sin leer código.
@@ -116,7 +119,7 @@ class Configuracion:
             cache_nodos_s=float(env.get("RAILSPEC_CACHE_NODOS_S") or 86400),
             secretos_dir=env.get("RAILSPEC_SECRETOS_DIR") or "/var/run/secrets/railspec",
             tokens_desarrollo=_tokens(env.get("RAILSPEC_TOKENS_DESARROLLO", "")),
-            oidc_audiencia=env.get("RAILSPEC_OIDC_AUDIENCIA", "railspec").strip() or None,
+            oidc_audiencia=env.get("RAILSPEC_OIDC_AUDIENCIA", "").strip() or None,
             oidc_emisor=env.get("RAILSPEC_OIDC_EMISOR") or "https://token.actions.githubusercontent.com",
             oidc_repositorios=frozenset(
                 r.strip() for r in env.get("RAILSPEC_OIDC_REPOSITORIOS", "").split(",") if r.strip()
