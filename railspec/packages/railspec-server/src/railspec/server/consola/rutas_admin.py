@@ -29,7 +29,7 @@ from railspec.contracts.repositorio import (
 from .almacen import WORKSPACE_ORG
 from .api import Entrada
 from .contexto import ContextoConsola
-from .github import ErrorGithub
+from .github import PATRON_LOGIN, ErrorGithub
 
 router = APIRouter()
 
@@ -187,7 +187,7 @@ async def editar_workspace(org: str, ws: str, entrada: WorkspaceEdicion, request
 
 class SujetoPorLogin(Entrada):
     tipo: Literal["usuario"] = "usuario"
-    login: str = Field(min_length=1, max_length=39)
+    login: str = Field(pattern=f"^{PATRON_LOGIN}$")
 
 
 class RolNuevo(Entrada):
