@@ -1,7 +1,7 @@
 # Proxy local (`railspec-local`)
 
 El proxy es lo único de Railspec que corre en la máquina del desarrollador.
-El arnés (Claude Code, OpenCode) lo lanza como servidor MCP por stdio; el
+El arnés (Claude Code, OpenCode, Codex o GitHub Copilot CLI) lo lanza como servidor MCP por stdio; el
 proxy habla con `railspec-server` por MCP Streamable HTTP usando solo los
 contratos de `railspec-contracts`. El servidor decide fase, gate y
 presupuesto; el arnés escribe el código; el proxy hace en local lo que el
@@ -13,7 +13,7 @@ protocolo exige en local.
 pip install railspec-local            # instala el comando `railspec`
 pip install codebase-memory-mcp       # opcional: indexado local (delta de símbolos y aristas)
 railspec instalar --org acme --workspace certificados --repositorio certificados-api \
-  --arnes claude-code --arnes opencode
+  --arnes claude-code --arnes opencode   # también: --arnes codex, --arnes copilot
 export RAILSPEC_URL=https://railspec.example/mcp   # endpoint MCP del servidor
 export RAILSPEC_TOKEN=...                          # token OAuth de GitHub del desarrollador
 ```
@@ -74,6 +74,86 @@ conectado) y OpenCode 1.18.33 (`opencode mcp list`, `opencode debug config`
 y `opencode debug skill` reconocen servidor, comando, skill y permisos). Las
 versiones anteriores del adaptador de OpenCode escribían en `.opencode/command/`
 y `.opencode/skill/`; `instalar` las quita.
+
+### Segunda ola: Codex y GitHub Copilot CLI
+
+Ninguno de los dos tiene comandos de barra definidos en el repositorio: el
+arranque es una skill `railspec` con el mismo texto que el comando
+`/railspec` (sale de la misma plantilla), y el bucle, la skill
+`railspec-bucle` de siempre.
+
+| Pieza | Codex | GitHub Copilot CLI |
+|---|---|---|
+| Registro del proxy | `.codex/config.toml` → `[mcp_servers.railspec]`, en un bloque entre comentarios marcadores | `.mcp.json` → `mcpServers.railspec`, la misma entrada que Claude Code |
+| Arranque | skill `.agents/skills/railspec/SKILL.md`; se invoca `$railspec <petición>` | skill `.github/skills/railspec/SKILL.md`; se invoca `/railspec <petición>` |
+| Bucle de cliente | `.agents/skills/railspec-bucle/SKILL.md` | `.github/skills/railspec-bucle/SKILL.md` |
+| Reglas de conducta | bloque delimitado en `AGENTS.md` | bloque delimitado en `AGENTS.md` |
+| Permisos | `approval_mode` por tool en el mismo bloque TOML | `allowed-tools` en las dos skills |
+
+**Permisos.** En Codex, las tools del bucle llevan `approval_mode =
+"approve"` y las tres decisiones humanas `"prompt"`;
+`default_tools_approval_mode = "prompt"` cubre las tools que el proxy añada
+después. Copilot pide permiso para toda tool MCP y no admite listas de
+permisos versionadas en el repositorio: `allowed-tools`
+(`railspec(unit_advance)`, ...) aprueba las tools del bucle durante la sesión
+en que se invoca la skill, y las decisiones humanas no se listan, así que
+preguntan siempre.
+
+**Confianza y worktrees.** Codex solo lee `.codex/config.toml` en proyectos de
+confianza y Copilot solo carga los servidores de `.mcp.json` en carpetas de
+confianza; los dos lo preguntan al abrir el repositorio la primera vez y lo
+guardan en la configuración del usuario, que `instalar` no toca. Ninguno tiene
+una configuración de proyecto fuera de git para la carpeta de worktrees: se
+lanzan con `codex --add-dir <worktrees>` o `copilot --add-dir <worktrees>`
+(Copilot exige que la carpeta exista), y `instalar` imprime la ruta.
+
+**Piezas compartidas.** El bloque de `AGENTS.md` es el mismo para OpenCode,
+Codex y Copilot, y la entrada de `.mcp.json` la misma para Claude Code y
+Copilot. `desinstalar` de un arnés conserva lo que otro instalado sigue
+usando, y un arnés solo cuenta como instalado si tiene alguna pieza propia.
+
+Verificado con codex-cli 0.159.3 (`codex mcp get railspec --json` y `codex
+doctor`: configuración cargada; `codex debug prompt-input` lista las dos
+skills y el bloque de `AGENTS.md`) y GitHub Copilot CLI 1.0.90 (`copilot mcp
+list --json`, `copilot skill list --json`, `copilot instruction list --json`),
+en una carpeta de confianza y sin sesión iniciada. Sin credenciales en el
+entorno de pruebas no se pudo correr un turno de modelo en ninguno: queda sin
+verificar que el modelo invoque las tools y que Copilot aplique
+`allowed-tools` al invocar la skill (lo valida en ese momento).
+
+## Importar y exportar unidades
+
+```
+railspec importar .spec/units/0007-pce-mcp                    # una unidad del kit SDD embebido
+railspec importar .spec/units/* --solo-convertir paquetes/    # revisar antes, sin servidor
+railspec importar paquetes/0007-pce-mcp                       # un paquete en disco
+railspec exportar --unidad 0012-cola --destino 0012-cola.railspec-unidad
+```
+
+El formato es el paquete `railspec.unidad/v1` del contrato 1.4: una carpeta
+con `unidad.json` (el paquete sin el texto de los artefactos, con el sha256 de
+cada uno) y `spec.md`, `plan.md`, `tasks.md`. Leer un paquete verifica los
+hashes, así que uno editado a medias no entra. `borradores/` guarda, fuera
+del paquete, el artefacto que el origen estaba redactando.
+
+No hay retrocompatibilidad automática con el kit SDD: cada unidad se importa
+cuando el humano lo pide. La conversión lee `_estado.yaml`, `spec.md`,
+`plan.md` y `tasks.md` (la bitácora y el resto no viajan):
+
+- Los artefactos que la fase de origen da por cerrados quedan aprobados por
+  importación, siempre como prefijo spec, plan, tasks; si falta uno, la
+  unidad retoma en su fase. El de la fase en curso es un borrador.
+- El pedido es la sección «Problema» del spec (o el título).
+- `supervisado` y `desatendido` exigen mandato: la unidad entra interactiva
+  y el modo lo fija el humano. Riesgo, perfil, `governance_refs`, comando de
+  validación, dependencias e historial de gates viajan; los dos últimos solo
+  como información.
+
+`importar` revisa secretos en artefactos y pedido antes de salir del clon,
+llama `unit.import` (idempotente por origen: la segunda vez devuelve la
+unidad existente) y abre la unidad en local como `unit_start`: rama, worktree
+y los artefactos en `.railspec/unidades/<unidad>/`, la ruta de las órdenes de
+redactar. `exportar` pide el paquete con `unit.export`.
 
 ## Tools que ve el arnés
 
