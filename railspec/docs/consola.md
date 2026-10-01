@@ -63,6 +63,9 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
 | `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | opcional | Flujos de eventos en vivo abiertos a la vez por persona y por réplica (5 por defecto); al exceder, 429. |
+| `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | opcional | Ídem en total por réplica (200 por defecto). |
+| `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | opcional | Cada cuántos segundos un flujo vuelve a comprobar el rol `lector` y se cierra si lo perdió (30 por defecto). |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
 con token de desarrollo, solo para entornos sin GitHub App.
@@ -167,7 +170,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado (sin evidencia ni propuesta de los hallazgos) y resumen de la orden vigente. |
 | `GET …/unidades/{u}/linea-de-tiempo` | Eventos de sincronización y resumen de órdenes con su reporte (archivos tocados, tareas completadas). |
 | `GET …/unidades/{u}/trazabilidad` | CA-NN → tareas → archivos → símbolos → hallazgos (de órdenes, reportes y snapshots). |
-| `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir. |
+| `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir (un valor inválido se ignora y empieza desde el principio). Tope por persona y global (429 con `Retry-After`), consulta en un executor propio y revalida el rol `lector` cada `RAILSPEC_CONSOLA_SSE_REVALIDAR_S`: si se revoca, el flujo se corta en ese plazo (no hasta los 300 s). Los topes son por réplica. |
 | `GET /orgs/{org}/workspaces/{ws}/grafo/repositorios` | Repositorios vinculados con nivel, rol y commit canónico del grafo. |
 
 ## Chat de contexto (fase 8)

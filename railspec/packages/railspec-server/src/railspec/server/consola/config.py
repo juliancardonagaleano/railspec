@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,12 @@ class ConfigConsola:
     carpeta_spa: str | None = None
     horas_sesion: int = 8
     minutos_token: int = 60
+    #: Eventos en vivo (SSE): conexiones abiertas a la vez por persona y en total, por réplica.
+    #: Al exceder el tope, la ruta responde 429 con ``Retry-After``.
+    sse_max_por_usuario: int = 5
+    sse_max_global: int = 200
+    #: Cada cuántos segundos un flujo SSE vuelve a comprobar que la persona sigue con rol ``lector``.
+    sse_revalidar_s: float = 30.0
 
     @property
     def cookie_segura(self) -> bool:
@@ -62,4 +69,20 @@ class ConfigConsola:
             administradores=frozenset(admins),
             carpeta_spa=env.get("RAILSPEC_CONSOLA_DIR") or None,
             horas_sesion=int(env.get("RAILSPEC_CONSOLA_SESION_HORAS") or 8),
+            sse_max_por_usuario=_positivo(env, "RAILSPEC_CONSOLA_SSE_MAX_USUARIO", 5, int),
+            sse_max_global=_positivo(env, "RAILSPEC_CONSOLA_SSE_MAX_GLOBAL", 200, int),
+            sse_revalidar_s=_positivo(env, "RAILSPEC_CONSOLA_SSE_REVALIDAR_S", 30.0, float),
         )
+
+
+def _positivo(env: Mapping[str, str], nombre: str, defecto: Any, tipo: type) -> Any:
+    crudo = env.get(nombre)
+    if not crudo:
+        return defecto
+    try:
+        valor = tipo(crudo)
+    except ValueError as exc:
+        raise ValueError(f"{nombre} espera un número, no {crudo!r}") from exc
+    if valor <= 0:
+        raise ValueError(f"{nombre} debe ser mayor que cero")
+    return valor
