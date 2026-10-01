@@ -175,6 +175,10 @@ export interface Cita {
   linea_fin?: number | null;
 }
 
+/**
+ * Hallazgo como lo sirve la consola: sin `evidencia` ni `propuesta` (texto libre de los críticos que
+ * puede citar código); la API los quita y la consola nunca muestra código.
+ */
 export interface Hallazgo {
   id: string;
   gate: GateFase;
@@ -182,8 +186,6 @@ export interface Hallazgo {
   severidad: Severidad;
   titulo: string;
   cita: Cita;
-  evidencia: string;
-  propuesta?: string | null;
   criterio?: string | null;
   refutado?: boolean;
 }

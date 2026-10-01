@@ -8,9 +8,16 @@ checkpoints, integración, trazabilidad CA-NN), el grafo de código y la
 auditoría. El chat de contexto (fase 8) vive aparte y se enchufa en la ruta
 que la consola le reserva.
 
-Nunca muestra código: de una orden solo salen sus metadatos (nunca
-instrucciones, plantilla ni contexto), de un snapshot solo rutas y símbolos,
-y del grafo solo nombres, rutas y relaciones.
+Nunca muestra código, y lo garantiza la API, no solo la SPA: de una orden solo
+salen sus metadatos (nunca instrucciones, plantilla, contexto ni comando de
+validación), de un hallazgo no salen `evidencia` ni `propuesta` (texto libre de
+los críticos), del estado tampoco `comando_validacion`, de un snapshot solo
+rutas y símbolos (la capa de datos ni carga `diff` ni `fragmentos`), y del
+grafo solo nombres, rutas y relaciones. Todo es lista blanca (`vistas.py`):
+un campo nuevo del contrato no sale hasta que se agregue allí. Lo que sí sale
+es texto escrito por personas o por el arnés (`pedido`, `titulo`, comentarios,
+motivos, la `pregunta` de un checkpoint) y los títulos de hallazgos. `/v1` y
+MCP no pasan por estos filtros: el arnés necesita la orden completa.
 
 ## Piezas
 
@@ -60,6 +67,9 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
 | `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | opcional | Flujos de eventos en vivo abiertos a la vez por persona y por réplica (5 por defecto); al exceder, 429. |
+| `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | opcional | Ídem en total por réplica (200 por defecto). |
+| `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | opcional | Cada cuántos segundos un flujo vuelve a comprobar el rol `lector` y se cierra si lo perdió (30 por defecto). |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
 con token de desarrollo y **sustituye por completo** la identidad de GitHub.
@@ -174,7 +184,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `POST /auth/salir` | Borra la cookie. |
 | `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
-| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola` (`unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`). |
+| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar. |
@@ -185,11 +195,23 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<secreto>/<clave>`. |
 | `GET /orgs/{org}/workspaces/{ws}/resumen` | Unidades por fase y estado, integradas, checkpoints pendientes, convergencia de gates, gasto del mes contra presupuesto, commit del grafo por repositorio. |
 | `GET /orgs/{org}/workspaces/{ws}/auditoria?evento=&repositorio=&unidad=&desde=&hasta=&cursor=&limite=` | Auditoría, más reciente primero. |
-| `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado y resumen de la orden vigente. |
+| `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado (sin evidencia ni propuesta de los hallazgos) y resumen de la orden vigente. |
 | `GET …/unidades/{u}/linea-de-tiempo` | Eventos de sincronización y resumen de órdenes con su reporte (archivos tocados, tareas completadas). |
 | `GET …/unidades/{u}/trazabilidad` | CA-NN → tareas → archivos → símbolos → hallazgos (de órdenes, reportes y snapshots). |
-| `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir. |
+| `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir (un valor inválido se ignora y empieza desde el principio). Tope por persona y global (429 con `Retry-After`), consulta en un executor propio y revalida el rol `lector` cada `RAILSPEC_CONSOLA_SSE_REVALIDAR_S`: si se revoca, el flujo se corta en ese plazo (no hasta los 300 s). Los topes son por réplica. |
 | `GET /orgs/{org}/workspaces/{ws}/grafo/repositorios` | Repositorios vinculados con nivel, rol y commit canónico del grafo. |
+
+Crear perfiles, presupuestos y proveedores de contexto es atómico: el documento
+nace con un `_id` determinista (`<org>/<workspace o *>/<nombre>` para perfiles,
+`<org>/<workspace o *>` para presupuestos y
+`<org>/<workspace o *>/<rol>/<nombre>` para proveedores de contexto, el mismo
+que escribe el motor) y hay un índice único por clave natural, así que dos
+`PUT` simultáneos que crean lo mismo dejan un solo documento y el perdedor
+recibe 409. Los documentos anteriores (`_id` ObjectId, creados por la consola
+antes de esto) no se migran: se leen y editan por su clave natural y conservan
+su `_id`. Si ya hubiera duplicados de aquella carrera, el servidor arranca igual,
+avisa en el log (`hay documentos duplicados`) y no crea el índice hasta que se
+borren a mano.
 
 ## Chat de contexto (fase 8)
 
