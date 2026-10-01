@@ -39,6 +39,10 @@ from railspec.contracts.snapshot import Snapshot
 #: Workspace reservado para auditar cambios a nivel organización.
 WORKSPACE_ORG = "org"
 
+#: Proyección del snapshot: la consola solo usa rutas y símbolos, nunca el texto de código
+#: (``diff`` y ``fragmentos`` de los niveles interno y abierto), así que ni se carga.
+SIN_TEXTO_DE_CODIGO = {"diff": 0, "fragmentos": 0}
+
 
 def _doc(modelo: Any) -> dict[str, Any]:
     return json.loads(modelo.model_dump_json())
@@ -265,7 +269,7 @@ class AlmacenConsola:
             "unidad.workspace": a.workspace,
             "unidad.unidad": a.unidad,
         }
-        doc = self.db.snapshots.find_one(filtro)
+        doc = self.db.snapshots.find_one(filtro, SIN_TEXTO_DE_CODIGO)
         return Snapshot.model_validate(_limpio(doc)) if doc else None
 
 
