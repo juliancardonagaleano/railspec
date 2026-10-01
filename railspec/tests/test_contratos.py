@@ -37,6 +37,7 @@ from railspec.contracts.tools import (
     UnitApproveEntrada,
     UnitExportSalida,
     UnitImportEntrada,
+    UnitIntegrateEntrada,
     UnitSetModeEntrada,
     UnitStartEntrada,
     resolver_tool,
@@ -743,3 +744,10 @@ def test_auditoria_de_importacion() -> None:
     _rechaza(RegistroAuditoria, {**base, "artefactos_importados": None}, "importacion necesita")
     _rechaza(RegistroAuditoria, {**base, "actor": f.SERVIDOR.model_dump()}, "actor humano")
     _rechaza(RegistroAuditoria, {**base, "evento": "integracion"}, "solo van con importacion")
+
+
+def test_unit_integrate_commit_integrado_opcional() -> None:
+    base = {"unidad": f.ALCANCE_UNIDAD.model_dump(), "especificacion_viva": "docs/specs/pdf.md"}
+    assert UnitIntegrateEntrada.model_validate(base).commit_integrado is None
+    UnitIntegrateEntrada.model_validate({**base, "commit_integrado": f.BASE})
+    _rechaza(UnitIntegrateEntrada, {**base, "commit_integrado": "abc"}, "commit_integrado")

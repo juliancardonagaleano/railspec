@@ -177,7 +177,10 @@ su prueba negativa.
   añade los verbos `impact` y `trace` de `graph.query`, `RefCriterio` en sus
   resultados, las tools `unit.import` (solo humanos) y `unit.export`, el evento de
   auditoría `importacion`, el paquete
-  `railspec.unidad/v1` y la causa de escalado `importado`.
+  `railspec.unidad/v1`, la causa de escalado `importado` y
+  `commit_integrado` opcional en `unit.integrate`, para conservar la
+  superposición de la unidad en el grafo hasta que el canónico alcance ese
+  commit.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 
