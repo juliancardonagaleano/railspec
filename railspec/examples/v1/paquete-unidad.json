@@ -1,0 +1,40 @@
+{
+  "artefactos": {
+    "plan": {
+      "contenido": "# Plan\n\nFirmar en el servicio de emisión.\n",
+      "sha256": "29605d48451634011fd3197d88aef939a8c85e8f7200405166460d4a3d83b19a",
+      "tipo": "plan"
+    },
+    "spec": {
+      "contenido": "# Spec\n\nCA-01: el PDF sale firmado.\n",
+      "sha256": "eb3f6c730d0f6c9bd160b71094500137594350bc3d9dd57b6a89515492a74a78",
+      "tipo": "spec"
+    }
+  },
+  "comando_validacion": "pytest tests/pdf",
+  "depende_de_original": [
+    "0040-plantillas"
+  ],
+  "fase_retomar": "tasks",
+  "formato": "railspec.unidad/v1",
+  "governance_refs": [
+    "ADR-007"
+  ],
+  "historial_gates": [
+    {
+      "cerrado_en": "2026-09-30T18:00:00Z",
+      "gate": "spec",
+      "iteraciones": 1,
+      "resultado": "aprobado"
+    }
+  ],
+  "origen": {
+    "id_original": "0042-firmar-pdf",
+    "repositorio": "certificados-api",
+    "tipo": "sdd-kit"
+  },
+  "pedido": "Firmar los certificados emitidos",
+  "riesgo": "medio",
+  "titulo": "Firmar PDF",
+  "version_contrato": "1.4"
+}

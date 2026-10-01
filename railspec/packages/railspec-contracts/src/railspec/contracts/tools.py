@@ -30,6 +30,7 @@ from .comun import (
     AlcanceWorkspace,
     Arnes,
     Commit,
+    CriterioId,
     EstadoFase,
     Fase,
     Modo,
@@ -46,7 +47,8 @@ from .estado import Checkpoint, Decision, EstadoUnidad
 from .eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
 from .insumo import Insumo
 from .orden import OrdenDeTrabajo
-from .referencias import RefArchivo, RefNodoGrafo, RefSimbolo
+from .portabilidad import PaqueteUnidad
+from .referencias import RefArchivo, RefCriterio, RefNodoGrafo, RefSimbolo
 from .reporte import ReporteOrden
 from .repositorio import CLAVES_TELEMETRIA, Rol
 from .snapshot import (
@@ -136,6 +138,41 @@ class UnitStartEntrada(Mensaje):
 class UnitStartSalida(Mensaje):
     estado: EstadoUnidad
     version_contrato_negociada: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
+
+
+# --- unit.import y unit.export (desde 1.4) ----------------------------------------------
+
+
+class UnitImportEntrada(Mensaje):
+    """Crea una unidad desde un paquete ``railspec.unidad/v1`` (ver ``portabilidad``)."""
+
+    alcance: AlcanceWorkspace
+    repositorios: list[RepositorioInicio] = Field(
+        min_length=1, description="El primero es el primario donde se trabaja."
+    )
+    arnes: Arnes | None = None
+    version_contrato_cliente: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
+    paquete: PaqueteUnidad
+
+
+class UnitImportSalida(Mensaje):
+    estado: EstadoUnidad
+    ya_existia: bool = Field(description="True si el mismo origen ya se había importado.")
+    version_contrato_negociada: str = Field(pattern=r"^[0-9]+\.[0-9]+$")
+
+
+class UnitExportEntrada(Mensaje):
+    unidad: AlcanceUnidad
+
+
+class UnitExportSalida(Mensaje):
+    paquete: PaqueteUnidad
+
+    @model_validator(mode="after")
+    def _origen(self) -> UnitExportSalida:
+        if self.paquete.origen.tipo != "railspec":
+            raise ValueError("un paquete exportado tiene origen railspec")
+        return self
 
 
 # --- unit.advance -----------------------------------------------------------------
@@ -365,6 +402,8 @@ class VerboGrafo(StrEnum):
     search = "search"
     traverse = "traverse"
     related = "related"
+    impact = "impact"
+    trace = "trace"
 
 
 class ConsultaResolve(Contrato):
@@ -415,6 +454,37 @@ class ConsultaRelated(Contrato):
     simbolo: SimboloId
 
 
+class ConsultaImpact(Contrato):
+    """Desde 1.4: impacto de la superposición de una unidad (exige ``unidad``).
+
+    Devuelve los símbolos que la superposición toca (``distancia`` 0) y los
+    afectados aguas arriba (``distancia`` >= 1, con ``relacion``), todos con
+    ``riesgo``.
+    """
+
+    verbo: Literal["impact"] = "impact"
+    profundidad: int = Field(default=3, ge=1, le=5)
+
+
+class ConsultaTrace(Contrato):
+    """Desde 1.4: trazabilidad entre criterios ``CA-NN`` y símbolos.
+
+    Con ``criterio`` (exige ``unidad``) devuelve ``RefSimbolo`` de los símbolos
+    enlazados a ese criterio; con ``simbolo`` devuelve ``RefCriterio`` de las
+    unidades y criterios que lo tocaron. Exactamente uno de los dos.
+    """
+
+    verbo: Literal["trace"] = "trace"
+    criterio: CriterioId | None = None
+    simbolo: SimboloId | None = None
+
+    @model_validator(mode="after")
+    def _uno(self) -> ConsultaTrace:
+        if (self.criterio is None) == (self.simbolo is None):
+            raise ValueError("trace exige exactamente uno de criterio o simbolo")
+        return self
+
+
 class GraphQueryEntrada(Mensaje):
     alcance: AlcanceWorkspace
     repositorios: list[Slug] = Field(
@@ -424,14 +494,30 @@ class GraphQueryEntrada(Mensaje):
         default=None, description="Incluye la superposición sin commit de esa unidad."
     )
     consulta: Annotated[
-        Union[ConsultaResolve, ConsultaSearch, ConsultaTraverse, ConsultaRelated],
+        Union[
+            ConsultaResolve,
+            ConsultaSearch,
+            ConsultaTraverse,
+            ConsultaRelated,
+            ConsultaImpact,
+            ConsultaTrace,
+        ],
         Field(discriminator="verbo"),
     ]
     limite: int = Field(default=25, ge=1, le=200)
 
+    @model_validator(mode="after")
+    def _unidad(self) -> GraphQueryEntrada:
+        if self.unidad is None:
+            if isinstance(self.consulta, ConsultaImpact):
+                raise ValueError("impact exige unidad")
+            if isinstance(self.consulta, ConsultaTrace) and self.consulta.criterio is not None:
+                raise ValueError("trace por criterio exige unidad")
+        return self
+
 
 class ResultadoGrafo(Contrato):
-    ref: Annotated[Union[RefSimbolo, RefNodoGrafo, RefArchivo], Field(discriminator="tipo")]
+    ref: Annotated[Union[RefSimbolo, RefNodoGrafo, RefArchivo, RefCriterio], Field(discriminator="tipo")]
     puntuacion: float | None = None
     relacion: Relacion | None = None
     distancia: int | None = Field(default=None, ge=0)
@@ -702,6 +788,25 @@ TOOLS: dict[str, ToolDef] = {
             tipos_actor=frozenset({TipoActor.humano}),
             entrada=UnitSetModeEntrada,
             salida=EstadoSalida,
+        ),
+        ToolDef(
+            nombre="unit.import",
+            descripcion="Crea una unidad desde un paquete railspec.unidad/v1 (kit SDD u otro Railspec).",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_M, _H}),
+            tipos_actor=frozenset({TipoActor.humano, TipoActor.agente}),
+            entrada=UnitImportEntrada,
+            salida=UnitImportSalida,
+        ),
+        ToolDef(
+            nombre="unit.export",
+            descripcion="Devuelve el paquete railspec.unidad/v1 de una unidad.",
+            efecto=_L,
+            rol_minimo=Rol.lector,
+            superficies=frozenset({_M, _H}),
+            entrada=UnitExportEntrada,
+            salida=UnitExportSalida,
         ),
         ToolDef(
             nombre="unit.status",

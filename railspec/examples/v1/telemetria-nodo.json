@@ -16,6 +16,6 @@
   "tokens_salida": 1200,
   "unidad": "0001-emitir-pdf",
   "veredicto": "refinado",
-  "version_contrato": "1.3",
+  "version_contrato": "1.4",
   "workspace": "certificados"
 }
