@@ -45,6 +45,10 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_CACHE_NODOS_S": ("86400", "Caché de nodos de modelo por hash de entradas (s); 0 la apaga."),
     "RAILSPEC_PCE_URL": ("", "URL MCP de la gobernanza (PCE)."),
     "RAILSPEC_CONTEXTO_CACHE_S": ("900", "Caché de consultas a proveedores de contexto, en segundos."),
+    "RAILSPEC_VINCULOS_OWNERS": (
+        "",
+        "Owners de GitHub (coma) que vincula una organización sin github_org; vacío = ninguno.",
+    ),
     "RAILSPEC_ANTHROPIC_HABILITADO": ("false", "Anthropic directo (solo nivel abierto)."),
     "RAILSPEC_AZURE_CLIENT_ID": ("", "Client id de la identidad administrada para Workload Identity."),
     "RAILSPEC_OIDC_AUDIENCIA": ("railspec", "Audiencia del token OIDC de CI; la del workflow de reindexado."),
@@ -78,6 +82,9 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     for nombre in ("RAILSPEC_CATALOGO_TTL_S", "RAILSPEC_CACHE_NODOS_S", "RAILSPEC_CONTEXTO_CACHE_S"):
         if not re.fullmatch(r"\d+(\.\d+)?", salida[nombre]):
             raise ErrorRender(f"{nombre} debe ser un número de segundos")
+    for nombre in ("RAILSPEC_VINCULOS_OWNERS",):
+        if not re.fullmatch(r"[A-Za-z0-9,\s-]*", salida[nombre]):
+            raise ErrorRender(f"{nombre} solo admite owners de GitHub separados por comas")
     if re.search(r"[\"\\]", salida["RAILSPEC_FOUNDRY_DESPLIEGUES"]):
         raise ErrorRender(
             "RAILSPEC_FOUNDRY_DESPLIEGUES va entre comillas en el ConfigMap: "

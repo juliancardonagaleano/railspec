@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from railspec.contracts.comun import Actor
@@ -40,11 +41,27 @@ def manejador_graph_query(grafo: Any, almacen: Any):
     return graph_query
 
 
-def repositorio_de_url(url: str) -> str | None:
-    """``https://github.com/acme/api(.git)`` → ``acme/api``."""
+#: Única forma admitida de URL de repositorio: ``https://github.com/<owner>/<repo>`` (con ``.git`` o ``/``
+#: finales opcionales). Sin userinfo, puerto, consulta, fragmento ni segmentos de más.
+_URL_GITHUB = re.compile(
+    r"https://github\.com/(?P<owner>[A-Za-z0-9][A-Za-z0-9-]{0,38})/(?P<repo>[A-Za-z0-9._-]{1,100}?)(?:\.git)?/?"
+)
 
-    partes = url.removesuffix("/").removesuffix(".git").split("/")
-    return "/".join(partes[-2:]) if len(partes) >= 5 else None
+
+def repositorio_de_url(url: str) -> str | None:
+    """``https://github.com/acme/api(.git)`` → ``acme/api``; None si no tiene exactamente esa forma.
+
+    El resultado se usa como ruta bajo la carpeta de clones, así que ``.``, ``..`` y
+    nombres de solo puntos no valen aunque el patrón de caracteres los admita.
+    """
+
+    m = _URL_GITHUB.fullmatch(url)
+    if m is None:
+        return None
+    repo = m["repo"]
+    if set(repo) == {"."} or repo == ".git":
+        return None
+    return f"{m['owner']}/{repo}"
 
 
 def manejador_graph_index(indexador: Any, almacen: Any):

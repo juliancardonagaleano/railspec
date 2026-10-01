@@ -267,3 +267,15 @@ def test_reindexar_reintenta_5xx_y_no_4xx(tmp_path):
 def test_token_oidc_exige_permiso():
     with pytest.raises(reindexar.ErrorReindexado, match="id-token"):
         reindexar.TokenOidc("railspec", {})
+
+
+def test_render_politica_de_contexto_y_vinculos_en_configmap():
+    yaml = pytest.importorskip("yaml")
+    por_defecto = renderizar.renderizar(MINIMO)
+    mapa = next(d for d in yaml.safe_load_all(por_defecto) if d and d["kind"] == "ConfigMap")["data"]
+    assert mapa["RAILSPEC_VINCULOS_OWNERS"] == ""  # sin allowlist, una organización sin github_org no vincula
+    texto = renderizar.renderizar({**MINIMO, "RAILSPEC_VINCULOS_OWNERS": "acme, acme-labs"})
+    mapa = next(d for d in yaml.safe_load_all(texto) if d and d["kind"] == "ConfigMap")["data"]
+    assert mapa["RAILSPEC_VINCULOS_OWNERS"] == "acme, acme-labs"
+    with pytest.raises(renderizar.ErrorRender, match="VINCULOS_OWNERS"):
+        renderizar.renderizar({**MINIMO, "RAILSPEC_VINCULOS_OWNERS": 'acme"\n  X: "y'})

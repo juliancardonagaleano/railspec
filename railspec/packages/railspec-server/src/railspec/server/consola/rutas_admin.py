@@ -7,11 +7,13 @@ entidad (R4) y un registro en ``auditoria`` con el actor (R2).
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import Field
+from pydantic import Field, field_validator
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace, NivelCodigo, Perfil, RolRepositorio
 from railspec.contracts.repositorio import (
     AsignacionRol,
@@ -26,6 +28,7 @@ from railspec.contracts.repositorio import (
     politica_chat_por_defecto,
 )
 
+from ..api.grafo import repositorio_de_url
 from .almacen import WORKSPACE_ORG
 from .api import Entrada
 from .contexto import ContextoConsola
@@ -52,7 +55,8 @@ def _json(modelo: Any) -> dict[str, Any]:
 class OrganizacionNueva(Entrada):
     id: str = Field(pattern=SLUG)
     nombre: str
-    github_org: str | None = None
+    #: Owner de GitHub de la organización: los vínculos de repositorio solo pueden ser suyos.
+    github_org: str | None = Field(default=None, pattern=f"^{PATRON_LOGIN}$")
     region_datos: str
 
 
@@ -94,10 +98,18 @@ async def crear_org(entrada: OrganizacionNueva, request: Request) -> dict[str, A
 async def editar_org(org: str, entrada: OrganizacionEdicion, request: Request) -> dict[str, Any]:
     ctx = _ctx(request)
     sesion = await ctx.sesion(request)
-    ctx.permisos(sesion).exigir(org, None, Rol.org_admin)
+    permisos = ctx.permisos(sesion)
+    permisos.exigir(org, None, Rol.org_admin)
     previa = ctx.datos.organizacion(org)
     if previa is None:
         raise HTTPException(404, f"no existe la organización {org}")
+    if entrada.github_org != previa.github_org:
+        # ``github_org`` delimita qué repositorios (y qué clones compartidos) puede vincular la organización:
+        # si un org-admin lo fijara a su gusto, podría apuntar a los de otro tenant.
+        if entrada.github_org is not None and not re.fullmatch(PATRON_LOGIN, entrada.github_org):
+            raise HTTPException(422, "github_org no es un nombre de organización de GitHub")
+        if not permisos.plataforma:
+            raise HTTPException(403, "github_org solo lo cambia quien administra la plataforma")
     actor = sesion.actor()
     nueva = Organizacion(
         id=org,
@@ -300,6 +312,41 @@ class VinculoEntrada(Entrada):
     version: int | None = None
     motivo: str | None = Field(default=None, max_length=2000)
 
+    @field_validator("url")
+    @classmethod
+    def _url_de_github(cls, url: str) -> str:
+        if repositorio_de_url(url) is None:
+            raise ValueError(
+                "la URL debe ser https://github.com/<owner>/<repo>, sin credenciales, puerto, "
+                "consulta, fragmento ni segmentos de más"
+            )
+        return url
+
+
+def _owners_de_plataforma() -> frozenset[str]:
+    """``RAILSPEC_VINCULOS_OWNERS``: owners que vincula una organización sin ``github_org``."""
+
+    crudo = os.environ.get("RAILSPEC_VINCULOS_OWNERS", "")
+    return frozenset(p.lower() for p in re.split(r"[,\s]+", crudo) if p)
+
+
+def _exigir_owner_de_la_org(ctx: ContextoConsola, org: str, url: str) -> None:
+    """El owner de la URL tiene que ser el ``github_org`` de la organización (falla cerrado si no hay)."""
+
+    owner = (repositorio_de_url(url) or "").split("/")[0].lower()
+    previa = ctx.datos.organizacion(org)
+    if previa is not None and previa.github_org:
+        if owner != previa.github_org.lower():
+            raise HTTPException(
+                422, f"el repositorio debe ser de la organización de GitHub '{previa.github_org}' ({org})"
+            )
+    elif owner not in _owners_de_plataforma():
+        raise HTTPException(
+            422,
+            f"{org} no tiene github_org: quien administra la plataforma lo define en la organización "
+            "o autoriza el owner en RAILSPEC_VINCULOS_OWNERS",
+        )
+
 
 @router.get("/orgs/{org}/workspaces/{ws}/repositorios")
 async def listar_vinculos(org: str, ws: str, request: Request) -> list[dict[str, Any]]:
@@ -315,6 +362,7 @@ async def guardar_vinculo(
     ctx = _ctx(request)
     sesion = await ctx.sesion(request)
     ctx.permisos(sesion).exigir(org, ws, Rol.workspace_admin)
+    _exigir_owner_de_la_org(ctx, org, entrada.url)
     alcance = AlcanceRepositorio(org=org, workspace=ws, repositorio=repo)
     previo = ctx.datos.vinculo(alcance)
     if (previo is None) != (entrada.version is None):

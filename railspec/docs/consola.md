@@ -56,6 +56,7 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
 | `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_VINCULOS_OWNERS` | ConfigMap (`renderizar.py`) | Owners de GitHub (coma) que puede vincular una organización que **no** tiene `github_org`. Vacía (por defecto): esas organizaciones no pueden vincular repositorios. Una organización con `github_org` solo vincula repositorios de ese owner, con o sin esta variable. |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
 con token de desarrollo, solo para entornos sin GitHub App.
@@ -69,7 +70,10 @@ con token de desarrollo, solo para entornos sin GitHub App.
    `desarrollador` o `lector` por workspace) a personas, por login, o a
    equipos de GitHub, por su id numérico (`GET /orgs/{org}/teams/{slug}` en
    la API de GitHub lo da).
-5. Vincular repositorios al workspace (nivel `restringido` por defecto).
+5. Vincular repositorios al workspace (nivel `restringido` por defecto). La URL
+   es `https://github.com/<owner>/<repo>` y el owner, el `github_org` de la
+   organización (ver «Vínculos de repositorio»); antes, la plataforma tiene que
+   fijar ese `github_org` al crear o editar la organización.
 
 ## Sesión, tokens y anti-CSRF
 
@@ -103,13 +107,31 @@ oculta lo que el rol no permite, pero decide el servidor.
 | Aprobar checkpoints, integrar, cambiar modo, arrancar unidades (tools) | el `rol_minimo` de la tool (`desarrollador`) |
 | Editar workspace, vínculos, roles del workspace, configuración del workspace | `workspace-admin` |
 | Crear workspaces, roles `org-admin`, configuración de la organización | `org-admin` |
-| Crear organizaciones | administrador de la plataforma |
+| Crear organizaciones; fijar o cambiar su `github_org` | administrador de la plataforma |
 
 Las tools llamadas desde la consola (`POST /consola/api/tools/{nombre}`) pasan
 por el mismo registro que MCP y `/v1/tools`, con un autorizador que además
 resuelve equipos. Por MCP y `/v1/tools` los roles de equipo todavía no se
 resuelven (el token de GitHub del arnés no trae equipos); hasta entonces, a
 quien use el arnés hay que asignarle el rol como persona.
+
+## Vínculos de repositorio
+
+- **URL**: exactamente `https://github.com/<owner>/<repo>` (con `.git` o `/` finales
+  opcionales). Se rechazan otros hosts, credenciales en la URL, puerto, consulta,
+  fragmento, segmentos de más y los nombres `.` y `..`. `ClonesGit` usa
+  `<owner>/<repo>` como ruta bajo `RAILSPEC_CHAT_CLONES` y además comprueba que la
+  ruta resuelta no salga de esa carpeta (tampoco por enlaces simbólicos: los clones
+  deben ser directorios reales dentro de ella).
+- **Owner**: tiene que ser el `github_org` de la organización (sin distinguir
+  mayúsculas). Falla cerrado: si la organización no tiene `github_org`, solo vale un
+  owner de `RAILSPEC_VINCULOS_OWNERS`; sin ninguno de los dos, el vínculo se rechaza
+  (422) con el motivo. Un `org-admin` no puede cambiar `github_org` (403): lo fija la
+  plataforma, porque los clones son compartidos por owner/repo y quien eligiera su
+  owner a gusto podría apuntar al clon de otro tenant.
+- **Límite**: los vínculos guardados antes de esta regla no se revalidan contra
+  `github_org` al leer código (solo se descartan los de forma inválida). Conviene
+  revisar `GET …/repositorios` de cada organización al desplegar.
 
 ## Aprobaciones e integración (R7)
 
@@ -150,7 +172,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar. |
-| `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. |
+| `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. La URL es `https://github.com/<owner>/<repo>` del `github_org` de la organización (422 si no). |
 | `GET /orgs/{org}/catalogo`, `POST …/catalogo/sincronizar` | Catálogo de modelos. Sincronizar responde 501 hasta que el servidor sepa leer el catálogo de cada proveedor. |
 | `GET/PUT /orgs/{org}/perfiles[/{nombre}]?workspace=` | Perfiles; validados contra el catálogo (422 si un modelo no está o no admite el effort, las salidas estructuradas o el contexto pedidos; aviso si no hay catálogo de ese proveedor). |
 | `GET/PUT /orgs/{org}/presupuestos?workspace=` | Presupuestos. |

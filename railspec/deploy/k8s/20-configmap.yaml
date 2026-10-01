@@ -22,6 +22,8 @@ data:
   RAILSPEC_CACHE_NODOS_S: "${RAILSPEC_CACHE_NODOS_S}"
   RAILSPEC_PCE_URL: "${RAILSPEC_PCE_URL}"
   RAILSPEC_CONTEXTO_CACHE_S: "${RAILSPEC_CONTEXTO_CACHE_S}"
+  # Owners de GitHub que vincula una organización sin github_org (vacío = ninguno).
+  RAILSPEC_VINCULOS_OWNERS: "${RAILSPEC_VINCULOS_OWNERS}"
   RAILSPEC_ANTHROPIC_HABILITADO: "${RAILSPEC_ANTHROPIC_HABILITADO}"
   # Identidad de servicio de CI para graph.index. Audiencia vacía = OIDC desactivado.
   RAILSPEC_OIDC_AUDIENCIA: "${RAILSPEC_OIDC_AUDIENCIA}"

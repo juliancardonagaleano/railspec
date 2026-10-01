@@ -17,6 +17,7 @@ from railspec.contracts.repositorio import (
     Auditoria,
     Capacidades,
     ModeloCatalogo,
+    Organizacion,
     Rol,
     SujetoEquipo,
     SujetoUsuario,
@@ -361,6 +362,18 @@ def test_ultimo_org_admin_no_se_quita():
 def test_vinculo_nivel_motivo_y_desvinculo_auditado():
     async def caso():
         m = Montaje(nivel=None)
+        # Los vínculos solo pueden ser del owner de GitHub de la organización (``github_org``).
+        m.ctx.datos.guardar_organizacion(
+            Organizacion(
+                id=ORG,
+                nombre="ACME",
+                github_org="acme",
+                region_datos="eastus2",
+                version=1,
+                auditoria=_auditoria(),
+            ),
+            None,
+        )
         asignar(m.almacen, Rol.workspace_admin, ANA_ID)
         asignar(m.almacen, Rol.desarrollador, LUIS_ID)
         base = f"/consola/api/orgs/{ORG}/workspaces/{WS}/repositorios"
