@@ -34,7 +34,17 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_MEMORIA": ("1Gi", "Memoria solicitada y límite por réplica."),
     "RAILSPEC_MONGO_DB": ("railspec", "Base de datos de Mongo."),
     "RAILSPEC_FOUNDRY_ENDPOINT": ("", "Endpoint del recurso de Azure AI Foundry."),
+    "RAILSPEC_FOUNDRY_REGION": ("", "Región del recurso de Foundry (p. ej. eastus2)."),
+    "RAILSPEC_FOUNDRY_ZONA_DATOS": ("", "Zona de datos del recurso de Foundry (us o eu)."),
+    "RAILSPEC_FOUNDRY_PROYECTO": ("", "Endpoint del proyecto de Foundry para leer los despliegues."),
+    "RAILSPEC_FOUNDRY_DESPLIEGUES": (
+        "",
+        "Despliegues declarados, despliegue=modelo[:SKU] separados por comas.",
+    ),
+    "RAILSPEC_CATALOGO_TTL_S": ("3600", "Vigencia del catálogo de modelos, en segundos."),
+    "RAILSPEC_CACHE_NODOS_S": ("86400", "Caché de nodos de modelo por hash de entradas (s); 0 la apaga."),
     "RAILSPEC_PCE_URL": ("", "URL MCP de la gobernanza (PCE)."),
+    "RAILSPEC_CONTEXTO_CACHE_S": ("900", "Caché de consultas a proveedores de contexto, en segundos."),
     "RAILSPEC_ANTHROPIC_HABILITADO": ("false", "Anthropic directo (solo nivel abierto)."),
     "RAILSPEC_AZURE_CLIENT_ID": ("", "Client id de la identidad administrada para Workload Identity."),
     "RAILSPEC_OIDC_AUDIENCIA": ("railspec", "Audiencia del token OIDC de CI; la del workflow de reindexado."),
@@ -65,6 +75,14 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     for nombre in ("RAILSPEC_IMAGEN", "RAILSPEC_DOMINIO", "RAILSPEC_NAMESPACE", "RAILSPEC_SECRETO"):
         if re.search(r"[\s\"'$]", salida[nombre]):
             raise ErrorRender(f"{nombre} tiene caracteres no válidos")
+    for nombre in ("RAILSPEC_CATALOGO_TTL_S", "RAILSPEC_CACHE_NODOS_S", "RAILSPEC_CONTEXTO_CACHE_S"):
+        if not re.fullmatch(r"\d+(\.\d+)?", salida[nombre]):
+            raise ErrorRender(f"{nombre} debe ser un número de segundos")
+    if re.search(r"[\"\\]", salida["RAILSPEC_FOUNDRY_DESPLIEGUES"]):
+        raise ErrorRender(
+            "RAILSPEC_FOUNDRY_DESPLIEGUES va entre comillas en el ConfigMap: "
+            "usar la forma despliegue=modelo[:SKU], no JSON"
+        )
     salida["RAILSPEC_WORKLOAD_IDENTITY"] = "true" if salida["RAILSPEC_AZURE_CLIENT_ID"] else "false"
     return salida
 

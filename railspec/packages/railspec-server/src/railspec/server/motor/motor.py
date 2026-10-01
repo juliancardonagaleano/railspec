@@ -225,14 +225,24 @@ class Motor:
 
     # --- runner del DAG ------------------------------------------------------------------
 
-    async def procesar(self, alcance: AlcanceUnidad, pedido: str | None = None) -> bool:
-        """Entrega las entradas pendientes al DAG hasta que no quede ninguna."""
+    async def procesar(
+        self,
+        alcance: AlcanceUnidad,
+        pedido: str | None = None,
+        arranque: dag.Arranque | dag.Importacion | None = None,
+    ) -> bool:
+        """Entrega las entradas pendientes al DAG hasta que no quede ninguna.
+
+        ``pedido`` arranca una unidad nueva; ``arranque``, una importada (``unit.import``).
+        """
 
         if not self.n.almacen.tomar_turno(alcance, self.dueno, self.n.reloj(), self.ttl_turno_s):
             return False
         try:
-            if pedido is not None:
-                await dag.construir(self.n, alcance, self.checkpoints).run(dag.Arranque(pedido=pedido))
+            if arranque is None and pedido is not None:
+                arranque = dag.Arranque(pedido=pedido)
+            if arranque is not None:
+                await dag.construir(self.n, alcance, self.checkpoints).run(arranque)
             while entradas := self.n.almacen.entradas_pendientes(alcance):
                 cp = await self.checkpoints.get_latest(workflow_name=nombre_workflow(alcance))
                 pendientes = set(cp.pending_request_info_events) if cp else set()
@@ -268,6 +278,17 @@ class Motor:
     async def start(self, e: UnitStartEntrada, actor: Actor) -> UnitStartSalida:
         negociada = negociar(e.version_contrato_cliente)
         self._humano(actor, "arrancar una unidad")
+        for insumo in e.insumos:
+            if self.n.insumos is None or not self.n.insumos.existe(e.alcance, insumo):
+                raise ErrorNegocio(CodigoError.no_encontrado, f"insumo {insumo} no existe en este workspace")
+        motivos = await self.n.validar_perfil(
+            e.alcance, e.perfil or Perfil.estandar, e.repositorios[0].repositorio, triaje(e)
+        )
+        if motivos:
+            raise ErrorNegocio(
+                CodigoError.perfil_insatisfacible,
+                f"perfil {(e.perfil or Perfil.estandar).value}: " + " | ".join(motivos),
+            )
         numero = self.n.almacen.siguiente_numero_unidad(e.alcance)
         alcance = AlcanceUnidad(
             org=e.alcance.org,
@@ -438,6 +459,14 @@ class Motor:
     async def report(self, r: ReporteOrden, actor: Actor) -> UnitReportSalida:
         estado = self._estado(r.unidad)
         if estado.orden_vigente is None or estado.orden_vigente != r.orden_id:
+            if self.n.almacen.reporte_aceptado(r.unidad, r.orden_id, r.secuencia):
+                # Reenvío de un reporte ya aceptado (el proxy perdió la respuesta): lo decimos
+                # con un código propio para que el cliente lo dé por entregado.
+                raise ErrorNegocio(
+                    CodigoError.secuencia_duplicada,
+                    f"el reporte de la orden {r.orden_id} (secuencia {r.secuencia}) ya fue aceptado",
+                    estado.version,
+                )
             raise ErrorNegocio(
                 CodigoError.orden_no_vigente, "el reporte no corresponde a la orden vigente", estado.version
             )
@@ -465,14 +494,7 @@ class Motor:
             else:
                 self.n.almacen.guardar_snapshot(s)
             if self.n.grafo is not None and s.delta_indice is not None:
-                self.n.grafo.aplicar_delta(
-                    AlcanceRepositorio(
-                        org=r.unidad.org, workspace=r.unidad.workspace, repositorio=s.repositorio
-                    ),
-                    s.base_commit,
-                    s.delta_indice,
-                    r.unidad.unidad,
-                )
+                self._grafo_snapshot(r, orden, vinculo)
 
         def cerrar_orden(e: EstadoUnidad) -> dict[str, Any] | None:
             if e.orden_vigente != r.orden_id:
@@ -493,6 +515,35 @@ class Motor:
         return UnitReportSalida(
             version_estado=self._estado(r.unidad).version if self.en_linea else nuevo.version
         )
+
+    def _grafo_snapshot(self, r: ReporteOrden, orden: Any, vinculo: Any) -> None:
+        """Superposición de la unidad y trazas ``CA-NN`` en el grafo central.
+
+        Con railspec-graph pasa por ``ingerir`` (exclusiones del vínculo otra
+        vez en el servidor y enlace de los criterios de las tareas completadas
+        con los símbolos que cambió este snapshot). El grafo informa, no
+        decide: un fallo suyo no tumba un reporte ya guardado.
+        """
+
+        s = r.snapshot
+        criterios = sorted(
+            {c for t in getattr(orden, "tareas", []) if t.id in r.tareas_completadas for c in t.criterios}
+        )
+        ingerir = getattr(self.n.grafo, "ingerir", None)
+        try:
+            if ingerir is not None and vinculo is not None:
+                ingerir(s, vinculo, criterios)
+            else:
+                self.n.grafo.aplicar_delta(
+                    AlcanceRepositorio(
+                        org=r.unidad.org, workspace=r.unidad.workspace, repositorio=s.repositorio
+                    ),
+                    s.base_commit,
+                    s.delta_indice,
+                    r.unidad.unidad,
+                )
+        except Exception as exc:
+            log.warning("grafo no actualizado para %s/%s: %s", r.unidad.unidad, s.repositorio, exc)
 
     def _exigencias(self, orden: Any, r: ReporteOrden, estado: EstadoUnidad) -> None:
         req = orden.reporte_requerido
@@ -591,6 +642,7 @@ class Motor:
 
         self._estado(e.unidad)
         nuevo = self.n.escribir(e.unidad, integrar, actor)
+        self._descartar_superposiciones(nuevo)
         self.n.emitir(
             e.unidad, UnidadIntegrada(especificacion_viva=e.especificacion_viva, pr_url=e.pr_url), actor
         )
@@ -602,6 +654,24 @@ class Motor:
             pr_url=e.pr_url,
         )
         return EstadoSalida(estado=nuevo)
+
+    def _descartar_superposiciones(self, estado: EstadoUnidad) -> None:
+        """Integrada la unidad, su código llega al canónico por el reindexado de CI; su
+        superposición sobra. Las trazas ``CA-NN`` se quedan (grafo aparte)."""
+
+        descartar = getattr(self.n.grafo, "descartar_superposicion", None)
+        if descartar is None:
+            return
+        u = estado.unidad
+        for r in estado.repositorios:
+            try:
+                descartar(
+                    AlcanceRepositorio(org=u.org, workspace=u.workspace, repositorio=r.repositorio),
+                    u.unidad,
+                    r.base_commit,
+                )
+            except Exception as exc:  # el grafo informa, no decide
+                log.warning("superposición de %s/%s no descartada: %s", u.unidad, r.repositorio, exc)
 
     # --- lecturas ---------------------------------------------------------------------------------------
 

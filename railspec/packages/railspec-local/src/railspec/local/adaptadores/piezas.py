@@ -257,6 +257,64 @@ class ElementosLista:
         return True
 
 
+@dataclass(frozen=True)
+class EntradaHook:
+    """Una entrada de Railspec en una lista de hooks del arnés (``hooks.PreToolUse``).
+
+    Las entradas propias se reconocen por el comando (``railspec hook …``), así
+    que una versión nueva reemplaza a la anterior y las ajenas no se tocan.
+    """
+
+    archivo: str
+    claves: tuple[str, ...]
+    valor: dict[str, Any]
+    prefijo_comando: str
+
+    def _propia(self, entrada: Any) -> bool:
+        if not isinstance(entrada, dict):
+            return False
+        return any(
+            isinstance(h, dict) and str(h.get("command", "")).startswith(self.prefijo_comando)
+            for h in entrada.get("hooks") or []
+        )
+
+    def _lista(self, datos: dict[str, Any]) -> list | None:
+        lista = _obtener(datos, self.claves)
+        return lista if isinstance(lista, list) else None
+
+    def instalar(self, raiz: Path) -> bool:
+        ruta = raiz / self.archivo
+        datos = _leer_objeto(ruta)
+        if self.instalada(raiz):
+            return False
+        contenedor = _contenedor(datos, self.claves[:-1], ruta, None)
+        lista = contenedor.setdefault(self.claves[-1], [])
+        if not isinstance(lista, list):
+            raise ErrorRailspec(f"{ruta}: `{'.'.join(self.claves)}` no es una lista; no se toca.")
+        lista[:] = [e for e in lista if not self._propia(e)] + [self.valor]
+        _escribir_objeto(raiz, ruta, datos, {})
+        return True
+
+    def instalada(self, raiz: Path) -> bool:
+        lista = self._lista(_leer_objeto_o_vacio(raiz / self.archivo)) or []
+        return [e for e in lista if self._propia(e)] == [self.valor]
+
+    def presente(self, raiz: Path) -> bool:
+        return any(self._propia(e) for e in self._lista(_leer_objeto_o_vacio(raiz / self.archivo)) or [])
+
+    def desinstalar(self, raiz: Path) -> bool:
+        ruta = raiz / self.archivo
+        if not self.presente(raiz):
+            return False
+        datos = _leer_objeto(ruta)
+        lista = self._lista(datos)
+        assert lista is not None
+        lista[:] = [e for e in lista if not self._propia(e)]
+        _podar(datos, self.claves)
+        _escribir_objeto(raiz, ruta, datos, {})
+        return True
+
+
 _PATRON_BLOQUE = re.compile(
     r"\n?" + re.escape(INICIO_BLOQUE) + r".*?" + re.escape(FIN_BLOQUE) + r"\n?", re.DOTALL
 )

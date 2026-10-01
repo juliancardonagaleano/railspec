@@ -58,9 +58,10 @@ from railspec.contracts.estado import (
 )
 from railspec.contracts.eventos import Direccion, EventoSync, SnapshotSubido
 from railspec.contracts.insumo import Insumo, RepositorioInsumo
-from railspec.contracts.orden import AlcanceArchivos, ContextoArmado, OrdenImplementar, Tarea
+from railspec.contracts.orden import AlcanceArchivos, Artefacto, ContextoArmado, OrdenImplementar, Tarea
+from railspec.contracts.portabilidad import ArtefactosPaquete, GateImportado, OrigenPaquete, PaqueteUnidad
 from railspec.contracts.referencias import RefCriterio, RefSimbolo
-from railspec.contracts.reporte import ReporteOrden, ResultadoOrden, ResultadoValidacion
+from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, ResultadoValidacion
 from railspec.contracts.repositorio import (
     AsignacionRol,
     Auditoria,
@@ -503,6 +504,28 @@ def auditoria() -> RegistroAuditoria:
     )
 
 
+def artefacto(tipo: Artefacto, contenido: str) -> ArtefactoRedactado:
+    return ArtefactoRedactado(tipo=tipo, contenido=contenido, sha256=sha(contenido))
+
+
+def paquete_unidad() -> PaqueteUnidad:
+    return PaqueteUnidad(
+        origen=OrigenPaquete(tipo="sdd-kit", id_original="0042-firmar-pdf", repositorio="certificados-api"),
+        titulo="Firmar PDF",
+        pedido="Firmar los certificados emitidos",
+        artefactos=ArtefactosPaquete(
+            spec=artefacto(Artefacto.spec, "# Spec\n\nCA-01: el PDF sale firmado.\n"),
+            plan=artefacto(Artefacto.plan, "# Plan\n\nFirmar en el servicio de emisión.\n"),
+        ),
+        fase_retomar=Fase.tasks,
+        riesgo=Riesgo.medio,
+        governance_refs=["ADR-007"],
+        comando_validacion="pytest tests/pdf",
+        depende_de_original=["0040-plantillas"],
+        historial_gates=[GateImportado(gate="spec", resultado="aprobado", iteraciones=1, cerrado_en=T0)],
+    )
+
+
 EJEMPLOS = {
     "orden-de-trabajo": orden,
     "reporte-orden": reporte,
@@ -511,6 +534,7 @@ EJEMPLOS = {
     "estado-unidad": estado_unidad,
     "estado-local": estado_local,
     "insumo": insumo,
+    "paquete-unidad": paquete_unidad,
     "respuesta-chat": respuesta_chat,
     "veredicto-gate-salida": veredicto_permitido,
     "conversacion": conversacion,

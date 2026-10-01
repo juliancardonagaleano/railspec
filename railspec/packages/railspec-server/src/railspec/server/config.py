@@ -26,6 +26,15 @@ class ConfigFoundry:
     endpoint: str
     #: Sin clave, el adaptador usa Entra ID (DefaultAzureCredential).
     api_key: str | None = None
+    #: Región del recurso (``eastus2``): la de la auditoría y la de los SKU Standard.
+    region: str | None = None
+    #: Zona de datos del recurso (``us``, ``eu``): la de los SKU DataZone.
+    zona_datos: str | None = None
+    #: Endpoint del proyecto de Foundry para leer el catálogo de despliegues por API.
+    proyecto: str | None = None
+    proyecto_api_version: str = "v1"
+    #: Despliegues declarados a mano (``despliegue=modelo[:SKU]`` o JSON); se suman a los del proyecto.
+    despliegues: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +52,14 @@ class Configuracion:
     #: Grafo central (railspec-graph). Sin él, el gate de código no ve impacto de grafo.
     falkordb_url: str | None = None
     pce_api_key: str | None = None
+    #: Caché de consultas a proveedores de contexto (PCE), en segundos; 0 la desactiva.
+    contexto_cache_s: float = 900.0
+    #: Vigencia del catálogo de modelos leído por API, en segundos.
+    catalogo_ttl_s: float = 3600.0
+    #: Vigencia de la caché de nodos de modelo por hash de entradas, en segundos; 0 la desactiva.
+    cache_nodos_s: float = 86400.0
+    #: Montaje de Kubernetes Secrets para ``credencial_ref`` (``secret://<secreto>/<clave>``).
+    secretos_dir: str = "/var/run/secrets/railspec"
     #: Tokens de desarrollo ``token=login:github_id`` separados por coma. Solo
     #: para entornos sin GitHub App; en producción la identidad es GitHub.
     tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
@@ -51,6 +68,12 @@ class Configuracion:
     oidc_emisor: str = "https://token.actions.githubusercontent.com"
     #: ``owner/repo`` que pueden presentar un token OIDC; vacío = cualquiera con vínculo.
     oidc_repositorios: frozenset[str] = frozenset()
+    #: Chat de contexto: carpeta con un clon de solo lectura por repositorio (``<owner>/<repo>``)
+    #: para ``code.read``; sin ella el chat responde sin leer código.
+    chat_clones: str | None = None
+    #: Regiones de Azure de la zona de datos donde el chat puede enviar código (restringido/interno).
+    chat_zona_datos: frozenset[str] = frozenset()
+    chat_modelo: str = "claude-sonnet-5-5"
     host: str = "0.0.0.0"
     puerto: int = 8080
     #: Consola web (``RAILSPEC_CONSOLA_*`` y GitHub App); ver ``railspec/docs/consola.md``.
@@ -68,6 +91,11 @@ class Configuracion:
             foundry = ConfigFoundry(
                 endpoint=env["RAILSPEC_FOUNDRY_ENDPOINT"].rstrip("/"),
                 api_key=env.get("RAILSPEC_FOUNDRY_API_KEY") or None,
+                region=(env.get("RAILSPEC_FOUNDRY_REGION") or "").strip().lower() or None,
+                zona_datos=(env.get("RAILSPEC_FOUNDRY_ZONA_DATOS") or "").strip().lower() or None,
+                proyecto=(env.get("RAILSPEC_FOUNDRY_PROYECTO") or "").strip().rstrip("/") or None,
+                proyecto_api_version=env.get("RAILSPEC_FOUNDRY_PROYECTO_API_VERSION") or "v1",
+                despliegues=(env.get("RAILSPEC_FOUNDRY_DESPLIEGUES") or "").strip() or None,
             )
         anthropic = None
         if _bandera(env.get("RAILSPEC_ANTHROPIC_HABILITADO")):
@@ -83,12 +111,21 @@ class Configuracion:
             pce_url=env.get("RAILSPEC_PCE_URL") or None,
             falkordb_url=env.get("RAILSPEC_FALKORDB_URL") or None,
             pce_api_key=env.get("RAILSPEC_PCE_API_KEY") or None,
+            contexto_cache_s=float(env.get("RAILSPEC_CONTEXTO_CACHE_S") or 900),
+            catalogo_ttl_s=float(env.get("RAILSPEC_CATALOGO_TTL_S") or 3600),
+            cache_nodos_s=float(env.get("RAILSPEC_CACHE_NODOS_S") or 86400),
+            secretos_dir=env.get("RAILSPEC_SECRETOS_DIR") or "/var/run/secrets/railspec",
             tokens_desarrollo=_tokens(env.get("RAILSPEC_TOKENS_DESARROLLO", "")),
             oidc_audiencia=env.get("RAILSPEC_OIDC_AUDIENCIA", "railspec").strip() or None,
             oidc_emisor=env.get("RAILSPEC_OIDC_EMISOR") or "https://token.actions.githubusercontent.com",
             oidc_repositorios=frozenset(
                 r.strip() for r in env.get("RAILSPEC_OIDC_REPOSITORIOS", "").split(",") if r.strip()
             ),
+            chat_clones=env.get("RAILSPEC_CHAT_CLONES") or None,
+            chat_zona_datos=frozenset(
+                r.strip() for r in env.get("RAILSPEC_CHAT_ZONA_DATOS", "").split(",") if r.strip()
+            ),
+            chat_modelo=env.get("RAILSPEC_CHAT_MODELO") or "claude-sonnet-5-5",
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
             consola=ConfigConsola.desde_entorno(env),

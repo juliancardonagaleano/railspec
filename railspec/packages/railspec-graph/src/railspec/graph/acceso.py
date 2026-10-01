@@ -12,8 +12,8 @@ Reglas que se imponen aquí y no en los llamadores:
   workspace y solo los que el servidor calculó como visibles para el actor
   (desde los vínculos y roles); cualquier otro alcance es un error, no un
   resultado vacío.
-- Borrar un repositorio borra su grafo canónico, sus superposiciones y sus
-  lotes de indexado a medio llegar.
+- Borrar un repositorio borra su grafo canónico, sus superposiciones, sus
+  lotes de indexado a medio llegar y sus trazas ``CA-NN``.
 """
 
 from __future__ import annotations
@@ -25,13 +25,16 @@ from dataclasses import dataclass
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace
 from railspec.contracts.repositorio import nombre_grafo
 
-from .motor import AristaMotor, Cluster, Meta, MotorGrafo, Proceso
+from .motor import AristaMotor, Cluster, Meta, MotorGrafo, Proceso, Traza
 
 _UNIDAD = re.compile(r"^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$")
 #: Separador de la superposición de una unidad dentro del espacio del repositorio.
 SEPARADOR_SUPERPOSICION = ":u:"
 #: Separador del grafo de preparación de ``graph.index`` (lotes de un commit aún incompleto).
 SEPARADOR_INDEXADO = ":i:"
+#: Sufijo del grafo de trazas ``CA-NN`` del repositorio: sobrevive a reindexados y a la
+#: integración de las unidades, que sí reemplazan o borran canónico y superposiciones.
+SUFIJO_TRAZAS = ":t"
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -113,6 +116,14 @@ class Espacio:
     def procesos(self) -> list[Proceso]:
         return self._motor.procesos(self._grafo)
 
+    def agregar_trazas(self, trazas: list[Traza]) -> None:
+        self._motor.agregar_trazas(self._grafo, trazas)
+
+    def trazas(
+        self, unidad: str | None = None, criterio: str | None = None, simbolo: str | None = None
+    ) -> list[Traza]:
+        return self._motor.trazas(self._grafo, unidad, criterio, simbolo)
+
 
 class AccesoGrafo:
     def __init__(self, motor: MotorGrafo) -> None:
@@ -165,6 +176,11 @@ class AccesoGrafo:
             raise ValueError(f"commit inválido: {commit!r}")
         return Espacio(alcance, None, self._motor, nombre_grafo(alcance) + SEPARADOR_INDEXADO + commit)
 
+    def espacio_trazas(self, alcance: AlcanceRepositorio) -> Espacio:
+        """Grafo de trazas ``CA-NN`` del repositorio (criterio de unidad → símbolo)."""
+
+        return Espacio(alcance, None, self._motor, nombre_grafo(alcance) + SUFIJO_TRAZAS)
+
     def indexados(self, alcance: AlcanceRepositorio) -> list[str]:
         prefijo = nombre_grafo(alcance) + SEPARADOR_INDEXADO
         return [n[len(prefijo) :] for n in self._motor.listar(prefijo)]
@@ -178,4 +194,5 @@ class AccesoGrafo:
             self.espacio(alcance, unidad).borrar()
         for commit in self.indexados(alcance):
             self.espacio_indexado(alcance, commit).borrar()
+        self.espacio_trazas(alcance).borrar()
         self.espacio(alcance).borrar()

@@ -142,6 +142,7 @@ class CausaEscalado(StrEnum):
     presupuesto_agotado = "presupuesto-agotado"
     error_proveedor = "error-proveedor"
     sin_convergencia = "sin-convergencia"  # 1.2: el refinamiento oscila sin reducir hallazgos
+    importado = "importado"  # desde 1.4: unidad cerrada importada; la rehabilita un humano
 
 
 #: Modos que solo se admiten bajo un mandato (plan de trabajo).

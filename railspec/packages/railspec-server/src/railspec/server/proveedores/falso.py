@@ -37,5 +37,9 @@ class ProveedorGuionado:
             raise resultado if isinstance(resultado, ErrorProveedor) else ErrorProveedor(str(resultado))
         valor = peticion.esquema.model_validate(resultado.model_dump())
         return RespuestaModelo(
-            valor=valor, uso=self._uso, proveedor=self.proveedor, modelo=peticion.modelo, region=self.region
+            valor=valor,
+            uso=self._uso,
+            proveedor=self.proveedor,
+            modelo=peticion.modelo,
+            region=peticion.region or self.region,
         )

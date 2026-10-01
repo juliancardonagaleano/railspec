@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 from railspec.contracts._base import VERSION_CONTRATO, VERSION_MAYOR
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, Modo, Perfil, Riesgo
-from railspec.contracts.estado import Checkpoint, Decision, EstadoLocal
+from railspec.contracts.estado import Checkpoint, Decision, EstadoLocal, EstadoUnidad
 from railspec.contracts.eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
 from railspec.contracts.orden import OrdenImplementar, OrdenRedactar, OrdenRefinar
 from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, UsoModeloArnes
@@ -129,13 +129,10 @@ class ProxyLocal:
     ) -> Json:
         """``modo`` solo cuando el humano lo fija al pedir (contrato 1.2); si no, nace interactivo."""
 
-        base = git.head(self.raiz)
-        rama = git.rama_actual(self.raiz) or base
+        repositorio = self.repositorio_inicio()
         entrada = UnitStartEntrada(
             alcance=self._alcance_ws(),
-            repositorios=[
-                RepositorioInicio(repositorio=self.config.repo.repositorio, rama=rama, base_commit=base)
-            ],
+            repositorios=[repositorio],
             titulo=titulo,
             pedido=pedido,
             plan=plan,
@@ -147,12 +144,24 @@ class ProxyLocal:
             version_contrato_cliente=VERSION_CONTRATO,
         )
         salida = await self.cliente.llamar("unit.start", entrada, UnitStartSalida)
-        if int(salida.version_contrato_negociada.split(".")[0]) != VERSION_MAYOR:
+        return self.abrir_unidad_local(
+            salida.estado, salida.version_contrato_negociada, repositorio.base_commit
+        )
+
+    def repositorio_inicio(self) -> RepositorioInicio:
+        base = git.head(self.raiz)
+        rama = git.rama_actual(self.raiz) or base
+        return RepositorioInicio(repositorio=self.config.repo.repositorio, rama=rama, base_commit=base)
+
+    def abrir_unidad_local(self, estado_remoto: EstadoUnidad, version_negociada: str, base: str) -> Json:
+        """Worktree, rama y estado local de una unidad recién creada en el servidor."""
+
+        if int(version_negociada.split(".")[0]) != VERSION_MAYOR:
             raise ErrorRailspec(
-                f"El servidor negoció el contrato {salida.version_contrato_negociada}; "
+                f"El servidor negoció el contrato {version_negociada}; "
                 f"este proxy habla {VERSION_CONTRATO}. Actualiza railspec-local."
             )
-        unidad = salida.estado.unidad
+        unidad = estado_remoto.unidad
         worktree = Path(self.config.dir_worktrees) / unidad.unidad
         rama_unidad = git.rama_de_unidad(unidad.unidad)
         git.excluir_localmente(self.raiz, EXCLUIR_DE_GIT)
@@ -165,7 +174,7 @@ class ProxyLocal:
                 worktree=str(worktree),
                 rama=rama_unidad,
                 base_commit=base,
-                espejo_remoto=salida.estado,
+                espejo_remoto=estado_remoto,
             )
             almacen.escribir(almacen.tomar_bloqueo(estado))
         avisos = []
@@ -178,8 +187,8 @@ class ProxyLocal:
             "worktree": str(worktree),
             "rama": rama_unidad,
             "base_commit": base,
-            "fase": salida.estado.fase.value,
-            "modo": salida.estado.modo.value,
+            "fase": estado_remoto.fase.value,
+            "modo": estado_remoto.modo.value,
             "avisos": avisos,
             "siguiente": "unit_advance",
         }

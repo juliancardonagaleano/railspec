@@ -10,7 +10,8 @@ toca, corre los gates y abre los checkpoints.
 | --- | --- |
 | `estado/mongo.py` | `AlmacenMongo`: `StateStore` más lo propio del motor (órdenes, snapshots, entradas pendientes, turno por unidad, configuración). Toda consulta pasa por un filtro con organización y workspace. |
 | `estado/checkpoints.py` | `CheckpointsMongo`: `CheckpointStorage` de MAF sobre Mongo; un workflow por unidad (`railspec:{org}:{ws}:{unidad}`), con orden por contador atómico. |
-| `proveedores/` | `ProveedorModelo` y `AdaptadorChatMAF` sobre los clientes de MAF. Foundry (`AnthropicFoundryClient`, clave o Entra ID) es el primario; Anthropic directo solo con `RAILSPEC_ANTHROPIC_HABILITADO` y solo para nivel `abierto`. |
+| `proveedores/` | `ProveedorModelo` con los SDK oficiales: Foundry (despliegues Claude por `/anthropic` y el resto por chat completions, clave o Entra ID) es el primario; Anthropic directo solo con `RAILSPEC_ANTHROPIC_HABILITADO` y solo para nivel `abierto`. Catálogo por API, selección por rol con política de zona de datos. Ver [proveedores.md](proveedores.md). |
+| `contexto/` | Herramientas de contexto conectables por rol (PCE primero): implementan el proveedor de gobernanza del gate. Ver [proveedores.md](proveedores.md). |
 | `motor/artefactos.py` | Capa determinista: plantillas, secciones obligatorias, `CA-NN`, grupos del plan, comando de validación y tareas trazables. Sin tokens. |
 | `motor/gate.py` | Panel de críticos en paralelo (un lente por crítico), refutador para severidad alta y regla de convergencia. |
 | `motor/dag.py` | Nodos del DAG: triaje, redacción, gate, decisión humana, avance, implementación y cierre. |
@@ -41,10 +42,18 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   de código no los cuenta como archivos fuera del plan.
 - El gate de código revisa primero archivos fuera del plan y la validación
   fallida. Con `railspec-graph` configurado, suma a los críticos el impacto
-  aguas arriba de la superposición de la unidad (`impacto_superposicion`).
+  de la superposición de la unidad (`impacto`: tocados, afectados aguas
+  arriba, procesos y riesgo) y cuántos símbolos tiene enlazados cada `CA-NN`
+  (ver `grafo.md`). El grafo informa, no genera hallazgos deterministas.
+- `unit.report` ingiere el snapshot en el grafo con la política del vínculo y
+  enlaza los criterios de las tareas completadas; `unit.integrate` descarta
+  la superposición de la unidad en cada repositorio.
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
   siguiente gate.
+- `unit.report` reconoce el reenvío de un reporte ya aceptado (misma orden y
+  secuencia) y responde `secuencia-duplicada` en vez de `orden-no-vigente`, para
+  que el proxy lo dé por entregado.
 - Sincronización (contrato 1.3): `sync.pull` pagina los eventos remoto→local;
   `sync.push` recibe la cola local→remoto del proxy, idempotente por id y sin
   huecos (`secuencia-con-hueco`). Esa dirección la numera solo el proxy: el
@@ -52,13 +61,25 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   `unit.report`.
 - Las aprobaciones web son opcionales y gana la primera resolución; la
   segunda recibe `checkpoint-ya-resuelto`.
+- Importar y exportar (contrato 1.4, módulo `portabilidad`): `unit.import`
+  crea una unidad desde un paquete `railspec.unidad/v1` y entra al DAG por
+  triaje con `Importacion` en vez de `Arranque`. Los artefactos del paquete
+  pasan la capa determinista en orden; el primero que no encaja en la
+  plantilla (lo habitual con el kit SDD) vuelve a refinar con esos hallazgos,
+  y si todos encajan la unidad retoma en `fase_retomar`: redacción, paquete de
+  aprobación según el modo, implementación o cierre. Una unidad cerrada entra
+  cerrada, con el gate de código escalado por `importado` y rehabilitado por
+  quien importa; los gates de spec, plan y tasks no se fingen. Es idempotente
+  por workspace, repositorio primario y origen (colección `importaciones`) y
+  cada importación se audita con su origen. `unit.export` devuelve el paquete
+  con los artefactos del checkpoint aprobados como prefijo según la fase.
 
 ## Variables de entorno
 
 | Variable | Uso |
 | --- | --- |
 | `RAILSPEC_MONGO_URI`, `RAILSPEC_MONGO_DB` | Estado y checkpoints. Sin URI, el servidor usa Mongo simulado en memoria (solo desarrollo). |
-| `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Recurso de Azure Foundry. Sin clave, Entra ID. |
+| `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Recurso de Azure Foundry. Sin clave, Entra ID. El resto de variables de proveedores, catálogo y contexto está en [proveedores.md](proveedores.md). |
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Anthropic directo (solo nivel `abierto`). |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Gobernanza por MCP. Sin ella, todo gate escala con `sin-gobernanza`. |
 | `RAILSPEC_FALKORDB_URL` | Grafo central (`railspec-graph`, extra `grafo`). |

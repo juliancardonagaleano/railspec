@@ -38,6 +38,7 @@ los modelos, así que un cambio de contrato siempre viaja con su esquema.
 | Estado de unidad (remoto) | `estado` | Solo el motor | Proxy (espejo), consola |
 | Estado local | `estado` | Proxy | Proxy |
 | Insumo `railspec.insumo/v1` | `insumo` | Chat de la consola | `unit.start`, `railspec insumo pull` |
+| Paquete de unidad `railspec.unidad/v1` | `portabilidad` | `unit.export`, importador del kit | `unit.import` |
 | Respuesta del chat y veredicto del gate de salida | `chat` | Agente del chat y gate | Consola |
 | Conversación y mensaje del chat | `chat` | Servidor | Consola |
 | Entidades de configuración, catálogo, telemetría y auditoría | `repositorio` | Servidor y consola | Todos |
@@ -56,6 +57,8 @@ HTTP de la consola (R1).
 | `unit.approve` | escritura | sí | sí | no |
 | `unit.integrate` | escritura | sí | sí | no |
 | `unit.set_mode` | escritura | sí (solo humano) | sí (solo humano) | no |
+| `unit.import` | escritura | sí (solo humano) | sí (solo humano) | no |
+| `unit.export` | lectura | sí | sí | no |
 | `unit.status` | lectura | sí | sí | sí |
 | `unit.list` | lectura | sí | sí | sí |
 | `sync.pull` | lectura | sí | no | no |
@@ -120,6 +123,23 @@ su prueba negativa.
   GitHub App sigue siendo la fuente para ramas empujadas fuera del proxy;
   si ya llegó un `commit.empujado` con el mismo commit, el servidor no lo
   aplica dos veces.
+- **Grafo (1.4).** `graph.query` añade `impact` (exige `unidad`: símbolos
+  tocados por la superposición con `distancia` 0 y afectados aguas arriba con
+  `distancia` >= 1 y `relacion`, todos con `riesgo`) y `trace` (por `criterio`,
+  que exige `unidad`, devuelve `RefSimbolo`; por `simbolo` devuelve
+  `RefCriterio`). Los resultados admiten `RefCriterio`.
+- **Portabilidad (1.4).** `unit.import` crea una unidad nueva desde un
+  paquete `railspec.unidad/v1`. Los artefactos presentes forman un prefijo
+  (spec, plan, tasks) y `fase_retomar` es la primera fase sin artefacto, o
+  `aprobacion`, `implement` o `done` si están los tres. Quedan aprobados por
+  importación a nombre del humano del token y se auditan con el evento
+  `importacion` (origen y número de artefactos); el gate de la fase
+  siguiente corre normal. Solo un humano importa; un agente recibe
+  `fuera-de-alcance`. Una unidad cerrada entra con el gate de código
+  escalado con causa `importado` y rehabilitado por ese humano.
+  `supervisado` y `desatendido` no se importan. Es idempotente por
+  workspace, repositorio primario y origen, y responde `ya_existia`.
+  `unit.export` devuelve el paquete con origen `railspec`.
 - **Embeddings.** Son opcionales en el delta y en la búsqueda. Si el proxy
   no tiene codificador local, sube el delta sin embeddings y busca sin
   `vector_b64`; los símbolos sin vector solo se encuentran por texto en la superposición
@@ -138,7 +158,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.3`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.4`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -153,7 +173,14 @@ su prueba negativa.
   `unit.set_mode`, `modo` opcional en `unit.start`, `tras` en cada
   conversión de modo y `pedido` en el estado de la unidad; `1.3` añade las
   tools `sync.pull` y `sync.push`, el código de error
-  `secuencia-con-hueco` y el alias MCP de cada tool (`mcp_name`).
+  `secuencia-con-hueco` y el alias MCP de cada tool (`mcp_name`); `1.4`
+  añade los verbos `impact` y `trace` de `graph.query`, `RefCriterio` en sus
+  resultados, las tools `unit.import` (solo humanos) y `unit.export`, el evento de
+  auditoría `importacion`, el paquete
+  `railspec.unidad/v1`, la causa de escalado `importado` y
+  `commit_integrado` opcional en `unit.integrate`, para conservar la
+  superposición de la unidad en el grafo hasta que el canónico alcance ese
+  commit.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

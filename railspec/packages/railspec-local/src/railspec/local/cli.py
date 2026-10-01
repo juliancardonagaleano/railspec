@@ -4,7 +4,10 @@
 - ``railspec instalar``: configura el repositorio y los adaptadores de arnés.
 - ``railspec desinstalar``: quita los adaptadores (y, si se pide, la configuración).
 - ``railspec insumo pull <id>``: trae un insumo del chat de la consola.
+- ``railspec exportar`` e ``railspec importar``: una unidad a o desde un paquete en
+  disco; ``importar`` también convierte a demanda unidades del kit SDD (``.spec/units/``).
 - ``railspec estado`` y ``railspec sync``: estado local y envío de la cola.
+- ``railspec hook <arnés>``: guardia de las reglas de conducta (la llaman los hooks del arnés).
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from uuid import UUID
 
 from railspec.contracts.comun import Arnes, NivelCodigo
 
-from . import __version__, adaptadores, config, git
+from . import __version__, adaptadores, config, git, guardia
 from .almacen import EXCLUIR_DE_GIT
 from .cliente import ClienteServidor
 from .errores import ConfigInvalida, ErrorRailspec
@@ -115,12 +118,21 @@ def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
     if arneses and shutil.which(adaptadores.COMANDO_PROXY[0]) is None:
         avisos.append(
             f"`{adaptadores.COMANDO_PROXY[0]}` no está en el PATH: el arnés no podrá lanzar el proxy. "
-            "Instala railspec-local en un entorno cuyo PATH vea el arnés (pipx install railspec-local)."
+            "Pon el binario de la release en un PATH que vea el arnés (~/.local/bin/railspec) o instala "
+            "railspec-local con pipx; ver railspec/docs/proxy-local.md."
         )
-    if Arnes.opencode in arneses:
+    if Arnes.codex in arneses:
         avisos.append(
-            f"OpenCode pedirá permiso la primera vez que toque {worktrees} (worktrees de las unidades): "
-            "respóndele que siempre."
+            "Codex solo carga .codex/config.toml (y con él el servidor railspec) en proyectos de confianza: "
+            "acepta «Trust this folder» la primera vez. Para que el sandbox escriba en los worktrees, "
+            f"lánzalo con `codex --add-dir {worktrees}`. Arranca una unidad con `$railspec <petición>`."
+        )
+    if Arnes.copilot in arneses:
+        avisos.append(
+            "Copilot solo carga los servidores MCP de .mcp.json en carpetas de confianza: acéptala la "
+            f"primera vez. Lánzalo con `copilot --add-dir {worktrees}` para trabajar en los worktrees. "
+            "Las tools del bucle quedan aprobadas al invocar /railspec; unit_approve, unit_set_mode y "
+            "unit_integrate preguntan siempre."
         )
     return avisos
 
@@ -129,7 +141,8 @@ def _cmd_desinstalar(args: argparse.Namespace) -> int:
     raiz = _raiz(args.repo)
     arneses = [Arnes(a) for a in args.arnes] if args.arnes else adaptadores.instalados(raiz)
     worktrees = _dir_worktrees(raiz)
-    cambios = {a.value: adaptadores.desinstalar(raiz, a, worktrees) for a in arneses}
+    quedan = [a for a in adaptadores.instalados(raiz) if a not in arneses]
+    cambios = {a.value: adaptadores.desinstalar(raiz, a, worktrees, quedan) for a in arneses}
     salida: dict[str, Any] = {"cambios": cambios}
     ruta_config = raiz / config.ARCHIVO_CONFIG
     if args.config and ruta_config.is_file():
@@ -151,6 +164,41 @@ def _cmd_insumo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_exportar(args: argparse.Namespace) -> int:
+    from . import portabilidad
+
+    proxy = crear_proxy(_raiz(args.repo))
+    destino = Path(args.destino or f"{args.unidad}.railspec-unidad").resolve()
+    _imprimir(asyncio.run(portabilidad.exportar(proxy, args.unidad, destino)))
+    return 0
+
+
+def _cmd_importar(args: argparse.Namespace) -> int:
+    from . import portabilidad
+
+    raiz = _raiz(args.repo)
+    convertir = args.solo_convertir is not None
+    repositorio = None if convertir else config.leer_config_repositorio(raiz).repositorio
+    conversiones = [portabilidad.leer_origen(Path(r).resolve(), repositorio) for r in args.rutas]
+    if convertir:
+        # Sin servidor: deja los paquetes en disco para revisarlos antes de importar.
+        destino = Path(args.solo_convertir).resolve()
+        escritos = [
+            {
+                "paquete": str(portabilidad.escribir_paquete(c, destino / c.paquete.origen.id_original)),
+                "fase_retomar": c.paquete.fase_retomar.value,
+                "avisos": c.avisos,
+            }
+            for c in conversiones
+        ]
+        _imprimir({"paquetes": escritos})
+        return 0
+    proxy = crear_proxy(raiz)
+    resultados = [asyncio.run(portabilidad.importar(proxy, c)) for c in conversiones]
+    _imprimir(resultados[0] if len(resultados) == 1 else resultados)
+    return 0
+
+
 def _cmd_estado(args: argparse.Namespace) -> int:
     proxy = crear_proxy(_raiz(args.repo))
     _imprimir(asyncio.run(proxy.estado(args.unidad)))
@@ -162,6 +210,34 @@ def _cmd_sync(args: argparse.Namespace) -> int:
     resultado = asyncio.run(proxy.sincronizar(args.unidad))
     _imprimir(resultado)
     return 0 if not resultado["pendientes"] else 2
+
+
+def _cmd_hook(args: argparse.Namespace) -> int:
+    """Lee la entrada del hook por stdin y responde por stdout; ante un fallo, rechaza.
+
+    Siempre sale con 0: la decisión viaja en el JSON, que es lo que el arnés lee.
+    """
+
+    try:
+        respuesta = guardia.HOOKS[args.arnes_hook](json.loads(sys.stdin.read() or "{}"))
+    except Exception as exc:  # noqa: BLE001 - la guardia falla cerrada, con salida de emergencia
+        motivo = (
+            f"Railspec: la guardia falló ({exc}). Relanza el arnés con {guardia.ENV_GUARDIA}=0 para saltarla."
+        )
+        respuesta = (
+            {"decision": "deny", "motivo": motivo}
+            if args.arnes_hook == "opencode"
+            else {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": motivo,
+                }
+            }
+        )
+    if respuesta is not None:
+        print(json.dumps(respuesta, ensure_ascii=False))
+    return 0
 
 
 def parser() -> argparse.ArgumentParser:
@@ -202,6 +278,23 @@ def parser() -> argparse.ArgumentParser:
     pull.add_argument("--unidad")
     pull.set_defaults(fn=_cmd_insumo)
 
+    exp = sub.add_parser("exportar", help="Escribe una unidad como paquete railspec.unidad/v1 en disco.")
+    exp.add_argument("--unidad", required=True)
+    exp.add_argument("--destino", help="Carpeta nueva (por defecto, <unidad>.railspec-unidad).")
+    exp.set_defaults(fn=_cmd_exportar)
+
+    imp = sub.add_parser(
+        "importar",
+        help="Registra en el servidor una unidad del kit SDD (.spec/units/<id>) o un paquete exportado.",
+    )
+    imp.add_argument("rutas", nargs="+", help="Carpetas de unidad del kit o de paquete.")
+    imp.add_argument(
+        "--solo-convertir",
+        metavar="DESTINO",
+        help="No contacta el servidor: escribe los paquetes en DESTINO.",
+    )
+    imp.set_defaults(fn=_cmd_importar)
+
     est = sub.add_parser("estado", help="Estado remoto y local de una unidad.")
     est.add_argument("--unidad")
     est.set_defaults(fn=_cmd_estado)
@@ -209,6 +302,10 @@ def parser() -> argparse.ArgumentParser:
     syn = sub.add_parser("sync", help="Envía la cola de reportes pendientes.")
     syn.add_argument("--unidad")
     syn.set_defaults(fn=_cmd_sync)
+
+    hook = sub.add_parser("hook", help="Guardia de las reglas de conducta; la llaman los hooks del arnés.")
+    hook.add_argument("arnes_hook", metavar="arnes", choices=sorted(guardia.HOOKS))
+    hook.set_defaults(fn=_cmd_hook)
     return p
 
 

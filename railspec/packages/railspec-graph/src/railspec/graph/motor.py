@@ -45,6 +45,15 @@ class Proceso:
     pasos: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class Traza:
+    """Un símbolo que una unidad tocó al completar tareas de un criterio ``CA-NN``."""
+
+    unidad: str
+    criterio: str
+    simbolo: str
+
+
 @dataclass
 class Meta:
     """Metadatos del grafo: commit, superposición, lápidas y lotes de indexado.
@@ -130,3 +139,12 @@ class MotorGrafo(Protocol):
         """Clusters y procesos que contienen al símbolo."""
 
     def procesos(self, grafo: str) -> list[Proceso]: ...
+
+    # --- trazabilidad CA-NN ------------------------------------------------
+    def agregar_trazas(self, grafo: str, trazas: list[Traza]) -> None:
+        """Idempotente: una traza repetida no se duplica."""
+
+    def trazas(
+        self, grafo: str, unidad: str | None, criterio: str | None, simbolo: str | None
+    ) -> list[Traza]:
+        """Las trazas que cumplen todos los filtros dados (``None`` = sin filtro), ordenadas."""

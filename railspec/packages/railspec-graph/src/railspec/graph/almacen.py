@@ -9,6 +9,12 @@
   como lápidas que ocultan el canónico.
 - Una consulta con ``unidad`` ve canónico + superposición; sin ella, solo
   el canónico.
+- La comparación base contra snapshot (``impacto``) parte de lo que la
+  superposición toca y recorre el canónico aguas arriba; el gate de código y
+  el verbo ``impact`` de ``graph.query`` (1.4) la usan.
+- Las trazas ``CA-NN`` enlazan cada criterio de una unidad con los símbolos
+  que cambiaron al completar sus tareas; viven en un grafo aparte por
+  repositorio que sobrevive a reindexados e integraciones (verbo ``trace``).
 - Grafo y vectores comparten grafo físico (el embedding es propiedad del
   nodo), así que borrar un repositorio por cualquiera de los dos borra ambos.
 """
@@ -17,11 +23,11 @@ from __future__ import annotations
 
 import base64
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from railspec.contracts.comun import AlcanceRepositorio
-from railspec.contracts.referencias import RefNodoGrafo, RefSimbolo
+from railspec.contracts.referencias import RefCriterio, RefNodoGrafo, RefSimbolo
 from railspec.contracts.snapshot import DeltaIndice, Embedding, Relacion, TipoSimbolo
 from railspec.contracts.tools import (
     ConsultaRelated,
@@ -35,7 +41,7 @@ from railspec.contracts.tools import (
 
 from .acceso import AccesoGrafo, Espacio
 from .analitica import RELACIONES_DEPENDENCIA, calcular_clusters, calcular_procesos, nivel_riesgo
-from .motor import AristaMotor, Cluster, Meta, Proceso
+from .motor import AristaMotor, Cluster, Meta, Proceso, Traza
 
 
 class CodificadorConsulta(Protocol):
@@ -146,6 +152,28 @@ class Vista:
         )
 
 
+@dataclass
+class Impacto:
+    """Comparación base contra snapshot de una unidad.
+
+    ``tocados``: ids que la superposición cambia (upsert o lápida), resueltos
+    en ``refs_tocados`` cuando se conocen (un borrado se resuelve contra el
+    canónico). ``afectados``: aguas arriba, sin los tocados. El riesgo cuenta
+    afectados y procesos tocados por unos u otros, así que un cambio sin nada
+    aguas arriba puede ser de riesgo alto si toca muchos procesos.
+    """
+
+    tocados: list[str] = field(default_factory=list)
+    refs_tocados: list[RefSimbolo] = field(default_factory=list)
+    afectados: list[ResultadoGrafo] = field(default_factory=list)
+    procesos: list[str] = field(default_factory=list)
+    riesgo: str = "bajo"
+
+    def resultados(self) -> list[ResultadoGrafo]:
+        propios = [ResultadoGrafo(ref=r, distancia=0, riesgo=self.riesgo) for r in self.refs_tocados]
+        return propios + self.afectados
+
+
 @dataclass(frozen=True)
 class Alcanzado:
     distancia: int
@@ -232,6 +260,13 @@ class AlmacenGrafo:
             )
         )
 
+    def ingerir(self, snapshot, vinculo, criterios=()) -> bool:
+        """``ingerir_snapshot`` sobre este almacén: política del vínculo y trazas ``CA-NN``."""
+
+        from .ingesta import ingerir_snapshot
+
+        return ingerir_snapshot(snapshot, vinculo, self, criterios)
+
     def recalcular_analitica(self, alcance: AlcanceRepositorio) -> None:
         e = self._acceso.espacio(alcance)
         simbolos, aristas = e.todos_simbolos(), e.todas_aristas()
@@ -267,6 +302,10 @@ class AlmacenGrafo:
             resultados = self._traverse(vistas, q)
         elif isinstance(q, ConsultaRelated):
             resultados = self._related(vistas, q)
+        elif q.verbo == "impact":  # 1.4; por verbo para no exigir el contrato nuevo al importar
+            resultados = self._impacto(vistas, q.profundidad).resultados()
+        elif q.verbo == "trace":
+            resultados = self._trace(vistas, consulta.unidad, q.criterio, q.simbolo)
         else:  # pragma: no cover - la unión del contrato es cerrada
             raise TypeError(type(q))
         return GraphQuerySalida(
@@ -351,38 +390,108 @@ class AlmacenGrafo:
                 resultados.append(ResultadoGrafo(ref=vi.ref(s)))
         return resultados
 
-    # --- gate de código ----------------------------------------------------
-    def impacto_superposicion(
+    # --- gate de código: comparación base contra snapshot ------------------
+    def impacto(
         self, consulta: GraphQueryEntrada, visibles: list[AlcanceRepositorio], profundidad: int = 3
-    ) -> tuple[list[str], list[ResultadoGrafo]]:
-        """Símbolos que la unidad toca y lo que afectan aguas arriba, con riesgo.
+    ) -> Impacto:
+        """Lo que la superposición de ``consulta.unidad`` toca y afecta aguas arriba.
 
-        Es la comparación base contra snapshot que usa el gate de código:
-        ``consulta.unidad`` es obligatoria y ``consulta.consulta`` se ignora.
+        ``consulta.consulta`` se ignora; ``consulta.unidad`` es obligatoria.
         """
 
         if consulta.unidad is None:
-            raise ValueError("impacto_superposicion necesita unidad")
-        vistas = self.vistas(consulta, visibles)
+            raise ValueError("el impacto necesita unidad")
+        return self._impacto(self.vistas(consulta, visibles), profundidad)
+
+    def impacto_superposicion(
+        self, consulta: GraphQueryEntrada, visibles: list[AlcanceRepositorio], profundidad: int = 3
+    ) -> tuple[list[str], list[ResultadoGrafo]]:
+        """Forma anterior de ``impacto``: (ids tocados, afectados aguas arriba)."""
+
+        i = self.impacto(consulta, visibles, profundidad)
+        return i.tocados, i.afectados
+
+    def _impacto(self, vistas: list[Vista], profundidad: int) -> Impacto:
         tocados: set[str] = set()
+        refs: list[RefSimbolo] = []
         for v in vistas:
-            if v.sup:
-                tocados |= {s["id"] for s in v.sup.todos_simbolos()} | v.borrados
+            if not v.sup:
+                continue
+            propios = v.sup.todos_simbolos()
+            borrados = v.canon.simbolos(sorted(v.borrados))
+            tocados |= {s["id"] for s in propios} | v.borrados
+            refs += [v.ref(s) for s in propios] + [v.ref(s) for s in borrados.values()]
+        if not tocados:
+            return Impacto()
         alcanzados = recorrer(vistas, sorted(tocados), list(RELACIONES_DEPENDENCIA), "upstream", profundidad)
         hallados = resolver(vistas, [i for i in alcanzados if i not in tocados])
-        riesgo = nivel_riesgo(len(hallados), len(procesos_tocados(vistas, [*tocados, *hallados])))
+        procesos = procesos_tocados(vistas, [*tocados, *hallados])
+        riesgo = nivel_riesgo(len(hallados), len(procesos))
         orden = sorted(
             hallados.items(), key=lambda kv: (alcanzados[kv[0]].distancia, kv[1][1]["nombre"], kv[0])
         )
-        return sorted(tocados), [
-            ResultadoGrafo(
-                ref=v.ref(s),
-                relacion=Relacion(alcanzados[i].relacion),
-                distancia=alcanzados[i].distancia,
-                riesgo=riesgo,
+        return Impacto(
+            tocados=sorted(tocados),
+            refs_tocados=sorted(refs, key=lambda r: (r.repositorio, r.nombre, r.simbolo)),
+            afectados=[
+                ResultadoGrafo(
+                    ref=v.ref(s),
+                    relacion=Relacion(alcanzados[i].relacion),
+                    distancia=alcanzados[i].distancia,
+                    riesgo=riesgo,
+                )
+                for i, (v, s) in orden
+            ],
+            procesos=sorted(procesos),
+            riesgo=riesgo,
+        )
+
+    # --- trazabilidad CA-NN --------------------------------------------------
+    def firmas_superposicion(self, alcance: AlcanceRepositorio, unidad: str) -> dict[str, str]:
+        """id → sha256 de los símbolos de la superposición vigente (lápidas con sha vacío)."""
+
+        e = self._acceso.espacio(alcance, unidad)
+        if not e.existe():
+            return {}
+        firmas = {s["id"]: s["sha256"] for s in e.todos_simbolos()}
+        return {**{i: "" for i in e.meta().borrados}, **firmas}
+
+    def enlazar_criterios(
+        self, alcance: AlcanceRepositorio, unidad: str, criterios: list[str], simbolos: list[str]
+    ) -> None:
+        """Enlaza cada criterio con cada símbolo. Acumula: un reporte posterior no borra los anteriores."""
+
+        self._acceso.espacio(alcance, unidad)  # valida la unidad
+        self._acceso.espacio_trazas(alcance).agregar_trazas(
+            [Traza(unidad, c, s) for c in sorted(set(criterios)) for s in sorted(set(simbolos))]
+        )
+
+    def trazas(self, alcance: AlcanceRepositorio, unidad: str | None = None) -> list[Traza]:
+        return self._acceso.espacio_trazas(alcance).trazas(unidad=unidad)
+
+    def _trace(
+        self, vistas: list[Vista], unidad: str | None, criterio: str | None, simbolo: str | None
+    ) -> list[ResultadoGrafo]:
+        if criterio is not None:
+            ids = sorted(
+                {
+                    t.simbolo
+                    for v in vistas
+                    for t in self._acceso.espacio_trazas(v.alcance).trazas(unidad, criterio)
+                }
             )
-            for i, (v, s) in orden
-        ]
+            hallados = resolver(vistas, ids)
+            orden = sorted(hallados.items(), key=lambda kv: (kv[1][1]["ruta"], kv[1][1]["nombre"], kv[0]))
+            return [ResultadoGrafo(ref=v.ref(s)) for _, (v, s) in orden]
+        pares = sorted(
+            {
+                (t.unidad, t.criterio)
+                for v in vistas
+                for t in self._acceso.espacio_trazas(v.alcance).trazas(unidad, None, simbolo)
+            }
+        )
+        workspace = vistas[0].alcance.workspace if vistas else None
+        return [ResultadoGrafo(ref=RefCriterio(workspace=workspace, unidad=u, criterio=c)) for u, c in pares]
 
 
 def procesos_tocados(vistas: list[Vista], ids: list[str]) -> set[str]:

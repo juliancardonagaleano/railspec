@@ -9,17 +9,26 @@ igual que en los contratos: no hay consulta sin workspace.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import TypeAdapter
-from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil
+from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil, Proveedor
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.reporte import ReporteOrden
-from railspec.contracts.repositorio import AsignacionRol, PerfilConfig, PresupuestoConfig, VinculoRepositorio
+from railspec.contracts.repositorio import (
+    AsignacionRol,
+    ModeloCatalogo,
+    PerfilConfig,
+    PresupuestoConfig,
+    ProveedorContexto,
+    VinculoRepositorio,
+    Workspace,
+)
 from railspec.contracts.snapshot import Snapshot
 from railspec.contracts.tools import UnitListEntrada
 
@@ -56,6 +65,14 @@ class AlmacenMotor(Protocol):
 
     def listar_estados(self, consulta: UnitListEntrada) -> tuple[list[EstadoUnidad], str | None]: ...
 
+    def reclamar_importacion(
+        self, alcance: AlcanceWorkspace, repositorio: str, tipo: str, id_original: str, unidad: str
+    ) -> str:
+        """Asocia un origen importado (``unit.import``) a ``unidad`` si nadie lo hizo antes.
+
+        Devuelve la unidad asociada al origen: ``unidad`` la primera vez, la existente después.
+        """
+
     # --- órdenes, reportes y snapshots --------------------------------------------
     def guardar_orden(self, orden: OrdenDeTrabajo) -> None: ...
 
@@ -90,3 +107,20 @@ class AlmacenMotor(Protocol):
     def vinculo(self, alcance: AlcanceRepositorio) -> VinculoRepositorio | None: ...
 
     def asignaciones(self, org: str, github_id: int) -> list[AsignacionRol]: ...
+
+    def workspace(self, alcance: AlcanceWorkspace) -> Workspace | None: ...
+
+    def proveedores_contexto(self, alcance: AlcanceWorkspace) -> list[ProveedorContexto]:
+        """Los de la organización con los del workspace encima."""
+
+    # --- caché de nodos de modelo (por organización, con caducidad) --------------------------
+    def nodo_en_cache(self, org: str, clave: str, ahora: datetime) -> dict[str, Any] | None: ...
+
+    def guardar_nodo_en_cache(
+        self, org: str, clave: str, respuesta: dict[str, Any], expira: datetime
+    ) -> None: ...
+
+    # --- catálogo de modelos (por organización, leído por API) -----------------------------
+    def catalogo(self, org: str) -> list[ModeloCatalogo]: ...
+
+    def guardar_catalogo(self, org: str, proveedor: Proveedor, modelos: Iterable[ModeloCatalogo]) -> None: ...

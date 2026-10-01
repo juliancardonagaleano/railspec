@@ -1,0 +1,286 @@
+"""Guardia de las reglas de conducta: lo que los hooks del arnés consultan antes de cada tool.
+
+Las reglas de conducta (``plantillas/reglas.md``) dicen al agente qué no hacer;
+la guardia lo impide donde el arnés ofrece un hook previo a la tool. Con una
+unidad en curso en el repositorio:
+
+- Una escritura en el clon principal se rechaza: la unidad trabaja en su worktree.
+- Una escritura en el worktree de una unidad solo pasa si la orden vigente la
+  permite: código dentro de ``alcance.permitidos`` y fuera de ``prohibidos``;
+  ``spec.md``, ``plan.md`` y ``tasks.md`` solo con la orden de redactar o
+  refinar que los pide; el estado del proxy (``.railspec/``) nunca.
+- Las tools que registran una decisión humana (aprobar un checkpoint, cambiar
+  de modo, integrar) piden confirmación siempre.
+
+Sin unidades en curso la guardia no opina sobre el clon principal (el worktree
+de una unidad cerrada no se edita), y lo que cae fuera del repositorio
+queda a los permisos del propio arnés. La salida de emergencia es
+``RAILSPEC_GUARDIA=0`` en el entorno del arnés.
+
+Se lee el estado local como JSON plano, sin validarlo contra el contrato: el
+hook corre antes de cada edición y debe arrancar rápido.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import dataclass
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
+
+from . import git
+from .git import ErrorGit
+from .rutas import coincide
+
+ENV_GUARDIA = "RAILSPEC_GUARDIA"
+#: Igual que ``almacen.ARCHIVO_ESTADO``; no se importa para no cargar los contratos en cada hook.
+ARCHIVO_ESTADO = Path(".railspec") / "estado-local.json"
+#: Artefactos del protocolo: solo los toca la orden de redactar o refinar que los pide.
+ARTEFACTOS = ("spec.md", "plan.md", "tasks.md")
+#: Tools del proxy que registran una decisión humana.
+TOOLS_HUMANAS = ("unit_approve", "unit_set_mode", "unit_integrate")
+_ESCAPE = f"Si de verdad necesitas saltarte la guardia, relanza el arnés con {ENV_GUARDIA}=0."
+
+
+class Decision(StrEnum):
+    permitir = "allow"
+    denegar = "deny"
+    preguntar = "ask"
+
+
+@dataclass(frozen=True)
+class Veredicto:
+    decision: Decision
+    motivo: str = ""
+
+    @property
+    def opina(self) -> bool:
+        """La guardia solo se pronuncia cuando restringe; si permite, decide el arnés."""
+
+        return self.decision != Decision.permitir
+
+
+PERMITIR = Veredicto(Decision.permitir)
+
+
+@dataclass(frozen=True)
+class Unidad:
+    nombre: str
+    worktree: Path
+    estado: dict[str, Any] | None
+
+    @property
+    def activa(self) -> bool:
+        if self.estado is None:
+            return False
+        espejo = self.estado.get("espejo_remoto") or {}
+        return espejo.get("fase") != "done"
+
+    @property
+    def orden(self) -> dict[str, Any] | None:
+        return (self.estado or {}).get("orden_en_curso")
+
+
+def _real(ruta: Path) -> Path:
+    return Path(os.path.realpath(ruta))
+
+
+def _dentro(ruta: Path, carpeta: Path) -> bool:
+    return ruta == carpeta or carpeta in ruta.parents
+
+
+def clon_principal(desde: Path) -> Path | None:
+    """Raíz del clon principal aunque ``desde`` esté en un worktree de unidad."""
+
+    carpeta = desde if desde.is_dir() else desde.parent
+    while not carpeta.exists():
+        carpeta = carpeta.parent
+    try:
+        comun = git.texto(carpeta, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    except ErrorGit:
+        return None
+    comun_path = Path(comun)
+    return _real(comun_path.parent) if comun_path.name == ".git" else None
+
+
+def unidades(principal: Path) -> list[Unidad]:
+    encontradas = []
+    for nombre, worktree in git.worktrees(principal).items():
+        ruta = worktree / ARCHIVO_ESTADO
+        try:
+            estado = json.loads(ruta.read_text(encoding="utf-8")) if ruta.is_file() else None
+        except (OSError, json.JSONDecodeError):
+            # Un estado ilegible no libera la unidad: se trata como en curso y sin orden.
+            estado = {}
+        encontradas.append(Unidad(nombre, _real(worktree), estado))
+    return encontradas
+
+
+def _rechazo(motivo: str) -> Veredicto:
+    return Veredicto(Decision.denegar, f"Railspec: {motivo} {_ESCAPE}")
+
+
+def evaluar_escritura(rutas: list[Path], cwd: Path) -> Veredicto:
+    """Veredicto para una tool que escribe en ``rutas`` (relativas a ``cwd`` si no son absolutas)."""
+
+    if os.environ.get(ENV_GUARDIA, "").strip().lower() in ("0", "no", "false", "off"):
+        return PERMITIR
+    absolutas = [_real(r if r.is_absolute() else cwd / r) for r in rutas]
+    principal = clon_principal(absolutas[0] if absolutas else cwd) or clon_principal(cwd)
+    if principal is None:
+        return PERMITIR
+    todas = unidades(principal)
+    activas = [u for u in todas if u.activa]
+    for ruta in absolutas:
+        veredicto = _evaluar_ruta(ruta, principal, todas, activas)
+        if veredicto.opina:
+            return veredicto
+    return PERMITIR
+
+
+def _evaluar_ruta(ruta: Path, principal: Path, todas: list[Unidad], activas: list[Unidad]) -> Veredicto:
+    for unidad in todas:
+        if _dentro(ruta, unidad.worktree):
+            return _evaluar_en_unidad(ruta.relative_to(unidad.worktree).as_posix(), unidad)
+    if activas and _dentro(ruta, principal):
+        nombres = ", ".join(f"{u.nombre} ({u.worktree})" for u in activas)
+        return _rechazo(
+            f"hay una unidad en curso y el clon principal no se toca mientras tanto. "
+            f"Trabaja en el worktree de la unidad: {nombres}."
+        )
+    return PERMITIR
+
+
+def _evaluar_en_unidad(relativa: str, unidad: Unidad) -> Veredicto:
+    if not unidad.activa:
+        return _rechazo(f"la unidad {unidad.nombre} está cerrada; su worktree ya no se edita.")
+    orden = unidad.orden
+    propios = f".railspec/unidades/{unidad.nombre}/"
+    if relativa.startswith(".railspec/") and not relativa.startswith(propios):
+        return _rechazo(f"{relativa} es estado de Railspec; solo lo escribe el proxy.")
+    if relativa.startswith(propios) and relativa.removeprefix(propios) in ARTEFACTOS:
+        if orden and orden.get("tipo") in ("redactar", "refinar") and orden.get("ruta_artefacto") == relativa:
+            return PERMITIR
+        vigente = _describir(orden)
+        return _rechazo(
+            f"{relativa} es un artefacto de la unidad y solo se edita con la orden que lo pide; {vigente}."
+        )
+    if orden is None:
+        return _rechazo(
+            f"la unidad {unidad.nombre} no tiene orden vigente: pide la siguiente con unit_advance."
+        )
+    alcance = orden.get("alcance") or {}
+    permitidos = alcance.get("permitidos") or []
+    if (
+        not permitidos
+        or not coincide(relativa, permitidos)
+        or coincide(relativa, alcance.get("prohibidos") or [])
+    ):
+        return _rechazo(f"{relativa} queda fuera del alcance de la orden vigente ({_describir(orden)}).")
+    return PERMITIR
+
+
+def _describir(orden: dict[str, Any] | None) -> str:
+    if not orden:
+        return "no hay orden vigente"
+    tipo = orden.get("tipo", "?")
+    if tipo in ("redactar", "refinar"):
+        return f"la orden vigente es {tipo} {orden.get('ruta_artefacto')}"
+    if tipo == "implementar":
+        return f"la orden vigente es implementar el grupo {orden.get('grupo')}"
+    return f"la orden vigente es {tipo}"
+
+
+def evaluar_tool_humana(tool: str) -> Veredicto:
+    return Veredicto(
+        Decision.preguntar,
+        f"Railspec: `{tool}` registra una decisión humana. Confírmala tú; el agente no decide por ti.",
+    )
+
+
+# --- traducción de la entrada de cada arnés -----------------------------------------------
+
+_PATCH = re.compile(r"^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$", re.MULTILINE)
+
+
+def rutas_de_patch(texto: str) -> list[str]:
+    return [m.group(1).strip() for m in _PATCH.finditer(texto)]
+
+
+def _ruta_tool(tool: str, args: dict[str, Any]) -> list[str] | None:
+    """Rutas que escribe una tool de edición; ``None`` si la tool no escribe archivos."""
+
+    nombre = tool.lower()
+    if nombre in ("write", "edit", "multiedit", "notebookedit"):
+        ruta = args.get("file_path") or args.get("filePath") or args.get("notebook_path")
+        return [ruta] if isinstance(ruta, str) and ruta else []
+    if nombre in ("patch", "apply_patch"):
+        texto = args.get("patchText") or args.get("patch") or args.get("input") or ""
+        return rutas_de_patch(texto) if isinstance(texto, str) else []
+    return None
+
+
+def evaluar_tool(tool: str, args: dict[str, Any], cwd: Path) -> Veredicto:
+    """Veredicto para una llamada a tool, con el nombre que le da el arnés."""
+
+    # Claude Code: `mcp__railspec__unit_approve`; OpenCode: `railspec_unit_approve`.
+    for humana in TOOLS_HUMANAS:
+        if tool in (f"mcp__railspec__{humana}", f"railspec_{humana}"):
+            return evaluar_tool_humana(humana)
+    rutas = _ruta_tool(tool, args)
+    if rutas is None:
+        return PERMITIR
+    if not rutas:
+        return _rechazo(f"no pude leer qué archivo escribe `{tool}`.")
+    return evaluar_escritura([Path(r) for r in rutas], cwd)
+
+
+def hook_claude_code(entrada: dict[str, Any]) -> dict[str, Any] | None:
+    """Respuesta a un ``PreToolUse`` de Claude Code; ``None`` deja decidir al arnés."""
+
+    cwd = Path(entrada.get("cwd") or os.getcwd())
+    veredicto = evaluar_tool(entrada.get("tool_name", ""), entrada.get("tool_input") or {}, cwd)
+    if not veredicto.opina:
+        return None
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": veredicto.decision.value,
+            "permissionDecisionReason": veredicto.motivo,
+        }
+    }
+
+
+def dir_worktrees(desde: Path) -> Path | None:
+    """Carpeta de los worktrees de unidades del repositorio que contiene ``desde``."""
+
+    principal = clon_principal(desde)
+    if principal is None:
+        return None
+    from .config import ENV_WORKTREES, dir_worktrees_por_defecto
+
+    return _real(Path(os.environ.get(ENV_WORKTREES) or dir_worktrees_por_defecto(principal)))
+
+
+def hook_opencode(entrada: dict[str, Any]) -> dict[str, Any]:
+    """Respuesta al plugin de OpenCode.
+
+    - ``{"evento": "tool", "tool", "args"}`` (``tool.execute.before``) → ``{"decision", "motivo"}``.
+    - ``{"evento": "config"}`` → ``{"worktrees"}``, para abrir la carpeta en ``external_directory``.
+
+    Todas llevan ``directory``, la carpeta del proyecto de OpenCode.
+    """
+
+    cwd = Path(entrada.get("directory") or os.getcwd())
+    evento = entrada.get("evento", "tool")
+    if evento == "config":
+        carpeta = dir_worktrees(cwd)
+        return {"worktrees": str(carpeta) if carpeta else None}
+    veredicto = evaluar_tool(entrada.get("tool", ""), entrada.get("args") or {}, cwd)
+    return {"decision": veredicto.decision.value, "motivo": veredicto.motivo}
+
+
+HOOKS = {"claude-code": hook_claude_code, "opencode": hook_opencode}
