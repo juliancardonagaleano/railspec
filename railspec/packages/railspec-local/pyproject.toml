@@ -25,4 +25,4 @@ include = ["railspec.local*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-"railspec.local.adaptadores" = ["plantillas/*.md"]
+"railspec.local.adaptadores" = ["plantillas/*.md", "plantillas/*.js"]

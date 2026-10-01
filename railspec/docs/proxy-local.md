@@ -10,7 +10,7 @@ protocolo exige en local.
 ## Instalación en un repositorio
 
 ```
-pip install railspec-local            # instala el comando `railspec`
+pip install railspec-local            # instala el comando `railspec` (o el binario: ver "Binario autocontenido")
 pip install codebase-memory-mcp       # opcional: indexado local (delta de símbolos y aristas)
 railspec instalar --org acme --workspace certificados --repositorio certificados-api \
   --arnes claude-code --arnes opencode
@@ -23,8 +23,9 @@ secretos: org, workspace, slug del repositorio, nivel de código, arnés) y el
 adaptador de cada arnés. `--nivel` fija el nivel del vínculo; si falta rige
 `restringido`. `railspec instalar --verificar` informa deriva sin escribir.
 El token nunca se escribe en disco. El comando `railspec` tiene que estar en
-el `PATH` que ve el arnés (`pipx install railspec-local` sirve); si no lo
-está, `instalar` lo avisa.
+el `PATH` que ve el arnés (el binario de la release en `~/.local/bin` o
+`pipx install railspec-local`); si no lo está, `instalar` lo avisa. El arnés
+lo usa para el proxy (`railspec mcp`) y para los hooks (`railspec hook`).
 
 ```
 railspec desinstalar                  # todos los adaptadores presentes
@@ -46,6 +47,7 @@ los lista en `unidades_en_local`.
 | Comando de arranque `/railspec` | `.claude/commands/railspec.md` | `.opencode/commands/railspec.md` |
 | Bucle de cliente | `.claude/skills/railspec-bucle/SKILL.md` | `.opencode/skills/railspec-bucle/SKILL.md` |
 | Reglas de conducta | bloque delimitado en `CLAUDE.md` | bloque delimitado en `AGENTS.md` |
+| Reglas aplicadas (hooks) | `hooks.PreToolUse` en `.claude/settings.json` | plugin `.opencode/plugins/railspec.js` |
 | Permisos | `.claude/settings.json` y `.claude/settings.local.json` | `permission` en el mismo archivo de configuración |
 
 La fusión solo toca la entrada `railspec`, los permisos que añade y el bloque
@@ -65,15 +67,85 @@ En Claude Code, la parte por máquina va a `.claude/settings.local.json`, que
 ["railspec"]` (el servidor del `.mcp.json` queda aprobado cuando la carpeta es
 de confianza) y `permissions.additionalDirectories` con la carpeta de
 worktrees, para que el arnés edite en el worktree de la unidad sin salir de su
-espacio de trabajo. OpenCode no tiene configuración de proyecto fuera de git:
-pide permiso (`external_directory`) la primera vez que toca esa carpeta, y
-`instalar` avisa de que hay que contestarle que siempre.
+espacio de trabajo. OpenCode no tiene configuración de proyecto fuera de git;
+la carpeta de worktrees se abre desde el plugin (ver abajo), así que tampoco
+pregunta por `external_directory`.
 
 Las piezas se probaron contra Claude Code (`claude mcp get railspec`:
 conectado) y OpenCode 1.18.33 (`opencode mcp list`, `opencode debug config`
 y `opencode debug skill` reconocen servidor, comando, skill y permisos). Las
 versiones anteriores del adaptador de OpenCode escribían en `.opencode/command/`
 y `.opencode/skill/`; `instalar` las quita.
+
+## Reglas de conducta aplicadas con hooks
+
+Las reglas de conducta están escritas para el agente, pero donde el arnés
+tiene un hook previo a cada tool, Railspec además las impone. Ambos arneses
+llaman a la misma guardia, `railspec hook <arnés>` (`guardia.py`), que lee la
+llamada por stdin y responde por stdout. Con una unidad en curso en el
+repositorio:
+
+| Intento | Respuesta |
+|---|---|
+| Escribir en el clon principal | Rechazada: se trabaja en el worktree de la unidad, que el mensaje nombra |
+| Escribir código en el worktree | Solo dentro de `alcance.permitidos` y fuera de `prohibidos` de la orden vigente |
+| Escribir `spec.md`, `plan.md` o `tasks.md` de la unidad | Solo con la orden de redactar o refinar que pide ese artefacto |
+| Escribir en `.railspec/` del worktree (estado del proxy) | Rechazada siempre |
+| Escribir sin orden vigente | Rechazada: primero `unit_advance` |
+| Escribir en el worktree de una unidad cerrada | Rechazada |
+| `unit_approve`, `unit_set_mode`, `unit_integrate` | Pide confirmación al humano (Claude Code) |
+| Cualquier otra cosa, o sin unidades en curso | La guardia no opina; decide el arnés |
+
+Una unidad está en curso si su worktree tiene estado local y su fase no es
+`done`. Lo que cae fuera del repositorio y de la carpeta de worktrees queda a
+los permisos del arnés. Si la guardia falla (estado ilegible, error
+inesperado), rechaza la escritura y lo dice. La salida de emergencia es lanzar
+el arnés con `RAILSPEC_GUARDIA=0`: lo decide el humano, y las reglas de
+conducta piden al agente no esquivar un rechazo (tampoco con la shell).
+
+**Claude Code.** `instalar` añade a `hooks.PreToolUse` de
+`.claude/settings.json` una entrada con `matcher`
+`Write|Edit|MultiEdit|NotebookEdit|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
+y el comando `railspec hook claude-code`. La entrada propia se reconoce por el
+comando: reinstalar la reemplaza y `desinstalar` la quita sin tocar los hooks
+ajenos. El hook responde `permissionDecision: deny` con el motivo, que el
+modelo recibe, o `ask` para las tools humanas; el `ask` del hook se aplica
+aunque alguien haya puesto la tool en `allow` o la sesión corra con
+`--permission-mode bypassPermissions`.
+
+**OpenCode.** `instalar` escribe `.opencode/plugins/railspec.js`, que OpenCode
+carga al arrancar:
+
+- `tool.execute.before` envía a la guardia las llamadas a `edit`, `write`,
+  `multiedit`, `patch` y `apply_patch` (de un parche se revisan todas las
+  rutas) y lanza un error con el motivo si las rechaza.
+- `config` añade `permission.external_directory["<carpeta de worktrees>/**"] =
+  "allow"`. La ruta es de cada máquina y no puede versionarse en
+  `opencode.json`; el plugin la calcula al arrancar (respeta
+  `RAILSPEC_WORKTREES`). Así OpenCode ya no pregunta la primera vez que entra
+  en la carpeta. No se usa el hook `permission.ask`: en OpenCode 1.18.34 no se
+  invoca.
+
+**Lo que no se aplica.** Los comandos de shell (`Bash` en Claude Code, `bash`
+en OpenCode) no se revisan: no hay forma fiable de saber qué escribe un
+comando. Ahí siguen rigiendo solo las reglas escritas, y el proxy rechaza al
+reportar los archivos fuera de alcance (`unit_report` con un cambio fuera de
+`alcance.permitidos` falla). En OpenCode, un `tool.execute.before` no puede
+pedir confirmación; las tres tools humanas preguntan por
+`permission.railspec_<tool>: "ask"`.
+
+**Verificado de verdad** (2026-10-01) con una unidad en curso creada por el
+proxy contra el servidor doble de las pruebas:
+
+- Claude Code 2.1.286 (`claude -p`, `--permission-mode bypassPermissions`):
+  Edit en el clon principal y en `README.md` del worktree (fuera de
+  `src/**`) rechazados con el motivo; Edit en `src/calc.py` del worktree
+  aplicado; `mcp__railspec__unit_approve` pidió permiso, también con la tool
+  en `allow` y sin la regla `ask`.
+- OpenCode 1.18.34 (`opencode run` con un proveedor OpenAI-compatible de pega
+  que dicta las tool calls): los mismos tres casos con el mismo resultado y
+  sin preguntar por `external_directory`; sin el hook `config` OpenCode pidió
+  ese permiso y, en `run`, lo rechazó.
 
 ## Tools que ve el arnés
 
@@ -201,14 +273,117 @@ la invente. Si el arnés no declara *elicitation*, las reglas de conducta
 le obligan a preguntar y llamar `unit_approve` con la decisión exacta. La
 consola web puede resolverlo también; gana la primera resolución.
 
+## Binario autocontenido
+
+Cada versión de `railspec-local` se publica también como un ejecutable único
+por plataforma que no necesita Python instalado: `railspec-linux-x86_64`,
+`railspec-linux-arm64`, `railspec-macos-arm64` y `railspec-macos-x86_64`
+(Windows no se soporta: el proxy usa `fcntl`). Lleva dentro el intérprete,
+railspec-contracts, el SDK de MCP y las plantillas de los adaptadores; es el
+mismo comando que instala `pip install railspec-local`.
+
+### Descargar y verificar
+
+Con la CLI de GitHub (sirve también si el repositorio es privado):
+
+```
+VERSION=0.1.0
+PLATAFORMA=linux-x86_64        # linux-arm64 | macos-arm64 | macos-x86_64
+REPO=juliancardonagaleano/sdd-mcp
+gh release download "railspec-local-v$VERSION" --repo "$REPO" \
+  --pattern "railspec-$PLATAFORMA" --pattern SHA256SUMS
+```
+
+Sin `gh`, desde la página de la release o con
+`curl -fLO https://github.com/$REPO/releases/download/railspec-local-v$VERSION/railspec-$PLATAFORMA`
+(y lo mismo para `SHA256SUMS`).
+
+Antes de ejecutarlo, comprueba la suma:
+
+```
+sha256sum --check --ignore-missing SHA256SUMS      # Linux
+shasum -a 256 --check --ignore-missing SHA256SUMS  # macOS
+```
+
+Debe decir `railspec-<plataforma>: OK`. Si no, no lo ejecutes.
+
+### Ponerlo en el PATH
+
+El arnés lanza `railspec mcp`, así que el binario tiene que llamarse
+`railspec` y estar en el `PATH` que ve el arnés (no solo el de tu shell):
+
+```
+install -m 0755 "railspec-$PLATAFORMA" ~/.local/bin/railspec
+railspec --version                  # railspec-local 0.1.0
+```
+
+`~/.local/bin` debe estar en el `PATH` (en macOS no viene por defecto:
+añádelo en `~/.zprofile` o usa `/usr/local/bin`). `railspec instalar` avisa si
+no encuentra el comando en el `PATH`.
+
+En macOS, un archivo descargado con el navegador queda en cuarentena y
+Gatekeeper lo bloquea ("no se puede verificar el desarrollador"): el binario
+lleva firma ad hoc, no está notarizado. Tras verificar la suma, quita la
+marca:
+
+```
+xattr -d com.apple.quarantine ~/.local/bin/railspec
+```
+
+(`gh release download` y `curl` no ponen la marca; si `xattr` responde
+`No such xattr`, no hacía falta.)
+
+El primer arranque de cada ejecución descomprime el binario en un directorio
+temporal (unas décimas de segundo; `railspec --version` tarda ~0,7 s frente a
+~0,35 s de la instalación con pip). Si `TMPDIR` apunta a un sistema de
+archivos montado con `noexec`, el binario no arranca: apunta `TMPDIR` a otro
+sitio.
+
+El indexado local sigue siendo opcional y aparte: instala
+`codebase-memory-mcp` (`pipx install codebase-memory-mcp`, o su binario) en el
+mismo `PATH`; sin él, el proxy trabaja en `solo-hashes`.
+
+Para actualizar, repite la descarga con la nueva versión y sobrescribe
+`~/.local/bin/railspec`; para desinstalarlo, bórralo (antes,
+`railspec desinstalar` en cada repositorio si quieres quitar los adaptadores).
+
+### Publicar una versión
+
+El workflow `railspec-binario` construye y prueba el binario en cada push a
+`master` y en cada PR que toque `railspec-local` o `railspec-contracts`
+(artefactos `railspec-<plataforma>` en la ejecución, 14 días). La release sale
+de un tag:
+
+1. Sube `version` en `railspec/packages/railspec-local/pyproject.toml` (y
+   `__version__` en `railspec/local/__init__.py`) y fusiona en `master`.
+2. Etiqueta ese commit y empuja el tag:
+
+   ```
+   git tag railspec-local-v0.2.0
+   git push origin railspec-local-v0.2.0
+   ```
+
+3. El workflow construye las cuatro plataformas, pasa el humo en cada una,
+   comprueba que el tag coincide con la versión del `pyproject.toml` y que
+   `railspec --version` la imprime, y crea la release
+   `railspec-local-v0.2.0` con los cuatro binarios y `SHA256SUMS`.
+
+Si un job falla, no hay release: corrige, borra el tag
+(`git push origin :railspec-local-v0.2.0`) y vuelve a etiquetar.
+
+Las dependencias de terceros del binario están fijadas con hashes en
+`empaquetado/requirements.lock`; tras cambiar las dependencias de los
+`pyproject` o subir PyInstaller, regenera el lock con
+`railspec/packages/railspec-local/empaquetado/bloquear.sh` y súbelo en el
+mismo PR. Construir en local: `empaquetado/README.md`.
+
 ## Pendiente
 
-- **Hooks del arnés.** La hoja de ruta prevé hooks donde el arnés los tenga
-  (por ejemplo, impedir en Claude Code una edición en el clon principal con
-  una unidad en curso). Hoy solo lo dicen las reglas de conducta.
 - **Instalación por usuario.** Los adaptadores se instalan por repositorio; un
   alcance de usuario (`~/.claude`, `~/.config/opencode`) queda para otra
-  iteración, igual que distribuir `railspec` como binario.
+  iteración.
+- **Binario firmado.** El binario de macOS no está notarizado (hay que quitar
+  la cuarentena) y no hay binario para Windows (el proxy usa `fcntl`).
 
 - **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI y el
   servidor nunca calcula embeddings de código: el delta viaja sin ellos y la

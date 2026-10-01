@@ -1,0 +1,115 @@
+# Construye el binario autocontenido `railspec` (PyInstaller, onefile) por
+# plataforma, le pasa el humo y lo sube como artefacto. En tags
+# railspec-local-v* publica además una release con los binarios y SHA256SUMS.
+#
+# Receta, lock y humo: railspec/packages/railspec-local/empaquetado/.
+# Windows no: el proxy usa fcntl.
+name: railspec-binario
+
+on:
+  pull_request:
+    paths:
+      - "railspec/packages/railspec-contracts/**"
+      - "railspec/packages/railspec-local/**"
+      - ".github/workflows/railspec-binario.yml"
+  push:
+    branches: [master]
+    # Los filtros de paths no se evalúan en los pushes de tags.
+    tags: ["railspec-local-v*"]
+    paths:
+      - "railspec/packages/railspec-contracts/**"
+      - "railspec/packages/railspec-local/**"
+      - ".github/workflows/railspec-binario.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railspec-binario-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  EMPAQUETADO: railspec/packages/railspec-local/empaquetado
+
+jobs:
+  binario:
+    name: binario (${{ matrix.plataforma }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux en 22.04: el binario exige la glibc del runner que lo
+          # construye (2.35), así arranca también en distribuciones más viejas.
+          - plataforma: linux-x86_64
+            runner: ubuntu-22.04
+          - plataforma: linux-arm64
+            runner: ubuntu-22.04-arm
+          - plataforma: macos-arm64
+            runner: macos-14
+          # macos-13 se retiró; macos-15-intel es la imagen x86_64 vigente.
+          - plataforma: macos-x86_64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar dependencias fijadas (con hashes)
+        run: python -m pip install --require-hashes --no-deps -r "$EMPAQUETADO/requirements.lock"
+      - name: Construir
+        run: python "$EMPAQUETADO/construir.py" --salida dist --trabajo "$RUNNER_TEMP/pyinstaller"
+      - name: Humo
+        run: python "$EMPAQUETADO/humo.py" dist/railspec
+      - name: Versión mínima de macOS
+        if: runner.os == 'macOS'
+        run: otool -l dist/railspec | grep -A3 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' | head -8
+      - name: Nombrar por plataforma
+        run: |
+          mv dist/railspec "dist/railspec-${{ matrix.plataforma }}"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: railspec-${{ matrix.plataforma }}
+          path: dist/railspec-${{ matrix.plataforma }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/railspec-local-v')
+    needs: binario
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write   # gh release create
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar que el tag coincide con la versión del paquete
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' railspec/packages/railspec-local/pyproject.toml)
+          if [ "$GITHUB_REF_NAME" != "railspec-local-v$VERSION" ]; then
+            echo "::error::el tag $GITHUB_REF_NAME no coincide con railspec-local $VERSION (pyproject.toml)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: railspec-*
+          path: dist
+          merge-multiple: true
+      - name: Comprobar el binario de Linux y calcular sumas
+        working-directory: dist
+        run: |
+          chmod +x railspec-*
+          test "$(./railspec-linux-x86_64 --version)" = "railspec-local $VERSION"
+          sha256sum railspec-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publicar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/railspec-* dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "railspec-local $VERSION" \
+            --notes "Binario autocontenido de \`railspec\` (proxy local). Instalación y verificación: railspec/docs/proxy-local.md."

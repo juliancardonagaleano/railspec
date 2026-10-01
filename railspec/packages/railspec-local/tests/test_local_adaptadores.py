@@ -191,7 +191,7 @@ def test_claude_code_permite_el_bucle_y_pregunta_lo_humano(tmp_path):
     adaptadores.instalar(tmp_path, Arnes.claude_code, worktrees)
 
     ajustes = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-    assert ajustes["hooks"] == {"Stop": []}
+    assert ajustes["hooks"] == {"Stop": [], "PreToolUse": [adaptadores.HOOK_CLAUDE_CODE]}
     assert ajustes["permissions"]["allow"][0] == "Bash(npm test)"
     assert "mcp__railspec__unit_advance" in ajustes["permissions"]["allow"]
     assert ajustes["permissions"]["ask"] == [
@@ -325,7 +325,7 @@ def test_cli_instalar_y_desinstalar_deja_el_arbol_limpio(tmp_path, capsys, monke
     ]  # fmt: skip
     assert cli.main(base) == 0
     salida = json.loads(capsys.readouterr().out)
-    assert any("OpenCode pedirá permiso" in a for a in salida["avisos"])
+    assert "avisos" not in salida or not any("OpenCode" in a for a in salida["avisos"])
     local = json.loads((raiz / ".claude" / "settings.local.json").read_text())
     assert local["permissions"]["additionalDirectories"] == [str(tmp_path / "repo.railspec")]
     # La configuración por máquina no aparece como cambio a versionar.

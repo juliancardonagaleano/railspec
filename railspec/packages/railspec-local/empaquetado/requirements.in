@@ -1,0 +1,13 @@
+# Dependencias de terceros del binario `railspec` (PyInstaller).
+# Espejo de los pyproject de railspec-contracts y railspec-local; los dos
+# paquetes propios se instalan aparte, sin dependencias y sin aislamiento de
+# construcción (por eso setuptools va aquí). Regenerar el lock con
+# railspec/packages/railspec-local/empaquetado/bloquear.sh.
+pydantic>=2.7,<3
+mcp>=2.2,<3
+setuptools==80.9.0
+pyinstaller==6.22.3
+# PyInstaller la pide solo en macOS. pip-compile descarta los requisitos cuyo
+# marcador no se cumple donde resuelve, así que va sin marcador: es Python puro
+# y en Linux sobra pero no estorba, y así el lock con hashes sirve en las dos.
+macholib>=1.8
