@@ -105,7 +105,8 @@ oculta lo que el rol no permite, pero decide el servidor.
 | --- | --- |
 | Ver unidades, estadísticas, auditoría, grafo, configuración | `lector` |
 | Aprobar checkpoints, integrar, cambiar modo, arrancar unidades (tools) | el `rol_minimo` de la tool (`desarrollador`) |
-| Editar workspace, vínculos, roles del workspace, configuración del workspace | `workspace-admin` |
+| Editar workspace, vínculos, roles del workspace, configuración del workspace (**salvo relajar la política**, abajo) | `workspace-admin` |
+| Relajar la política de código: bajar `nivel_codigo`, habilitar `chat_contexto_codigo.permitido`, subir los presupuestos de fuga o `huella_tokens_n`, ampliar `modelos_permitidos`, `hosting` o `fragmentos_en_respuesta`, crear un vínculo menos restrictivo que el por defecto, o quitar o cambiar `zona_datos_azure`; siempre con motivo | `org-admin` |
 | Crear workspaces, roles `org-admin`, configuración de la organización | `org-admin` |
 | Crear organizaciones; fijar o cambiar su `github_org` | administrador de la plataforma |
 
@@ -129,6 +130,23 @@ quien use el arnés hay que asignarle el rol como persona.
   (422) con el motivo. Un `org-admin` no puede cambiar `github_org` (403): lo fija la
   plataforma, porque los clones son compartidos por owner/repo y quien eligiera su
   owner a gusto podría apuntar al clon de otro tenant.
+- **Política (`nivel_codigo`, `chat_contexto_codigo`) y zona de datos**: endurecer sigue
+  siendo del `workspace-admin` (bajar `huella_tokens_n` o los presupuestos de fuga,
+  apagar el chat, acotar los modelos, fijar una zona donde no había). Relajar cualquiera
+  de esos campos exige `org-admin` (o la plataforma, que actúa como tal) y un `motivo` no
+  vacío; si no, 403 o 422. Un vínculo nuevo se compara con la política por defecto de
+  `restringido`: crearlo en `interno` o `abierto` (o con una política más laxa) también
+  es relajar; si no, bastaría desvincular y volver a crear para esquivar el cambio de
+  nivel. De `zona_datos_azure`, quitarla o cambiarla a otra cuenta como ampliarla (no se
+  puede probar que otra zona sea más estricta). El motivo viaja en `motivo` del cuerpo
+  (`PUT …/repositorios/{repo}` y `PUT …/workspaces/{ws}`). La SPA solo pide motivo al
+  cambiar el nivel; el resto de relajaciones desde la SPA devuelve el error del servidor.
+- **Auditoría del diff**: cada `PUT` de vínculo deja el campo, el valor anterior y el nuevo
+  como `cambio_<campo>: "antes -> después"` (`cambio_chat_huella_tokens_n: "12 -> 24"`),
+  `relaja` con los campos que relajan y el `motivo`. El cambio de nivel sigue siendo el
+  evento `cambio-nivel` (`de`, `a`, `motivo`) con el diff del resto de la política; los
+  demás van en `cambio-configuracion`. Igual para `zona_datos_azure` al editar un
+  workspace (`cambio_zona_datos_azure`).
 - **Límite**: los vínculos guardados antes de esta regla no se revalidan contra
   `github_org` al leer código (solo se descartan los de forma inválida). Conviene
   revisar `GET …/repositorios` de cada organización al desplegar.
@@ -145,7 +163,8 @@ el cierre y no lo condiciona. El estado registra el canal `consola`.
 
 Toda escritura de administración y configuración queda en `auditoria` con su
 actor: `cambio-configuracion`, `cambio-nivel` (con nivel anterior, nuevo y
-motivo obligatorio) y `desvinculo-repositorio` (motivo obligatorio; borra
+motivo obligatorio; los cambios de política llevan su diff, ver «Vínculos de
+repositorio») y `desvinculo-repositorio` (motivo obligatorio; borra
 vínculo y grafo del repositorio). Los cambios a nivel organización se
 auditan en el workspace reservado `org` (`org`, `administracion` y
 `configuracion` no se pueden usar como nombre de workspace); se ven en `/consola/api/orgs/{org}/workspaces/org/auditoria`

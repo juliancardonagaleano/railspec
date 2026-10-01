@@ -18,6 +18,7 @@ from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace, Nivel
 from railspec.contracts.repositorio import (
     AsignacionRol,
     EventoAuditoria,
+    HostingChat,
     Organizacion,
     PoliticaChat,
     Rol,
@@ -31,7 +32,7 @@ from railspec.contracts.repositorio import (
 from ..api.grafo import repositorio_de_url
 from .almacen import WORKSPACE_ORG
 from .api import Entrada
-from .contexto import ContextoConsola
+from .contexto import ContextoConsola, alcanza
 from .github import PATRON_LOGIN, ErrorGithub
 
 router = APIRouter()
@@ -47,6 +48,93 @@ def _ctx(request: Request) -> ContextoConsola:
 
 def _json(modelo: Any) -> dict[str, Any]:
     return modelo.model_dump(mode="json")
+
+
+# --- política: diff auditado y relajaciones -------------------------------------------------------------
+
+#: Cuanto mayor, menos restrictivo.
+_ORDEN_NIVEL = {NivelCodigo.restringido: 0, NivelCodigo.interno: 1, NivelCodigo.abierto: 2}
+
+
+def _txt(valor: Any) -> str:
+    if valor is None or valor == "":
+        return "-"
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    if isinstance(valor, list | tuple):
+        return ",".join(_txt(v) for v in valor) or "[]"
+    return str(getattr(valor, "value", valor))
+
+
+def _detalle_cambios(cambios: dict[str, tuple[Any, Any]]) -> dict[str, str]:
+    """``{campo: (antes, después)}`` → claves ``cambio_<campo>`` = ``antes -> después`` para la auditoría."""
+
+    return {f"cambio_{campo}": f"{_txt(a)} -> {_txt(d)}"[:300] for campo, (a, d) in cambios.items()}
+
+
+def _campos_vinculo(
+    nivel: NivelCodigo, politica: PoliticaChat, v: VinculoRepositorio | None
+) -> dict[str, Any]:
+    """Campos auditables del vínculo (los de política primero). Sin ``v``, solo los de política."""
+
+    campos: dict[str, Any] = {
+        "nivel_codigo": nivel,
+        "chat_permitido": politica.permitido,
+        "chat_hosting": politica.hosting,
+        "chat_modelos_permitidos": politica.modelos_permitidos,
+        "chat_fragmentos_en_respuesta": politica.fragmentos_en_respuesta,
+        "chat_huella_tokens_n": politica.huella_tokens_n,
+        "chat_presupuesto_fuga_conversacion": politica.presupuesto_fuga_conversacion,
+        "chat_presupuesto_fuga_usuario_dia": politica.presupuesto_fuga_usuario_dia,
+    }
+    if v is not None:
+        campos |= {
+            "url": v.url,
+            "rol": v.rol,
+            "rama_por_defecto": v.rama_por_defecto,
+            "retencion_snapshots_dias": v.retencion_snapshots_dias,
+            "exclusiones": v.exclusiones,
+        }
+    return campos
+
+
+def _relajaciones_vinculo(antes: dict[str, Any], despues: dict[str, Any]) -> list[str]:
+    """Campos de política que quedan menos restrictivos. Ante la duda (otra lista de modelos) relaja."""
+
+    r: list[str] = []
+    if _ORDEN_NIVEL[despues["nivel_codigo"]] > _ORDEN_NIVEL[antes["nivel_codigo"]]:
+        r.append("nivel_codigo")
+    if not antes["chat_permitido"] and despues["chat_permitido"]:
+        r.append("chat_permitido")
+    if (
+        antes["chat_hosting"] == HostingChat.azure_zona_datos
+        and despues["chat_hosting"] != antes["chat_hosting"]
+    ):
+        r.append("chat_hosting")
+    if not antes["chat_fragmentos_en_respuesta"] and despues["chat_fragmentos_en_respuesta"]:
+        r.append("chat_fragmentos_en_respuesta")
+    for campo in (
+        "chat_huella_tokens_n",
+        "chat_presupuesto_fuga_conversacion",
+        "chat_presupuesto_fuga_usuario_dia",
+    ):
+        if despues[campo] > antes[campo]:
+            r.append(campo)
+    modelos_antes, modelos_despues = antes["chat_modelos_permitidos"], despues["chat_modelos_permitidos"]
+    if modelos_antes and (not modelos_despues or not set(modelos_despues) <= set(modelos_antes)):
+        r.append("chat_modelos_permitidos")  # vacío = todos los del catálogo
+    return r
+
+
+def _exigir_para_relajar(permisos: Any, org: str, relajan: list[str], motivo: str) -> None:
+    """Relajar una política exige ``org-admin`` (o la plataforma) y un motivo; endurecer no."""
+
+    if not relajan:
+        return
+    if not alcanza(permisos.rol(org, None), Rol.org_admin):
+        raise HTTPException(403, f"relajar la política ({', '.join(relajan)}) exige org-admin")
+    if not motivo:
+        raise HTTPException(422, f"relajar la política ({', '.join(relajan)}) exige un motivo")
 
 
 # --- organizaciones ------------------------------------------------------------------------
@@ -139,6 +227,8 @@ class WorkspaceEdicion(Entrada):
     zona_datos_azure: str | None = None
     perfil_por_defecto: Perfil = Perfil.estandar
     version: int
+    #: Obligatorio al ampliar la zona de datos (quitarla o cambiarla); queda en la auditoría.
+    motivo: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/orgs/{org}/workspaces")
@@ -170,6 +260,7 @@ async def crear_workspace(org: str, entrada: WorkspaceNuevo, request: Request) -
         EventoAuditoria.cambio_configuracion,
         entidad="workspace",
         accion="crear",
+        zona_datos_azure=w.zona_datos_azure,
     )
     return _json(w)
 
@@ -178,19 +269,37 @@ async def crear_workspace(org: str, entrada: WorkspaceNuevo, request: Request) -
 async def editar_workspace(org: str, ws: str, entrada: WorkspaceEdicion, request: Request) -> dict[str, Any]:
     ctx = _ctx(request)
     sesion = await ctx.sesion(request)
-    ctx.permisos(sesion).exigir(org, ws, Rol.workspace_admin)
+    permisos = ctx.permisos(sesion)
+    permisos.exigir(org, ws, Rol.workspace_admin)
     previa = ctx.datos.workspace(org, ws)
     if previa is None:
         raise HTTPException(404, f"no existe el workspace {org}/{ws}")
+    # Sin zona declarada no hay restricción: fijar una endurece; quitarla o cambiarla a otra, que no se
+    # puede probar más estricta, es ampliar y exige org-admin con motivo.
+    zona_antes, zona_despues = previa.zona_datos_azure or None, entrada.zona_datos_azure or None
+    relajan = ["zona_datos_azure"] if zona_antes is not None and zona_despues != zona_antes else []
+    motivo = (entrada.motivo or "").strip()
+    _exigir_para_relajar(permisos, org, relajan, motivo)
     actor = sesion.actor()
     w = Workspace(
         alcance=previa.alcance,
-        **entrada.model_dump(exclude={"version"}),
+        **entrada.model_dump(exclude={"version", "motivo"}),
         version=entrada.version + 1,
         auditoria=ctx.auditoria_entidad(actor, previa.auditoria),
     )
     ctx.datos.guardar_workspace(w, entrada.version)
-    ctx.auditar(actor, org, ws, EventoAuditoria.cambio_configuracion, entidad="workspace", accion="editar")
+    cambios = {"zona_datos_azure": (zona_antes, zona_despues)} if zona_antes != zona_despues else {}
+    ctx.auditar(
+        actor,
+        org,
+        ws,
+        EventoAuditoria.cambio_configuracion,
+        entidad="workspace",
+        accion="editar",
+        motivo=motivo or None,
+        relaja=",".join(relajan) or None,
+        **_detalle_cambios(cambios),
+    )
     return _json(w)
 
 
@@ -361,14 +470,16 @@ async def guardar_vinculo(
 ) -> dict[str, Any]:
     ctx = _ctx(request)
     sesion = await ctx.sesion(request)
-    ctx.permisos(sesion).exigir(org, ws, Rol.workspace_admin)
+    permisos = ctx.permisos(sesion)
+    permisos.exigir(org, ws, Rol.workspace_admin)
     _exigir_owner_de_la_org(ctx, org, entrada.url)
     alcance = AlcanceRepositorio(org=org, workspace=ws, repositorio=repo)
     previo = ctx.datos.vinculo(alcance)
     if (previo is None) != (entrada.version is None):
         raise HTTPException(409, "el vínculo ya existe" if previo else "el vínculo no existe")
+    motivo = (entrada.motivo or "").strip()
     cambia_nivel = previo is not None and previo.nivel_codigo != entrada.nivel_codigo
-    if cambia_nivel and not (entrada.motivo or "").strip():
+    if cambia_nivel and not motivo:
         raise HTTPException(422, "cambiar el nivel de política exige un motivo")
     politica = entrada.chat_contexto_codigo
     if politica is None:
@@ -385,6 +496,17 @@ async def guardar_vinculo(
         version=(entrada.version or 0) + 1,
         auditoria=ctx.auditoria_entidad(actor, previo.auditoria if previo else None),
     )
+    # Diff de política contra lo vigente; un vínculo nuevo se compara con la política por defecto de
+    # ``restringido`` (si no, desvincular y crear en ``abierto`` esquivaría el cambio de nivel).
+    if previo is not None:
+        antes = _campos_vinculo(previo.nivel_codigo, previo.chat_contexto_codigo, previo)
+    else:
+        por_defecto = politica_chat_por_defecto(NivelCodigo.restringido)
+        antes = _campos_vinculo(NivelCodigo.restringido, por_defecto, None)
+    despues = _campos_vinculo(v.nivel_codigo, v.chat_contexto_codigo, v if previo is not None else None)
+    cambios = {k: (antes[k], despues[k]) for k in antes if antes[k] != despues[k]}
+    relajan = _relajaciones_vinculo(antes, despues)
+    _exigir_para_relajar(permisos, org, relajan, motivo)
     ctx.datos.guardar_vinculo(v, entrada.version)
     if cambia_nivel:
         ctx.auditar(
@@ -395,7 +517,9 @@ async def guardar_vinculo(
             repositorio=repo,
             de=previo.nivel_codigo.value,
             a=v.nivel_codigo.value,
-            motivo=entrada.motivo.strip(),  # type: ignore[union-attr]
+            motivo=motivo,
+            relaja=",".join(relajan) or None,
+            **_detalle_cambios({k: c for k, c in cambios.items() if k != "nivel_codigo"}),
         )
     else:
         ctx.auditar(
@@ -407,6 +531,9 @@ async def guardar_vinculo(
             entidad="vinculo",
             accion="crear" if previo is None else "editar",
             nivel=v.nivel_codigo.value,
+            motivo=motivo or None,
+            relaja=",".join(relajan) or None,
+            **_detalle_cambios(cambios),
         )
     return _json(v)
 

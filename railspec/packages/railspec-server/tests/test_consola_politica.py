@@ -258,3 +258,183 @@ def test_github_org_solo_lo_cambia_la_plataforma():
             assert r.status_code == 200 and r.json()["github_org"] == "victima", r.text
 
     correr(caso())
+
+
+# --- B5: relajar la política exige org-admin, motivo y deja el diff en la auditoría ----------------------
+
+
+async def _auditoria(c, ws: str = WS, **filtros) -> list[dict]:
+    r = await c.get(f"/consola/api/orgs/{ORG}/workspaces/{ws}/auditoria", params=filtros)
+    assert r.status_code == 200, r.text
+    return r.json()["registros"]
+
+
+def _politica(vinculo_json: dict, **cambios) -> dict:
+    return {**vinculo_json["chat_contexto_codigo"], **cambios}
+
+
+def test_relajar_la_politica_del_vinculo_exige_org_admin_y_motivo():
+    async def caso():
+        m = Montaje(nivel=None)
+        _crear_org(m, "acme")
+        asignar(m.almacen, Rol.workspace_admin, ANA_ID)
+        url = f"{BASE_VINCULOS}/{REPO}"
+        async with m.cliente("tk-ana") as c:
+            r = await c.put(url, json=CUERPO_VINCULO, headers=CSRF)
+            assert r.status_code == 200, r.text
+            v = r.json()
+            version = v["version"]
+
+            async def put(cliente, politica=None, **extra):
+                nonlocal version
+                cuerpo = CUERPO_VINCULO | {"version": version} | extra
+                if politica is not None:
+                    cuerpo["chat_contexto_codigo"] = politica
+                r = await cliente.put(url, json=cuerpo, headers=CSRF)
+                if r.status_code == 200:
+                    version = r.json()["version"]
+                return r
+
+            # Endurecer sigue en manos del workspace-admin, sin motivo, pero queda auditado con su diff.
+            r = await put(c, _politica(v, huella_tokens_n=8, presupuesto_fuga_usuario_dia=3000))
+            assert r.status_code == 200, r.text
+            ultimo = (await _auditoria(c))[0]
+            assert ultimo["evento"] == "cambio-configuracion" and "relaja" not in ultimo["detalle"]
+            assert ultimo["detalle"]["cambio_chat_huella_tokens_n"] == "12 -> 8"
+            assert ultimo["detalle"]["cambio_chat_presupuesto_fuga_usuario_dia"] == "6000 -> 3000"
+            v = r.json()
+            # Relajar sin cambiar el nivel: el workspace-admin no puede, ni con motivo.
+            for cambio in (
+                {"huella_tokens_n": 24},
+                {"presupuesto_fuga_conversacion": 9999},
+                {"presupuesto_fuga_usuario_dia": 6001},
+            ):
+                r = await put(c, _politica(v, **cambio), motivo="lo necesito")
+                assert r.status_code == 403, (cambio, r.text)
+            # Apagar y volver a encender el chat: encender es relajar.
+            r = await put(c, _politica(v, permitido=False))
+            assert r.status_code == 200, r.text
+            v = r.json()
+            r = await put(c, _politica(v, permitido=True), motivo="otra vez")
+            assert r.status_code == 403
+            # Modelos: restringir la lista endurece; ampliarla o vaciarla (= todos) relaja.
+            r = await put(c, _politica(v, modelos_permitidos=["gpt-5"]))
+            assert r.status_code == 200, r.text
+            v = r.json()
+            for modelos in (["gpt-5", "claude-sonnet-5-5"], []):
+                r = await put(c, _politica(v, modelos_permitidos=modelos), motivo="x")
+                assert r.status_code == 403, (modelos, r.text)
+            # Subir el nivel de política es relajar: el workspace-admin no puede, con motivo o sin él.
+            r = await put(c, nivel_codigo="abierto", motivo="repo público")
+            assert r.status_code == 403, r.text
+            assert m.almacen.vinculos(ORG, WS)[0].nivel_codigo == NivelCodigo.restringido
+        async with m.cliente("tk-julian") as c:  # administra la plataforma: actúa como org-admin
+            # Sin motivo, ni siquiera el org-admin relaja.
+            r = await put(c, _politica(v, huella_tokens_n=24))
+            assert r.status_code == 422 and "motivo" in r.json()["detalle"], r.text
+            r = await put(
+                c, _politica(v, huella_tokens_n=24, permitido=True), motivo="  revisado con seguridad "
+            )
+            assert r.status_code == 200, r.text
+            v = r.json()
+            ultimo = (await _auditoria(c))[0]
+            assert ultimo["actor"]["login"] == "juliancardonagaleano"
+            assert ultimo["detalle"]["cambio_chat_huella_tokens_n"] == "8 -> 24"
+            assert ultimo["detalle"]["cambio_chat_permitido"] == "false -> true"
+            assert ultimo["detalle"]["relaja"] == "chat_permitido,chat_huella_tokens_n"
+            assert ultimo["detalle"]["motivo"] == "revisado con seguridad"
+            # Bajar el nivel: evento cambio-nivel con de/a/motivo y el diff del resto de la política.
+            r = await put(c, nivel_codigo="abierto", motivo="repo público")
+            assert r.status_code == 200, r.text
+            ultimo = (await _auditoria(c))[0]
+            assert ultimo["evento"] == "cambio-nivel"
+            d = ultimo["detalle"]
+            assert (d["de"], d["a"], d["motivo"]) == ("restringido", "abierto", "repo público")
+            assert d["cambio_chat_hosting"] == "azure-zona-datos -> cualquiera"
+            assert d["cambio_chat_fragmentos_en_respuesta"] == "false -> true"
+            assert "nivel_codigo" in d["relaja"] and "cambio_nivel_codigo" not in d
+
+    correr(caso())
+
+
+def test_crear_un_vinculo_menos_restrictivo_que_el_por_defecto_tambien_es_relajar():
+    async def caso():
+        m = Montaje(nivel=None)
+        _crear_org(m, "acme")
+        asignar(m.almacen, Rol.workspace_admin, ANA_ID)
+        abierto = CUERPO_VINCULO | {"nivel_codigo": "abierto", "motivo": "repo público"}
+        async with m.cliente("tk-ana") as c:
+            # Si no, bastaría desvincular y volver a crear en ``abierto`` para esquivar el cambio de nivel.
+            r = await c.put(f"{BASE_VINCULOS}/{REPO}", json=abierto, headers=CSRF)
+            assert r.status_code == 403, r.text
+            assert m.almacen.vinculos(ORG, WS) == []
+            r = await c.put(f"{BASE_VINCULOS}/{REPO}", json=CUERPO_VINCULO, headers=CSRF)
+            assert r.status_code == 200, r.text
+            assert "cambio_nivel_codigo" not in (await _auditoria(c))[0]["detalle"]  # igual al por defecto
+            assert (
+                await c.delete(f"{BASE_VINCULOS}/{REPO}", params={"motivo": "x"}, headers=CSRF)
+            ).status_code == 204
+        async with m.cliente("tk-julian") as c:
+            r = await c.put(f"{BASE_VINCULOS}/{REPO}", json=abierto | {"motivo": None}, headers=CSRF)
+            assert r.status_code == 422
+            r = await c.put(f"{BASE_VINCULOS}/{REPO}", json=abierto, headers=CSRF)
+            assert r.status_code == 200, r.text
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["accion"] == "crear" and d["cambio_nivel_codigo"] == "restringido -> abierto"
+            assert d["motivo"] == "repo público" and "nivel_codigo" in d["relaja"]
+
+    correr(caso())
+
+
+def test_zona_de_datos_del_workspace_solo_se_amplia_con_org_admin_y_motivo():
+    async def caso():
+        m = Montaje()
+        _crear_org(m, "acme")
+        asignar(m.almacen, Rol.workspace_admin, ANA_ID)
+        base = f"/consola/api/orgs/{ORG}/workspaces/{WS}"
+        async with m.cliente("tk-julian") as c:
+            r = await c.post(
+                f"/consola/api/orgs/{ORG}/workspaces",
+                json={"workspace": WS, "nombre": "Certificados", "zona_datos_azure": "us"},
+                headers=CSRF,
+            )
+            assert r.status_code == 200, r.text
+            assert (await _auditoria(c))[0]["detalle"]["zona_datos_azure"] == "us"
+        edicion = {"nombre": "Certificados", "perfil_por_defecto": "estandar", "version": 1}
+        async with m.cliente("tk-ana") as c:
+            # Quitar la zona o cambiarla a otra no se puede probar que endurezca: relaja.
+            for zona in (None, "eu", "global"):
+                r = await c.put(base, json=edicion | {"zona_datos_azure": zona, "motivo": "x"}, headers=CSRF)
+                assert r.status_code == 403, (zona, r.text)
+            assert m.ctx.datos.workspace(ORG, WS).zona_datos_azure == "us"
+            # Lo demás del workspace sigue siendo del workspace-admin (la zona igual, sin motivo).
+            r = await c.put(base, json=edicion | {"zona_datos_azure": "us", "nombre": "Certs"}, headers=CSRF)
+            assert r.status_code == 200, r.text
+            ultimo = (await _auditoria(c))[0]
+            assert (
+                ultimo["detalle"]["accion"] == "editar" and "cambio_zona_datos_azure" not in ultimo["detalle"]
+            )
+        async with m.cliente("tk-julian") as c:
+            e2 = edicion | {"nombre": "Certs", "version": 2}
+            r = await c.put(base, json=e2 | {"zona_datos_azure": "eu"}, headers=CSRF)
+            assert r.status_code == 422 and "motivo" in r.json()["detalle"], r.text
+            r = await c.put(
+                base, json=e2 | {"zona_datos_azure": "eu", "motivo": "migración a EU"}, headers=CSRF
+            )
+            assert r.status_code == 200, r.text
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["cambio_zona_datos_azure"] == "us -> eu" and d["relaja"] == "zona_datos_azure"
+            assert d["motivo"] == "migración a EU"
+            # Quitar la restricción de zona es ampliarla: motivo y org-admin.
+            r = await c.put(
+                base, json=e2 | {"zona_datos_azure": None, "version": 3, "motivo": "sin zona"}, headers=CSRF
+            )
+            assert r.status_code == 200, r.text
+        async with m.cliente("tk-ana") as c:
+            # Fijar una zona donde no había restringe: lo hace el workspace-admin, sin motivo.
+            r = await c.put(base, json=e2 | {"zona_datos_azure": "eu", "version": 4}, headers=CSRF)
+            assert r.status_code == 200, r.text
+            d = (await _auditoria(c))[0]["detalle"]
+            assert d["cambio_zona_datos_azure"] == "- -> eu" and "relaja" not in d
+
+    correr(caso())

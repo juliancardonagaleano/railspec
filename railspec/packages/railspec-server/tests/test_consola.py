@@ -395,7 +395,11 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
             abierto = cuerpo | {"nivel_codigo": "abierto", "version": 1}
             r = await c.put(f"{base}/{REPO}", json=abierto, headers=CSRF)
             assert r.status_code == 422  # falta motivo
+            # Bajar el nivel es relajar la política: el workspace-admin no puede, ni con motivo.
             r = await c.put(f"{base}/{REPO}", json=abierto | {"motivo": "repo público"}, headers=CSRF)
+            assert r.status_code == 403
+            async with m.cliente("tk-julian") as admin:  # administra la plataforma: actúa como org-admin
+                r = await admin.put(f"{base}/{REPO}", json=abierto | {"motivo": "repo público"}, headers=CSRF)
             assert r.status_code == 200 and r.json()["chat_contexto_codigo"]["hosting"] == "cualquiera"
             # Política incoherente con el nivel: la rechaza el contrato.
             politica = r.json()["chat_contexto_codigo"]
@@ -419,7 +423,23 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
                 "cambio-nivel",
                 "cambio-configuracion",
             ]
-            assert registros[1]["detalle"] == {"de": "restringido", "a": "abierto", "motivo": "repo público"}
+            # El evento lleva de/a/motivo y el diff del resto de la política (la del nivel nuevo por defecto).
+            relaja = (
+                "nivel_codigo,chat_hosting,chat_fragmentos_en_respuesta,chat_huella_tokens_n,"
+                "chat_presupuesto_fuga_conversacion,chat_presupuesto_fuga_usuario_dia"
+            )
+            assert registros[1]["detalle"] == {
+                "de": "restringido",
+                "a": "abierto",
+                "motivo": "repo público",
+                "relaja": relaja,
+                "cambio_chat_hosting": "azure-zona-datos -> cualquiera",
+                "cambio_chat_fragmentos_en_respuesta": "false -> true",
+                "cambio_chat_huella_tokens_n": "12 -> 24",
+                "cambio_chat_presupuesto_fuga_conversacion": "1500 -> 4000",
+                "cambio_chat_presupuesto_fuga_usuario_dia": "6000 -> 20000",
+            }
+            assert registros[1]["actor"]["login"] == "juliancardonagaleano"
             assert registros[0]["actor"]["canal"] == "consola"
             filtrados = (
                 await c.get(
