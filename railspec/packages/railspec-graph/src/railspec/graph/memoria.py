@@ -6,7 +6,7 @@ import copy
 import math
 from dataclasses import dataclass, field
 
-from .motor import AristaMotor, Cluster, Meta, Proceso
+from .motor import AristaMotor, Cluster, Meta, Proceso, Traza
 
 
 def _sufijo(nombre: str, texto: str) -> bool:
@@ -22,6 +22,7 @@ class _Grafo:
     vectores: dict[str, list[float]] = field(default_factory=dict)
     clusters: list[Cluster] = field(default_factory=list)
     procesos: list[Proceso] = field(default_factory=list)
+    trazas: set[Traza] = field(default_factory=set)
 
 
 class MotorMemoria:
@@ -159,3 +160,25 @@ class MotorMemoria:
     def procesos(self, grafo: str) -> list[Proceso]:
         g = self._grafos.get(grafo)
         return list(g.procesos) if g else []
+
+    # --- trazabilidad CA-NN ------------------------------------------------
+    def agregar_trazas(self, grafo: str, trazas: list[Traza]) -> None:
+        if trazas:
+            self._g(grafo).trazas.update(trazas)
+
+    def trazas(
+        self, grafo: str, unidad: str | None, criterio: str | None, simbolo: str | None
+    ) -> list[Traza]:
+        g = self._grafos.get(grafo)
+        if not g:
+            return []
+        return sorted(
+            (
+                t
+                for t in g.trazas
+                if (unidad is None or t.unidad == unidad)
+                and (criterio is None or t.criterio == criterio)
+                and (simbolo is None or t.simbolo == simbolo)
+            ),
+            key=lambda t: (t.unidad, t.criterio, t.simbolo),
+        )

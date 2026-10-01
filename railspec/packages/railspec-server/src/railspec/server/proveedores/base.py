@@ -22,8 +22,13 @@ class ErrorProveedor(Exception):
     """El proveedor no devolvió una salida utilizable (red, cuota, rechazo, esquema).
 
     El gate lo convierte en ``escalado`` con causa ``error-proveedor``: nunca
-    aprueba por falta de respuesta.
+    aprueba por falta de respuesta. Los adaptadores rellenan ``duracion_ms``
+    para que la llamada fallida también quede en la auditoría.
     """
+
+    def __init__(self, mensaje: str, *, duracion_ms: int = 0) -> None:
+        super().__init__(mensaje)
+        self.duracion_ms = duracion_ms
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,11 @@ class PeticionModelo(Generic[T]):
     ``sistema`` va primero y debe ser estable (rúbrica, gobernanza): es el
     prefijo que aprovecha la caché de prompt del proveedor. ``contenido`` es lo
     variable (el artefacto, el diff de iteración).
+
+    ``modelo`` es el id del catálogo (``claude-opus-5-5``) y es lo que se
+    audita; ``despliegue`` es el nombre que se envía al proveedor (en Foundry,
+    el despliegue). ``region`` es donde corre la inferencia según el catálogo;
+    sin ella, la respuesta lleva la región del adaptador.
     """
 
     rol: str
@@ -68,6 +78,12 @@ class PeticionModelo(Generic[T]):
     max_tokens: int = 16_000
     etiqueta: str = ""
     metadatos: dict[str, str] = field(default_factory=dict)
+    despliegue: str | None = None
+    region: str | None = None
+
+    @property
+    def destino(self) -> str:
+        return self.despliegue or self.modelo
 
 
 @dataclass(frozen=True)
@@ -82,7 +98,8 @@ class RespuestaModelo(Generic[T]):
 @runtime_checkable
 class ProveedorModelo(Protocol):
     proveedor: Proveedor
-    #: Región o zona de datos donde corre la inferencia (auditoría, R4).
+    #: Región o zona de datos donde corre la inferencia por defecto (auditoría, R4).
+    #: ``global`` = sin garantía de zona; nunca sirve a ``restringido`` ni ``interno``.
     region: str | None
 
     async def completar(self, peticion: PeticionModelo[T]) -> RespuestaModelo[T]: ...

@@ -20,6 +20,7 @@ from railspec.contracts.estado import EstadoLocal, EstadoUnidad, ResultadoGate
 from railspec.contracts.eventos import EventoSync
 from railspec.contracts.insumo import Insumo
 from railspec.contracts.orden import OrdenDeTrabajo
+from railspec.contracts.portabilidad import PaqueteUnidad
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import AsignacionRol, RegistroAuditoria, VinculoRepositorio
 from railspec.contracts.snapshot import Snapshot, id_simbolo
@@ -28,11 +29,14 @@ from railspec.contracts.tools import (
     Efecto,
     GraphIndexEntrada,
     GraphQueryEntrada,
+    GraphQuerySalida,
     Superficie,
     SyncPullEntrada,
     SyncPullSalida,
     SyncPushEntrada,
     UnitApproveEntrada,
+    UnitExportSalida,
+    UnitImportEntrada,
     UnitSetModeEntrada,
     UnitStartEntrada,
     resolver_tool,
@@ -378,6 +382,8 @@ def test_registro_de_tools() -> None:
         "unit.set_mode",
         "sync.pull",
         "sync.push",
+        "unit.import",
+        "unit.export",
     }
     assert all(t.efecto == Efecto.lectura for t in tools_para(Superficie.chat))
     assert [t.nombre for t in TOOLS.values() if Superficie.chat in t.superficies and t.nombre == "code.read"]
@@ -620,3 +626,103 @@ def test_alias_mcp_deterministas_y_unicos() -> None:
         assert resolver_tool(tool.nombre_mcp) is tool
         assert tool.manifiesto()["mcp_name"] == tool.nombre_mcp
     assert resolver_tool("unit-start") is None
+
+
+# --- Contrato 1.4: pedidos del hilo del grafo central ------------------------------------
+
+
+def _consulta(consulta: dict[str, Any], unidad: str | None = "0001-emitir-pdf") -> dict[str, Any]:
+    return {"alcance": f.ALCANCE_WS.model_dump(), "unidad": unidad, "consulta": consulta}
+
+
+def test_graph_impact_exige_unidad() -> None:
+    entrada = GraphQueryEntrada.model_validate(_consulta({"verbo": "impact"}))
+    assert entrada.consulta.profundidad == 3
+    _rechaza(GraphQueryEntrada, _consulta({"verbo": "impact"}, unidad=None), "impact exige unidad")
+    _rechaza(GraphQueryEntrada, _consulta({"verbo": "impact", "profundidad": 6}), "less than or equal")
+
+
+def test_graph_trace_criterio_o_simbolo() -> None:
+    GraphQueryEntrada.model_validate(_consulta({"verbo": "trace", "criterio": "CA-03"}))
+    GraphQueryEntrada.model_validate(_consulta({"verbo": "trace", "simbolo": f.SIMBOLO_ID}, unidad=None))
+    _rechaza(
+        GraphQueryEntrada,
+        _consulta({"verbo": "trace", "criterio": "CA-03"}, unidad=None),
+        "trace por criterio exige unidad",
+    )
+    _rechaza(GraphQueryEntrada, _consulta({"verbo": "trace"}), "exactamente uno")
+    _rechaza(
+        GraphQueryEntrada,
+        _consulta({"verbo": "trace", "criterio": "CA-03", "simbolo": f.SIMBOLO_ID}),
+        "exactamente uno",
+    )
+
+
+def test_resultado_grafo_admite_ref_criterio() -> None:
+    salida = GraphQuerySalida.model_validate(
+        {
+            "resultados": [
+                {
+                    "ref": {
+                        "tipo": "criterio",
+                        "workspace": "certificados",
+                        "unidad": "0001-emitir-pdf",
+                        "criterio": "CA-03",
+                    }
+                }
+            ],
+            "commits": {"certificados-api": f.BASE},
+        }
+    )
+    assert salida.resultados[0].ref.tipo == "criterio"
+
+
+# --- Contrato 1.4: portabilidad (unit.import y unit.export) ------------------------------
+
+
+def test_paquete_fase_retomar_coherente_con_artefactos() -> None:
+    d = _dump(f.paquete_unidad)
+    _rechaza(PaqueteUnidad, {**d, "fase_retomar": "implement"}, "fase_retomar debe ser una de: tasks")
+    sin_spec = {**d, "artefactos": {"plan": d["artefactos"]["plan"]}}
+    _rechaza(PaqueteUnidad, sin_spec, "plan sin spec")
+    cambiado = copy.deepcopy(d)
+    cambiado["artefactos"]["spec"] = d["artefactos"]["plan"]
+    _rechaza(PaqueteUnidad, cambiado, "es de tipo plan")
+    _rechaza(PaqueteUnidad, {**d, "modo": "supervisado"}, "exige un mandato")
+    alterado = copy.deepcopy(d)
+    alterado["artefactos"]["spec"]["contenido"] += "x"
+    _rechaza(PaqueteUnidad, alterado, "sha256")
+
+
+def test_unit_import_y_export() -> None:
+    entrada = {
+        "alcance": f.ALCANCE_WS.model_dump(),
+        "repositorios": [{"repositorio": "certificados-api", "rama": "main", "base_commit": f.BASE}],
+        "version_contrato_cliente": "1.4",
+        "paquete": _dump(f.paquete_unidad),
+    }
+    UnitImportEntrada.model_validate(entrada)
+    _rechaza(UnitExportSalida, {"paquete": _dump(f.paquete_unidad)}, "origen railspec")
+    importar, exportar = TOOLS["unit.import"], TOOLS["unit.export"]
+    assert importar.efecto == Efecto.escritura and exportar.efecto == Efecto.lectura
+    assert importar.superficies == exportar.superficies == {Superficie.mcp, Superficie.http}
+    assert importar.tipos_actor == {TipoActor.humano, TipoActor.agente}
+    assert exportar.rol_minimo.value == "lector"
+
+
+def test_causa_importado_se_rehabilita() -> None:
+    gate = ResultadoGate.model_validate(
+        {
+            "veredicto": "escalado",
+            "causa": "importado",
+            "iteraciones": 0,
+            "gobernanza_consultada": "parcial",
+            "rehabilitado": {
+                "actor": f.JULIAN.model_dump(),
+                "en": "2026-10-01T00:00:00Z",
+                "motivo": "importada",
+            },
+            "cerrado_en": "2026-10-01T00:00:00Z",
+        }
+    )
+    assert gate.superado
