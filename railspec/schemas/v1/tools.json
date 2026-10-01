@@ -9115,6 +9115,21 @@
         },
         "additionalProperties": false,
         "properties": {
+          "commit_integrado": {
+            "anyOf": [
+              {
+                "description": "SHA-1 completo de un commit git.",
+                "pattern": "^[0-9a-f]{40}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Desde 1.4: sha del commit resultante en la rama destino. El servidor conserva la superposición de la unidad en el grafo hasta que el índice canónico alcance ese commit; sin él, la descarta al integrar.",
+            "title": "Commit Integrado"
+          },
           "especificacion_viva": {
             "maxLength": 512,
             "minLength": 1,

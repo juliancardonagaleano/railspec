@@ -253,6 +253,14 @@ class UnitIntegrateEntrada(Mensaje):
     unidad: AlcanceUnidad
     especificacion_viva: str = Field(min_length=1, max_length=512)
     pr_url: str | None = Field(default=None, pattern=r"^https://", max_length=512)
+    commit_integrado: Commit | None = Field(
+        default=None,
+        description=(
+            "Desde 1.4: sha del commit resultante en la rama destino. El servidor conserva la "
+            "superposición de la unidad en el grafo hasta que el índice canónico alcance ese "
+            "commit; sin él, la descarta al integrar."
+        ),
+    )
 
 
 class UnitSetModeEntrada(Mensaje):
