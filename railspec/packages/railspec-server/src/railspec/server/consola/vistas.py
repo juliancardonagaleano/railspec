@@ -1,20 +1,28 @@
 """Vistas de solo lectura que arma la consola a partir del estado del motor.
 
 Funciones puras sobre documentos ya leídos (sin acceso a datos): resumen de
-órdenes para la línea de tiempo, trazabilidad CA-NN y estadísticas del
-workspace. Ninguna devuelve texto de código: de una orden solo salen sus
-metadatos (nunca instrucciones, plantilla ni contexto) y de un snapshot solo
-rutas y símbolos (nombre, tipo, ruta), nunca diff ni fragmentos.
+órdenes para la línea de tiempo, trazabilidad CA-NN, estadísticas del
+workspace y la forma con que el estado y las tools salen hacia el navegador.
+Ninguna devuelve texto de código: de una orden solo salen sus metadatos
+(nunca instrucciones, plantilla, contexto ni comando de validación), de un
+hallazgo no salen evidencia ni propuesta (texto libre de los críticos) y de un
+snapshot solo rutas y símbolos (nombre, tipo, ruta), nunca diff ni fragmentos.
+
+Todo es lista blanca: un campo nuevo del contrato no sale por la consola hasta
+que se lo agregue aquí. ``/v1`` y MCP no pasan por este módulo (el arnés sí
+necesita la orden completa).
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
 from railspec.contracts.comun import EstadoFase, Fase, GateFase, Severidad, Veredicto
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.snapshot import Snapshot
+from railspec.contracts.tools import CodigoError, ErrorTool, ToolDef, resolver_tool
 
 
 def resumen_reporte(reporte: dict[str, Any] | None, snapshot: Snapshot | None) -> dict[str, Any] | None:
@@ -68,6 +76,159 @@ def _hallazgo(h: dict[str, Any]) -> dict[str, Any]:
         "criterio": h.get("criterio"),
         "refutado": bool(h.get("refutado")),
     }
+
+
+# --- estado y tools hacia el navegador ----------------------------------------------------------------
+
+#: Campos de ``EstadoUnidad`` que salen por la consola. Queda fuera ``comando_validacion``
+#: (instrucción para el arnés, igual que en la orden) y todo campo que el contrato agregue después.
+CAMPOS_ESTADO = (
+    "version_contrato",
+    "unidad",
+    "version",
+    "titulo",
+    "pedido",
+    "dueno",
+    "carril",
+    "arnes",
+    "repositorios",
+    "fase",
+    "estado",
+    "modo",
+    "riesgo",
+    "perfil",
+    "modo_conversion",
+    "governance_refs",
+    "insumos",
+    "gates",
+    "modelo_ejecucion",
+    "orden_vigente",
+    "secuencia_ordenes",
+    "checkpoint_pendiente",
+    "resoluciones",
+    "integracion",
+    "depende_de",
+    "presupuesto",
+    "consumo",
+    "creado_en",
+    "actualizado_en",
+    "actualizado_por",
+)
+
+#: Campos de ``ResultadoGate`` que salen por la consola; los hallazgos pasan por ``hallazgo_estado``.
+CAMPOS_GATE = (
+    "veredicto",
+    "causa",
+    "iteraciones",
+    "gobernanza_consultada",
+    "criticos",
+    "refutador",
+    "rehabilitado",
+    "cerrado_en",
+)
+
+_CAMPOS_CITA = ("ruta", "linea_inicio", "linea_fin", "seccion")
+
+
+def hallazgo_estado(h: dict[str, Any]) -> dict[str, Any]:
+    """Hallazgo para la ficha del gate: ``_hallazgo`` más lente y cita (ruta, líneas, sección).
+
+    Sin ``evidencia`` ni ``propuesta``: son texto libre de los críticos (hasta 4000 caracteres)
+    y pueden citar código.
+    """
+
+    cita = h.get("cita") or {}
+    return {
+        **_hallazgo(h),
+        "lente": h.get("lente"),
+        "cita": {k: cita.get(k) for k in _CAMPOS_CITA if k in cita},
+    }
+
+
+def resultado_gate(r: dict[str, Any]) -> dict[str, Any]:
+    salida = {k: r[k] for k in CAMPOS_GATE if k in r}
+    salida["hallazgos"] = [hallazgo_estado(h) for h in r.get("hallazgos") or []]
+    return salida
+
+
+def vista_estado(estado: EstadoUnidad | dict[str, Any]) -> dict[str, Any]:
+    """``EstadoUnidad`` (o su JSON) como lo recibe el navegador, con lista blanca."""
+
+    doc = estado.model_dump(mode="json") if isinstance(estado, EstadoUnidad) else estado
+    salida = {k: doc[k] for k in CAMPOS_ESTADO if k in doc}
+    salida["gates"] = {g: resultado_gate(r) for g, r in (doc.get("gates") or {}).items()}
+    return salida
+
+
+def _envoltura(cuerpo: dict[str, Any], *campos: str) -> dict[str, Any]:
+    return {k: cuerpo[k] for k in ("version_contrato", *campos) if k in cuerpo}
+
+
+def _solo_estado(cuerpo: dict[str, Any]) -> dict[str, Any]:
+    return {**_envoltura(cuerpo), "estado": vista_estado(cuerpo["estado"])}
+
+
+def _inicio(cuerpo: dict[str, Any]) -> dict[str, Any]:
+    return {**_envoltura(cuerpo, "version_contrato_negociada"), "estado": vista_estado(cuerpo["estado"])}
+
+
+def _estado_de_unidad(cuerpo: dict[str, Any]) -> dict[str, Any]:
+    """``unit.status``: la orden vigente sale como en el detalle de la unidad (solo metadatos)."""
+
+    orden = cuerpo.get("orden_vigente")
+    return {
+        **_envoltura(cuerpo),
+        "estado": vista_estado(cuerpo["estado"]),
+        "orden_vigente": resumen_orden(orden) if orden else None,
+    }
+
+
+def _tal_cual(cuerpo: dict[str, Any]) -> dict[str, Any]:
+    return cuerpo
+
+
+#: Tools que la consola expone y cómo filtra su salida. Es la lista blanca de ``/consola/api/tools``:
+#: una tool que no figura aquí no se anuncia ni se invoca por la consola (``unit.export`` devuelve spec,
+#: plan y tasks; ``unit.import``, ``insumo.get`` y las del arnés tampoco las usa la SPA). Las que no
+#: llevan código (listados, telemetría, grafo con nombres y rutas) salen tal cual, declarado a propósito.
+_SALIDAS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "unit.list": _tal_cual,
+    "unit.status": _estado_de_unidad,
+    "unit.start": _inicio,
+    "unit.approve": _solo_estado,
+    "unit.integrate": _solo_estado,
+    "unit.set_mode": _solo_estado,
+    "telemetry.query": _tal_cual,
+    "graph.query": _tal_cual,
+}
+
+TOOLS_CONSOLA = frozenset(_SALIDAS)
+
+
+def tool_de_consola(nombre: str) -> ToolDef | None:
+    """La tool de ``nombre`` (canónico o alias MCP) si la consola la expone; si no, None."""
+
+    tool = resolver_tool(nombre)
+    return tool if tool is not None and tool.nombre in TOOLS_CONSOLA else None
+
+
+def rechazo_tool(nombre: str) -> tuple[dict[str, Any], int]:
+    """Cuerpo y estado HTTP para una tool que la consola no expone (mismos códigos que el registro)."""
+
+    if resolver_tool(nombre) is None:
+        codigo, estado, detalle = CodigoError.no_encontrado, 404, f"tool {nombre} no disponible"
+    else:
+        codigo, estado, detalle = CodigoError.fuera_de_alcance, 403, f"{nombre} no se expone por la consola"
+    return ErrorTool(codigo=codigo, detalle=detalle[:2000]).model_dump(mode="json"), estado
+
+
+def salida_tool(nombre: str, cuerpo: dict[str, Any]) -> dict[str, Any]:
+    """Salida de una tool de la consola tal como sale al navegador.
+
+    ``nombre`` es el canónico. Falla cerrado: una tool sin filtro declarado lanza ``KeyError``.
+    """
+
+    return _SALIDAS[nombre](cuerpo)
 
 
 def trazabilidad(

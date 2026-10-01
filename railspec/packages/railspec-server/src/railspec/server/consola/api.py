@@ -22,6 +22,7 @@ from ..api.identidad import TokenInvalido
 from .contexto import AutorizadorConsola, ContextoConsola
 from .github import ErrorGithub
 from .sesion import COOKIE, COOKIE_ESTADO
+from .vistas import TOOLS_CONSOLA, rechazo_tool, salida_tool, tool_de_consola
 
 log = logging.getLogger("railspec.consola")
 
@@ -213,18 +214,26 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
     @api.get("/tools")
     async def tools(request: Request) -> dict[str, Any]:
         await ctx.sesion(request)
-        return {"tools": [t.manifiesto() for t in ctx.registro.tools(Superficie.http)]}
+        # Solo las tools de la lista blanca de la consola (vistas.TOOLS_CONSOLA), no todo lo HTTP.
+        habilitadas = [t for t in ctx.registro.tools(Superficie.http) if t.nombre in TOOLS_CONSOLA]
+        return {"tools": [t.manifiesto() for t in habilitadas]}
 
     @api.post("/tools/{nombre}")
     async def invocar(nombre: str, request: Request) -> JSONResponse:
         sesion = await ctx.sesion(request)
+        tool = tool_de_consola(nombre)
+        if tool is None:
+            cuerpo, estado = rechazo_tool(nombre)
+            return JSONResponse(cuerpo, status_code=estado)
         try:
             argumentos = await request.json()
         except ValueError:
             return JSONResponse({"detalle": "cuerpo JSON inválido"}, status_code=422)
         registro = ctx.registro.con_autorizador(AutorizadorConsola(ctx.permisos(sesion)))
-        r = await registro.invocar(nombre, argumentos, sesion.actor(), Superficie.http)
-        return JSONResponse(r.cuerpo, status_code=r.estado_http)
+        r = await registro.invocar(tool.nombre, argumentos, sesion.actor(), Superficie.http)
+        # Hacia el navegador la salida va filtrada: nunca la orden completa ni texto de código.
+        cuerpo = salida_tool(tool.nombre, r.cuerpo) if r.ok else r.cuerpo
+        return JSONResponse(cuerpo, status_code=r.estado_http)
 
     for modulo in (rutas_admin, rutas_config, rutas_exploracion):
         api.include_router(modulo.router)

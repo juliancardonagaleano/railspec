@@ -4,6 +4,9 @@ grafo por repositorio, resumen del workspace y auditoría.
 Todo es de lectura con rol ``lector`` en el workspace. El tablero, la
 telemetría y las consultas al grafo van por el registro de tools
 (``POST /consola/api/tools/...``); aquí solo vive lo que no es una tool.
+
+El estado de la unidad sale con la lista blanca de ``vistas.vista_estado``
+(sin evidencia ni propuesta de los hallazgos, sin comando de validación).
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from railspec.contracts.repositorio import Rol
 from railspec.contracts.tools import TelemetryQueryEntrada
 
 from .contexto import ContextoConsola
-from .vistas import resumen_orden, resumen_workspace, trazabilidad
+from .vistas import resumen_orden, resumen_workspace, trazabilidad, vista_estado
 
 router = APIRouter()
 
@@ -79,7 +82,7 @@ async def unidad(org: str, ws: str, unidad: str, request: Request) -> dict[str, 
             (o for o in ctx.datos.ordenes(alcance) if str(o["id"]) == str(estado.orden_vigente)), None
         )
         vigente = resumen_orden(orden) if orden else None
-    return {"estado": estado.model_dump(mode="json"), "orden_vigente": vigente}
+    return {"estado": vista_estado(estado), "orden_vigente": vigente}
 
 
 @router.get("/orgs/{org}/workspaces/{ws}/unidades/{unidad}/linea-de-tiempo")

@@ -8,9 +8,16 @@ checkpoints, integración, trazabilidad CA-NN), el grafo de código y la
 auditoría. El chat de contexto (fase 8) vive aparte y se enchufa en la ruta
 que la consola le reserva.
 
-Nunca muestra código: de una orden solo salen sus metadatos (nunca
-instrucciones, plantilla ni contexto), de un snapshot solo rutas y símbolos,
-y del grafo solo nombres, rutas y relaciones.
+Nunca muestra código, y lo garantiza la API, no solo la SPA: de una orden solo
+salen sus metadatos (nunca instrucciones, plantilla, contexto ni comando de
+validación), de un hallazgo no salen `evidencia` ni `propuesta` (texto libre de
+los críticos), del estado tampoco `comando_validacion`, de un snapshot solo
+rutas y símbolos (la capa de datos ni carga `diff` ni `fragmentos`), y del
+grafo solo nombres, rutas y relaciones. Todo es lista blanca (`vistas.py`):
+un campo nuevo del contrato no sale hasta que se agregue allí. Lo que sí sale
+es texto escrito por personas o por el arnés (`pedido`, `titulo`, comentarios,
+motivos, la `pregunta` de un checkpoint) y los títulos de hallazgos. `/v1` y
+MCP no pasan por estos filtros: el arnés necesita la orden completa.
 
 ## Piezas
 
@@ -146,7 +153,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `POST /auth/salir` | Borra la cookie. |
 | `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
-| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola` (`unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`). |
+| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar. |
@@ -157,7 +164,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<secreto>/<clave>`. |
 | `GET /orgs/{org}/workspaces/{ws}/resumen` | Unidades por fase y estado, integradas, checkpoints pendientes, convergencia de gates, gasto del mes contra presupuesto, commit del grafo por repositorio. |
 | `GET /orgs/{org}/workspaces/{ws}/auditoria?evento=&repositorio=&unidad=&desde=&hasta=&cursor=&limite=` | Auditoría, más reciente primero. |
-| `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado y resumen de la orden vigente. |
+| `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado (sin evidencia ni propuesta de los hallazgos) y resumen de la orden vigente. |
 | `GET …/unidades/{u}/linea-de-tiempo` | Eventos de sincronización y resumen de órdenes con su reporte (archivos tocados, tareas completadas). |
 | `GET …/unidades/{u}/trazabilidad` | CA-NN → tareas → archivos → símbolos → hallazgos (de órdenes, reportes y snapshots). |
 | `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir. |
