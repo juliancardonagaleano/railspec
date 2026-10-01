@@ -1,11 +1,14 @@
 """Inicio de sesión con la GitHub App (flujo web de OAuth para usuarios de la App).
 
 El token de usuario de GitHub solo se usa dentro del callback (leer el
-usuario y sus equipos) y se descarta: la consola nunca lo guarda.
+usuario y sus equipos); la consola nunca lo guarda y, al terminar, lo revoca en
+GitHub (``DELETE /applications/{client_id}/token``, mejor esfuerzo): un token
+que ya no sirve a la consola tampoco debe seguir sirviendo a nadie más.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -16,6 +19,8 @@ from .config import ConfigGithubApp
 AUTORIZAR = "https://github.com/login/oauth/authorize"
 TOKEN = "https://github.com/login/oauth/access_token"
 API = "https://api.github.com"
+
+log = logging.getLogger("railspec.consola")
 
 
 class ErrorGithub(Exception):
@@ -67,12 +72,33 @@ class ClienteGithub:
         token = datos.get("access_token")
         if not token:
             raise ErrorGithub(f"GitHub no entregó token ({datos.get('error') or r.status_code})")
-        cabeceras = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-        u = self._http().get(f"{API}/user", headers=cabeceras)
-        if u.status_code != 200:
-            raise ErrorGithub(f"GitHub rechazó el token de usuario ({u.status_code})")
-        usuario = u.json()
-        return UsuarioGithub(usuario["login"], int(usuario["id"]), self._equipos(cabeceras))
+        try:
+            cabeceras = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+            u = self._http().get(f"{API}/user", headers=cabeceras)
+            if u.status_code != 200:
+                raise ErrorGithub(f"GitHub rechazó el token de usuario ({u.status_code})")
+            usuario = u.json()
+            return UsuarioGithub(usuario["login"], int(usuario["id"]), self._equipos(cabeceras))
+        finally:
+            self._revocar(token)
+
+    def _revocar(self, token: str) -> None:
+        """Revoca el token de usuario en GitHub. Mejor esfuerzo: si falla, el login no se rompe."""
+
+        if self.app is None:
+            return
+        try:
+            r = self._http().request(
+                "DELETE",
+                f"{API}/applications/{self.app.client_id}/token",
+                json={"access_token": token},
+                auth=(self.app.client_id, self.app.client_secret),
+                headers={"Accept": "application/vnd.github+json"},
+            )
+            if r.status_code not in (204, 404):  # 404: ya no existía
+                log.warning("GitHub no revocó el token de usuario (HTTP %s)", r.status_code)
+        except Exception as exc:  # red caída, cliente inyectado, etc.: nunca rompe el login
+            log.warning("no se pudo revocar el token de usuario de GitHub (%s)", type(exc).__name__)
 
     def _equipos(self, cabeceras: dict[str, str]) -> frozenset[int]:
         """Equipos del usuario (permiso de la App: Members, lectura). Sin permiso, ninguno."""

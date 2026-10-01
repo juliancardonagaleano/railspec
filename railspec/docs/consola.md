@@ -48,11 +48,12 @@ GitHub Apps):
 - Instalarla en la organización de GitHub cuyos equipos se usen en roles.
 
 En el inicio de sesión, el token de usuario de GitHub solo se usa dentro del
-callback (leer el usuario y sus equipos) y se descarta. Cuando alguien presenta
-su propio token de GitHub (el del arnés por MCP, o un script) el servidor lo usa
-solo para identificarlo (`GET /user`) y leer sus equipos (`GET /user/teams`, el
-mismo permiso de arriba, o el alcance `read:org` en un token OAuth); guarda el
-resultado cinco minutos bajo el hash del token y nunca el token.
+callback (leer el usuario y sus equipos); no se guarda y al terminar se revoca
+en GitHub. Cuando alguien presenta su propio token de GitHub (el del arnés por
+MCP, o un script) el servidor comprueba con las credenciales de la App que lo
+emitió ella, y lo usa para identificarlo y leer sus equipos (`GET /user/teams`,
+el mismo permiso de arriba, o el alcance `read:org` en un token OAuth); guarda
+el resultado cinco minutos bajo el hash del token y nunca el token.
 
 ## Variables de entorno
 
@@ -62,11 +63,12 @@ Las que Julian debe suministrar:
 | --- | --- | --- |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID` | Secret | Client ID de la GitHub App. Sin ella no hay botón "Entrar con GitHub". |
 | `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Secret | Client secret de la App. |
-| `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`). Sin ella cada réplica genera una efímera: las sesiones se pierden al reiniciar o cambiar de réplica. |
+| `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`), **mínimo 32 caracteres**. Obligatoria con URL pública https o con GitHub App: sin ella, o con una más corta, el servidor no arranca (el `state` de OAuth que entrega `/auth/github/inicio` es texto conocido más su MAC: una clave débil se rompe sin conexión y permite forjar sesiones). Solo en desarrollo (URL http local, sin GitHub App) se puede omitir: clave efímera con aviso, que no sobrevive a un reinicio ni se comparte entre réplicas. |
 | `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas (p. ej. `1234567`; el id numérico de tu usuario sale de `GET https://api.github.com/users/<login>`). |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
-| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_CONSOLA_AUTH_LIMITE` | opcional | Peticiones por minuto y por IP en `/consola/api/auth/*` (60 por defecto; 0 lo desactiva). 429 con `Retry-After` al pasarse. |
+| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión en horas (4 por defecto, de 1 a 24). Es también la ventana en que quedan congelados los equipos de GitHub de la cookie. |
 | `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | opcional | Flujos de eventos en vivo abiertos a la vez por persona y por réplica (5 por defecto); al exceder, 429. |
 | `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | opcional | Ídem en total por réplica (200 por defecto). |
 | `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | opcional | Cada cuántos segundos un flujo vuelve a comprobar el rol `lector` y se cierra si lo perdió (30 por defecto). |
@@ -92,28 +94,100 @@ si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo `RAILSPEC_PERMITIR_DESARROLLO=1`
 ## Sesión, tokens y anti-CSRF
 
 - **Cookie** `railspec_sesion`: HttpOnly, SameSite=Lax, `Path=/consola`,
-  `Secure` con URL https. Formato `rsc1.<carga>.<firma HMAC-SHA256>`, sin
-  estado en el servidor; lleva login, `github_id`, equipos de GitHub y
-  expiración.
+  `Secure` con URL https. Con https se llama `__Secure-railspec_sesion` (el
+  navegador la rechaza si no es `Secure`; `__Host-` exigiría `Path=/`).
+  Formato `rsc1.<carga>.<firma HMAC-SHA256>`; lleva login, `github_id`,
+  equipos de GitHub, el id de la sesión y la expiración. La carga trae el tipo
+  (`t`: `sesion`, `api` u `oauth`) y la audiencia (`aud`), y cada tipo se firma
+  con su propia subclave (HKDF-SHA256 del secreto): el `state` de OAuth, que es
+  público, no sirve de cookie ni de token `api`, y el servidor siempre abre un
+  token exigiendo el tipo que espera.
 - **Anti-CSRF**: con cookie, toda petición que no sea GET exige la cabecera
   `X-Railspec-Consola: 1` (un formulario de otro sitio no puede ponerla).
 - **Token para `/v1/*`**: `POST /consola/api/auth/token` devuelve
-  `{"token": "rsc1…", "expira_en": ISO}`, válido una hora como
-  `Authorization: Bearer` en `/v1/tools` y en cualquier ruta que resuelva el
-  actor con la identidad del servidor (`identidad.actor_desde_token(token,
-  "consola")`): Actor humano con `github_id`, login y canal `consola`. Es el
-  que usa el chat. Un token de sesión (cookie) no vale como Bearer.
-- **Bearer en la consola**: `/consola/api` también acepta
-  `Authorization: Bearer` (token de usuario de la GitHub App de Railspec, de
-  desarrollo o `rsc1`) para scripts; sin cookie no hace falta la cabecera
-  anti-CSRF. El token de GitHub se comprueba con las credenciales de la App
-  (`POST /applications/{client_id}/token`): uno personal (PAT) o de otra OAuth
-  app se rechaza con 401, y si GitHub no responde, con 503 (falla cerrado). Sin
-  GitHub App configurada se rechaza todo token de GitHub, salvo con
-  `RAILSPEC_PERMITIR_DESARROLLO=1`. Con token de GitHub o `rsc1` los equipos
-  cuentan igual que en la sesión; los tokens de desarrollo no tienen equipos.
-  Para un script lo más simple es un `rsc1` de `POST /auth/token`.
-- Cerrar sesión borra la cookie; un token ya emitido vale hasta su expiración.
+  `{"token": "rsc1…", "expira_en": ISO}`, válido una hora (nunca más que la
+  sesión que lo pide) como `Authorization: Bearer` en `/v1/tools` y en las
+  rutas que resuelven el actor con la identidad del servidor
+  (`identidad.actor_desde_token(token, "consola")`): Actor humano con
+  `github_id`, login y canal `consola`. Es el que usa el chat. Solo se emite con
+  la **cookie de sesión** y la cabecera anti-CSRF: un `Bearer` (token `api`, de
+  GitHub o de desarrollo) recibe 401, de modo que una fuga del token `api` no
+  da acceso indefinido (no se renueva solo ni sobrevive a la sesión). Lleva
+  `aud: "v1"` y vale únicamente con canal `consola` (`/v1/tools`, `/v1/chat`);
+  no es credencial del arnés (`/mcp`) ni de la API de la consola. Un token de
+  sesión (cookie) no vale como Bearer.
+- **Bearer en la consola (scripts)**: `/consola/api` acepta
+  `Authorization: Bearer` con un **token de GitHub o de desarrollo**, no con
+  `rsc1`; sin cookie no hace falta la cabecera anti-CSRF. El token de GitHub
+  tiene que ser de la GitHub App de Railspec: se comprueba con las credenciales
+  de la App (`POST /applications/{client_id}/token`), así que uno personal (PAT)
+  o de otra OAuth app se rechaza con 401, y si GitHub no responde, con 503
+  (falla cerrado). Sin GitHub App configurada se rechaza todo token de GitHub,
+  salvo con `RAILSPEC_PERMITIR_DESARROLLO=1`. Con token de GitHub los equipos
+  cuentan igual que en la sesión (se releen al vencer la caché de cinco
+  minutos); los tokens de desarrollo no tienen equipos. Un script que ya tiene
+  un token de GitHub lo usa directamente (en `/v1` y en `/consola/api`): no
+  necesita `POST /auth/token`. El token `rsc1` `api` no vale en `/consola/api`
+  (ni en lecturas ni en escrituras): la SPA usa la cookie y solo manda el token
+  al chat.
+- **Cerrar sesión** (`POST /auth/salir`, con la cabecera anti-CSRF como toda
+  escritura) borra la cookie y además **revoca** la sesión: cookie y tokens `api`
+  llevan el id de su sesión (`sid`) y el servidor lo guarda en la colección
+  `sesiones_revocadas` de Mongo (índice TTL: el registro desaparece cuando la
+  sesión habría expirado), que consulta cada réplica al validar. Una cookie
+  copiada o un token `api` pedido antes del cierre dejan de valer en el acto.
+  Solo se cierra esa sesión (no las demás de la misma persona).
+- **Tras el callback de OAuth** el token de usuario de GitHub se revoca
+  (`DELETE /applications/{client_id}/token`, mejor esfuerzo: si GitHub no
+  responde, el inicio de sesión sigue).
+- **Vida de la sesión**: 4 horas por defecto (`RAILSPEC_CONSOLA_SESION_HORAS`,
+  de 1 a 24). Es también cuánto quedan congelados los equipos de GitHub de la
+  cookie (ver límites).
+
+### Límites conocidos
+
+- **Equipos de GitHub congelados.** Los equipos se leen una vez, al iniciar
+  sesión, y viajan en la cookie y en los tokens `api` que salen de ella. Quitar
+  a alguien de un equipo en GitHub no le quita el rol heredado de ese equipo
+  hasta que la sesión expire (como mucho `RAILSPEC_CONSOLA_SESION_HORAS`) o se
+  cierre. No se pueden refrescar sin guardar el token de GitHub del usuario, y
+  la consola decide no guardarlo. Quitar una *asignación* de rol en Railspec sí
+  surte efecto de inmediato: los roles se leen de la base en cada petición.
+- **Administradores de plataforma.** `RAILSPEC_CONSOLA_ADMINS` es configuración
+  del ConfigMap: añadir o quitar a alguien exige cambiar el ConfigMap y
+  reiniciar las réplicas (no hay edición desde la consola). Tras el reinicio la
+  baja es inmediata, porque la cookie no lleva el permiso: se compara con la
+  configuración en cada petición.
+- **Revocación solo de lo que emite la consola.** Cierra la cookie y los
+  tokens `api` de la sesión. Los tokens de GitHub o de desarrollo que un script
+  mande como `Bearer` se invalidan donde nacen (GitHub, `RAILSPEC_TOKENS_DESARROLLO`).
+  No hay (todavía) una operación de "cerrar todas las sesiones de una persona".
+- **Cambio de formato.** Las cookies y los tokens `rsc1` emitidos por versiones
+  anteriores dejan de valer al desplegar esta (subclaves por tipo): hay que
+  volver a iniciar sesión una vez.
+
+## Cabeceras de seguridad y límite de peticiones
+
+El servidor las pone él mismo (`consola/seguridad.py`, middleware ASGI), sin
+depender del ingress, en toda respuesta bajo `/consola`: la SPA, sus estáticos,
+las redirecciones y la API, incluidos los 401 y 404.
+
+| Cabecera | Valor |
+| --- | --- |
+| `Content-Security-Policy` (SPA) | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. Revisada contra el build de Vite: `index.html` solo trae un `<script type="module" src>` y un `<link>` del propio origen, sin scripts ni estilos en línea; `'unsafe-inline'` va solo en estilos (React y las librerías de gráficos fijan estilos en los elementos). Sin `eval`: no añadir librerías que lo necesiten. |
+| `Content-Security-Policy` (API) | `default-src 'none'; frame-ancestors 'none'` |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `Strict-Transport-Security` | `max-age=31536000`, solo con `RAILSPEC_CONSOLA_URL` https |
+| `Cache-Control: no-store` | En `/consola/api/auth/*` (sesión y token); lo que ya fija cada ruta se conserva |
+
+**Límite en `/consola/api/auth/*`**: ventana deslizante de un minuto por IP, en
+memoria y por réplica (con N réplicas el tope efectivo es N veces el
+configurado). La IP es la que resuelve uvicorn a partir de
+`FORWARDED_ALLOW_IPS`; con el `*` del ConfigMap un cliente puede falsear
+`X-Forwarded-For` y evadir el límite (ver el riesgo en `despliegue.md`).
+
 
 ## Autorización
 
@@ -181,8 +255,8 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /auth/github/inicio?volver=` | Redirige a GitHub; `volver` es una ruta interna de la SPA. |
 | `GET /auth/github/callback` | Lo llama GitHub; pone la cookie y vuelve a la SPA. |
 | `POST /auth/desarrollo` `{token}` | Sesión con token de desarrollo. |
-| `POST /auth/salir` | Borra la cookie. |
-| `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`. |
+| `POST /auth/salir` | Borra la cookie y revoca la sesión y sus tokens `api`; exige `X-Railspec-Consola: 1`. |
+| `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`; exige la cookie de sesión y `X-Railspec-Consola: 1`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
 | `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |

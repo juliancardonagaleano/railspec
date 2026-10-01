@@ -41,6 +41,8 @@ TOKENS = {
     "tk-luis": ("luis", LUIS_ID),
 }
 CSRF = {"X-Railspec-Consola": "1"}
+SECRETO = "secreto-de-pruebas-de-la-consola-0123456789"
+OTRO_SECRETO = "otro-secreto-de-pruebas-de-la-consola-9876"
 AHORA = datetime(2026, 9, 30, 12, tzinfo=UTC)
 
 
@@ -76,7 +78,7 @@ class Montaje:
         self.motor, _ = construir(nivel=nivel)
         self.almacen = self.motor.n.almacen
         self.reloj = lambda: datetime.now(UTC)
-        self.firmador = Firmador("secreto-de-pruebas")
+        self.firmador = Firmador(SECRETO)
         registro = Registro.del_motor(self.motor, AutorizadorRoles(self.almacen))
         identidad = IdentidadConConsola(IdentidadCompuesta(IdentidadDesarrollo(TOKENS), None), self.firmador)
         app_github = ConfigGithubApp("Iv1.cliente", "secreto-app") if github_http else None
@@ -178,7 +180,7 @@ def test_login_desarrollo_cookie_y_csrf():
     correr(caso())
 
 
-def test_token_api_vale_como_bearer_en_v1_y_en_consola():
+def test_token_api_vale_como_bearer_en_v1_y_no_en_consola():
     async def caso():
         m = Montaje()
         asignar(m.almacen, Rol.desarrollador, ANA_ID)
@@ -195,17 +197,18 @@ def test_token_api_vale_como_bearer_en_v1_y_en_consola():
             assert r.status_code == 200, r.text
             assert r.json()["estado"]["dueno"]["login"] == "ana"
             assert r.json()["estado"]["dueno"]["canal"] == "consola"
-            # El Bearer no necesita cabecera anti-CSRF.
-            assert (await c.get("/consola/api/yo", headers=bearer)).json()["login"] == "ana"
+            # El token api es la credencial de /v1 y del chat: en /consola/api no vale (la consola
+            # usa la cookie; los scripts, un token de GitHub). Ver test_consola_sesion.py.
+            assert (await c.get("/consola/api/yo", headers=bearer)).status_code == 401
         # Un token de sesión (cookie) no vale como Bearer en /v1.
         sesion = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "sesion")
         with pytest.raises(TokenInvalido):
             m.ctx.identidad.actor_desde_token(sesion, "consola")
-        vencido = Firmador("secreto-de-pruebas", reloj=lambda: datetime.now(UTC) + timedelta(hours=2))
+        vencido = Firmador(SECRETO, reloj=lambda: datetime.now(UTC) + timedelta(hours=2))
         with pytest.raises(TokenInvalido, match="expirado"):
             vencido.sesion(token, "api")
         with pytest.raises(TokenInvalido, match="firma"):
-            Firmador("otro-secreto").sesion(token, "api")
+            Firmador(OTRO_SECRETO).sesion(token, "api")
 
     correr(caso())
 
@@ -244,7 +247,7 @@ def test_login_github_app_con_equipos():
                 assert r.status_code == 400
             r = await c.get("/consola/api/auth/github/callback", params={"code": "codigo-1", "state": estado})
             assert r.status_code == 302 and r.headers["location"] == "/consola/"
-            assert COOKIE in c.cookies
+            assert m.ctx.config.nombre_cookie(COOKIE) in c.cookies
             yo = (await c.get("/consola/api/yo")).json()
             assert yo["login"] == "luis"
             # El rol llega por el equipo de GitHub (R3).
@@ -533,7 +536,8 @@ def test_tools_por_la_consola_con_rol_de_equipo():
         asignar(m.almacen, Rol.desarrollador, equipo=4242)
         sesion_luis = m.firmador.emitir("luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "sesion")
         async with m.cliente() as c:
-            c.cookies.set(COOKIE, sesion_luis, domain="railspec.test", path="/consola")
+            nombre = m.ctx.config.nombre_cookie(COOKIE)
+            c.cookies.set(nombre, sesion_luis, domain="railspec.test", path="/consola")
             r = await c.post(
                 "/consola/api/tools/unit.start", json=entrada_start().model_dump(mode="json"), headers=CSRF
             )
@@ -643,7 +647,7 @@ def test_v1_tools_token_vencido_o_alterado_no_concede_nada():
         entrada = entrada_start().model_dump(mode="json")
         async with m.cliente() as c:
             # Vencido: aunque lleve el equipo, no llega a ser actor (401), y no se crea nada.
-            pasado = Firmador("secreto-de-pruebas", reloj=lambda: datetime.now(UTC) - timedelta(hours=2))
+            pasado = Firmador(SECRETO, reloj=lambda: datetime.now(UTC) - timedelta(hours=2))
             vencido = pasado.emitir("luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "api")
             r = await c.post("/v1/tools/unit.start", json=entrada, headers=con(vencido))
             assert r.status_code == 401 and "expirado" in r.json()["detalle"]
@@ -658,7 +662,7 @@ def test_v1_tools_token_vencido_o_alterado_no_concede_nada():
             )
             assert r.status_code == 401 and "firma" in r.json()["detalle"]
             # Token de otra instalación (otro secreto) con el equipo: tampoco.
-            ajeno = Firmador("otro-secreto").emitir(
+            ajeno = Firmador(OTRO_SECRETO).emitir(
                 "luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "api"
             )
             r = await c.post("/v1/tools/unit.start", json=entrada, headers=con(ajeno))
@@ -675,7 +679,7 @@ def test_v1_tools_token_vencido_o_alterado_no_concede_nada():
     correr(caso())
 
 
-def test_mcp_resuelve_roles_por_equipo_con_el_token_rsc1():
+def test_mcp_no_acepta_el_token_rsc1_de_la_consola_aunque_lleve_el_equipo():
     import httpx2
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
@@ -693,11 +697,12 @@ def test_mcp_resuelve_roles_por_equipo_con_el_token_rsc1():
         m = Montaje(admins=frozenset())
         asignar(m.almacen, Rol.desarrollador, equipo=4242)
         async with m.app.router.lifespan_context(m.app):
-            r = await llamar(m, _bearer_rsc1(m, LUIS_ID, "luis", {4242}))
-            assert not r.is_error, r
-            assert r.structured_content["estado"]["dueno"]["canal"] == "arnes"
-            r = await llamar(m, _bearer_rsc1(m, LUIS_ID, "luis", set()))
-            assert r.is_error and r.structured_content["codigo"] == "fuera-de-alcance"
+            # El token ``api`` es la credencial de /v1 y del chat (canal consola), no del arnés: por
+            # MCP no abre nada, ni con el equipo que da rol. Los roles por equipo por MCP llegan con
+            # un token de GitHub de la App (ver test_api).
+            for equipos in ({4242}, set()):
+                r = await llamar(m, _bearer_rsc1(m, LUIS_ID, "luis", equipos))
+                assert r.is_error and "canal consola" in r.content[0].text
 
     correr(caso())
 
@@ -898,7 +903,7 @@ def test_configuracion_desde_entorno():
             "RAILSPEC_GITHUB_APP_CLIENT_SECRET": "s",
             "RAILSPEC_CONSOLA_URL": "https://railspec.acme.com/",
             "RAILSPEC_CONSOLA_ADMINS": "83125327, 7",
-            "RAILSPEC_CONSOLA_SECRETO": "k",
+            "RAILSPEC_CONSOLA_SECRETO": SECRETO,
         }
     )
     assert c.github_app == ConfigGithubApp("Iv1.x", "s") and c.administradores == {83125327, 7}

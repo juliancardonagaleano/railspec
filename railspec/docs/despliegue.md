@@ -30,6 +30,20 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    NGINX: afinidad por la cabecera `Mcp-Session-Id` (las sesiones MCP viven
    en la memoria de la réplica que las creó), SSE sin buffering y cuerpo de
    hasta 16 MB para los lotes de `graph.index`.
+
+   **Riesgo conocido: `FORWARDED_ALLOW_IPS: "*"`.** El ConfigMap hace que
+   uvicorn confíe en `X-Forwarded-For` y `X-Forwarded-Proto` de *cualquier*
+   origen, porque no se conoce de antemano la red del ingress. Con `*`, uvicorn
+   toma como IP del cliente el primer valor de `X-Forwarded-For`, que el propio
+   cliente puede escribir (el ingress añade la IP real al final). Efecto: el
+   límite de peticiones por IP de `/consola/api/auth/*` (ver `consola.md`) se
+   evade cambiando esa cabecera, y la IP que ven los registros no es de fiar.
+   No abre acceso a nada más (la identidad no depende de la IP). Para cerrarlo,
+   cambiar el valor de `FORWARDED_ALLOW_IPS` en `deploy/k8s/20-configmap.yaml` por
+   la IP o el CIDR de los pods del controlador de ingress (p. ej. el rango de
+   pods de AKS o el de `ingress-nginx`); no se fija aquí porque depende del
+   clúster. El código usa siempre la IP que resuelve uvicorn, nunca la
+   cabecera por su cuenta.
 3. **TLS.** Un Secret `kubernetes.io/tls` para el dominio en el namespace
    (cert-manager o Key Vault con el add-on).
 4. **Secret de la aplicación.** Se crea a mano; los manifiestos solo lo
@@ -54,7 +68,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
-   | `RAILSPEC_CONSOLA_SECRETO` | sí, con más de una réplica | Clave de las sesiones de la consola web; sin ella cada réplica inventa una y las sesiones se pierden al cambiar de réplica. |
+   | `RAILSPEC_CONSOLA_SECRETO` | sí | Clave de las sesiones de la consola web, de al menos 32 caracteres (`openssl rand -base64 48` da 64). El ConfigMap fija una URL pública https, así que sin ella, o con una más corta, el servidor no arranca. |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
 
 **Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y
