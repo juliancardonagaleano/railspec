@@ -7759,7 +7759,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Crea una unidad desde un paquete ``railspec.unidad/v1`` (ver ``portabilidad``).",
+        "description": "Crea una unidad desde un paquete ``railspec.unidad/v1`` (ver ``portabilidad``).\n\nSolo humanos: la unidad nace con ese humano como dueño y, si estaba\ncerrada, él rehabilita el gate de código. Un agente recibe\n``fuera-de-alcance``, igual que en ``unit.start``.",
         "properties": {
           "alcance": {
             "$ref": "#/$defs/AlcanceWorkspace"
@@ -9058,7 +9058,6 @@
         "mcp"
       ],
       "tipos_actor": [
-        "agente",
         "humano"
       ]
     },

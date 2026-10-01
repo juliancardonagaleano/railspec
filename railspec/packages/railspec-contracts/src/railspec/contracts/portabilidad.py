@@ -11,7 +11,8 @@ Semántica de la importación, que aplica el servidor:
   traiga otro; ``supervisado`` y ``desatendido`` no se importan porque
   exigen un mandato.
 - Los artefactos del paquete quedan aprobados por importación a nombre del
-  humano del token (o de ``en_nombre_de`` si llama un agente), con auditoría.
+  humano del token, con un registro de auditoría ``importacion``. Solo un
+  humano importa: un agente recibe ``fuera-de-alcance``.
 - El motor emite la orden de ``fase_retomar`` y su gate corre normal. Una
   unidad cerrada (``fase_retomar = done``) entra con el gate de código
   escalado con causa ``importado`` y rehabilitado por ese humano: Railspec
