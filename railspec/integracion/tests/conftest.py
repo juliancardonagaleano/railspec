@@ -19,6 +19,8 @@ import sys
 import time
 import urllib.request
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -46,6 +48,12 @@ class Entorno:
         import pymongo
 
         return pymongo.MongoClient(self.mongo_uri, serverSelectionTimeoutMS=3000)[self.mongo_db]
+
+    @property
+    def base(self) -> str:
+        """URL base del servidor, sin ``/mcp/`` (la de ``/v1/tools`` y ``/healthz``)."""
+
+        return self.url.rstrip("/").removesuffix("/mcp")
 
     def falkordb(self):
         import falkordb
@@ -98,15 +106,32 @@ def entorno(tmp_path_factory) -> Entorno:
         )
         return
 
+    exigir_bases()
+    with lanzar_servidor(tmp_path_factory.mktemp("servidor")) as entorno:
+        yield entorno
+
+
+def exigir_bases() -> None:
+    """Salta la prueba si Mongo o FalkorDB no responden."""
+
     for nombre, url in (("Mongo", MONGO_URI), ("FalkorDB", FALKORDB_URL)):
         if not _responde(url):
             pytest.skip(
                 f"{nombre} no responde en {url}: "
                 "docker compose -f railspec/integracion/docker-compose.yml up -d mongo falkordb"
             )
+
+
+@contextmanager
+def lanzar_servidor(directorio: Path, extra: dict[str, str] | None = None) -> Iterator[Entorno]:
+    """``railspec_e2e.servidor`` en un subproceso contra una base de Mongo nueva, que se borra al salir.
+
+    ``extra`` añade o pisa variables de entorno del servidor (p. ej. las de OIDC).
+    """
+
     base_datos = f"railspec_e2e_{uuid.uuid4().hex[:8]}"
     puerto = _puerto_libre()
-    log = tmp_path_factory.mktemp("servidor") / "railspec-server.log"
+    log = directorio / "railspec-server.log"
     env = {
         **os.environ,
         "RAILSPEC_MONGO_URI": MONGO_URI,
@@ -118,6 +143,7 @@ def entorno(tmp_path_factory) -> Entorno:
     }
     for variable in ("RAILSPEC_FOUNDRY_ENDPOINT", "RAILSPEC_PCE_URL", "RAILSPEC_ANTHROPIC_HABILITADO"):
         env.pop(variable, None)
+    env.update(extra or {})
     with log.open("w") as salida:
         proceso = subprocess.Popen(
             [sys.executable, "-m", "railspec_e2e.servidor"],
@@ -138,3 +164,15 @@ def entorno(tmp_path_factory) -> Entorno:
         except subprocess.TimeoutExpired:
             proceso.kill()
         entorno.mongo().client.drop_database(base_datos)
+
+
+@pytest.fixture(scope="session")
+def lanzador():
+    """``lanzar_servidor`` para las pruebas que necesitan su propio servidor (otra configuración).
+
+    Siempre es un subproceso local, también con ``RAILSPEC_E2E_URL``: el servidor
+    externo no se puede reconfigurar.
+    """
+
+    exigir_bases()
+    return lanzar_servidor

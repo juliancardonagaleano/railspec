@@ -279,6 +279,7 @@ def reindexar(
             raise
         print(f"canónico desfasado ({exc.codigo}): se reintenta con índice completo")
     plan = plan_completo(raiz, commit)
+    print(f"índice completo: {len(plan.rutas)} rutas")
     delta = indexador.delta(raiz, alcance.repositorio, plan.base, plan.rutas, excluir)
     return _subir(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
 

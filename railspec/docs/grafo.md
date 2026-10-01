@@ -169,6 +169,18 @@ RAILSPEC_FALKORDB_URL=redis://localhost:6379 python -m pytest railspec/packages/
 Con `RAILSPEC_FALKORDB_URL` cada prueba corre también contra FalkorDB real,
 en una organización propia que se borra al terminar.
 
+La ingesta por commit de punta a punta está en
+`railspec/integracion/tests/test_ingesta_commit.py`. Lanza
+`deploy/ci/reindexar.py` como lo hace `railspec-reindexar.yml` (con
+codebase-memory-mcp real) contra `railspec-server` con Mongo y FalkorDB
+reales. El token OIDC lo verifica el verificador real contra un JWKS local.
+Hace tres pushes: índice completo en varios lotes, un delta incremental (lo
+borrado desaparece, los ids se conservan, se recalculan clusters y
+procesos) y un delta desfasado que cae a índice completo. También comprueba
+que ningún grafo ni colección guarda texto de código. El ciclo restringido
+de la misma carpeta cubre la ingesta del proxy (snapshot → superposición) y
+el descarte al integrar.
+
 ## Pendiente
 
 - La superposición se descarta en `unit.integrate`, antes de que el

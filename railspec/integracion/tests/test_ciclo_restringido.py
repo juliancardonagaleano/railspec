@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,9 +49,14 @@ class Resultado:
     integracion: dict[str, Any]
     estado: dict[str, Any]
     local: dict[str, Any] = field(default_factory=dict)
+    #: Propiedades de los nodos de la superposición de la unidad en FalkorDB
+    #: justo antes de ``unit.integrate``, que la descarta.
+    superposicion: list[dict[str, Any]] = field(default_factory=list)
 
 
-async def _recorrer(clon: Path, url: str, token: str) -> Resultado:
+async def _recorrer(
+    clon: Path, url: str, token: str, leer_superposicion: Callable[[str], list[dict[str, Any]]]
+) -> Resultado:
     async with ArnesSimulado(clon, url, token) as arnes:
         tools = await arnes.tools()
         inicio = await arnes.llamar(
@@ -65,6 +71,7 @@ async def _recorrer(clon: Path, url: str, token: str) -> Resultado:
         git(worktree, "commit", "-q", "-m", f"railspec: {unidad}")
         git(worktree, "push", "-q", "origin", f"railspec/{unidad}")
         sync = await arnes.llamar("railspec_sync", {"unidad": unidad})
+        superposicion = leer_superposicion(unidad)
 
         integracion = await arnes.llamar(
             "unit_integrate",
@@ -78,14 +85,31 @@ async def _recorrer(clon: Path, url: str, token: str) -> Resultado:
         await arnes.llamar("railspec_sync", {"unidad": unidad})
         estado = await arnes.llamar("unit_status", {"unidad": unidad})
         return Resultado(
-            clon, unidad, worktree, tools, recorrido, arnes.preguntas, sync, integracion, estado["estado"]
+            clon,
+            unidad,
+            worktree,
+            tools,
+            recorrido,
+            arnes.preguntas,
+            sync,
+            integracion,
+            estado["estado"],
+            superposicion=superposicion,
         )
 
 
 @pytest.fixture(scope="module")
 def ciclo(entorno, tmp_path_factory) -> Resultado:
     clon = preparar_repositorio(tmp_path_factory.mktemp("repo"), ORG, WS, REPO)
-    resultado = asyncio.run(_recorrer(clon, entorno.url, entorno.token))
+
+    def leer_superposicion(unidad: str) -> list[dict[str, Any]]:
+        db = entorno.falkordb()
+        grafo = f"railspec:{ORG}:{WS}:{REPO}:u:{unidad}"
+        if grafo not in db.list_graphs():
+            return []
+        return [f[0] for f in db.select_graph(grafo).query("MATCH (n) RETURN properties(n)").result_set]
+
+    resultado = asyncio.run(_recorrer(clon, entorno.url, entorno.token, leer_superposicion))
     resultado.local = json.loads((resultado.worktree / ".railspec" / "estado-local.json").read_text())
     yield resultado
     if not _usa_servidor_externo():
@@ -184,6 +208,9 @@ def test_en_restringido_no_viaja_codigo(ciclo, entorno):
             continue
         filas = fk.select_graph(nombre).query("MATCH (n) RETURN properties(n)").result_set
         assert MARCA_CODIGO not in json.dumps(filas, default=str), f"código en el grafo {nombre}"
+    # unit.integrate descartó la superposición: se revisa la copia leída antes.
+    assert ciclo.superposicion or not CON_INDEXADOR
+    assert MARCA_CODIGO not in json.dumps(ciclo.superposicion, default=str), "código en la superposición"
 
 
 @pytest.mark.skipif(not CON_INDEXADOR, reason="sin codebase-memory-mcp el snapshot va en solo-hashes")
@@ -193,6 +220,7 @@ def test_delta_del_indice_llega_a_la_superposicion_del_grafo(ciclo, entorno):
     nombres = {x["nombre"] for x in s["delta_indice"]["simbolos_upsert"]}
     assert {"src.firma.firmar", "src.firma.verificar"} <= nombres
 
-    grafo = entorno.falkordb().select_graph(f"railspec:{ORG}:{WS}:{REPO}:u:{ciclo.unidad}")
-    filas = grafo.query("MATCH (n) RETURN n.nombre").result_set
-    assert {"src.firma.firmar", "src.firma.verificar"} <= {f[0] for f in filas}
+    # La superposición tenía los símbolos de la unidad hasta unit.integrate, que la descarta.
+    assert {"src.firma.firmar", "src.firma.verificar"} <= {n.get("nombre") for n in ciclo.superposicion}
+    grafo = f"railspec:{ORG}:{WS}:{REPO}:u:{ciclo.unidad}"
+    assert grafo not in entorno.falkordb().list_graphs()
