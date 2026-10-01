@@ -65,3 +65,41 @@ def test_rutas_excluidas_no_se_indexan(tmp_path, indexador):
     (repo / "src" / "calc.py").write_text("def suma(a, b):\n    return a + b\n", encoding="utf-8")
     delta = indexador.delta(repo, "r", base, ["src/calc.py"], ["src/"])
     assert delta.simbolos_upsert == [] and delta.simbolos_borrados == []
+
+
+def test_un_delta_usa_una_sola_sesion_y_no_deja_procesos(tmp_path, indexador, monkeypatch):
+    from railspec.local import indexador_cbm
+
+    sesiones = []
+    original = indexador_cbm._SesionMcp
+
+    def contar(*args, **kwargs):
+        sesiones.append(original(*args, **kwargs))
+        return sesiones[-1]
+
+    monkeypatch.setattr(indexador_cbm, "_SesionMcp", contar)
+    repo = repo_git(tmp_path / "repo")
+    (repo / "src" / "calc.py").write_text("def suma(a, b):\n    return a + b\n", encoding="utf-8")
+    sh(repo, "add", "-A")
+    sh(repo, "commit", "-q", "-m", "calc")
+    base = sh(repo, "rev-parse", "HEAD").strip()
+    (repo / "src" / "calc.py").write_text("def suma(a, b):\n    return b + a\n\n\ndef uno():\n    return 1\n")
+    # Indexar el árbol, indexar la base, dos consultas por lado y borrar la base: una sesión.
+    delta = indexador.delta(repo, "r", base, ["src/calc.py"], [])
+    assert "src.calc.uno" in {s.nombre for s in delta.simbolos_upsert}
+    assert len(sesiones) == 1 and not sesiones[0].viva and indexador._sesion is None
+
+
+def test_sin_modo_servidor_vuelve_a_un_proceso_por_operacion(tmp_path, indexador, monkeypatch):
+    from railspec.local import indexador_cbm
+
+    def sin_servidor(*_args, **_kwargs):
+        raise indexador_cbm.ErrorIndexador("sin modo servidor")
+
+    monkeypatch.setattr(indexador_cbm, "_SesionMcp", sin_servidor)
+    repo = repo_git(tmp_path / "repo")
+    base = sh(repo, "rev-parse", "HEAD").strip()
+    (repo / "src" / "calc.py").write_text("def suma(a, b):\n    return a + b\n", encoding="utf-8")
+    delta = indexador.delta(repo, "r", base, ["src/calc.py"], [])
+    assert "src.calc.suma" in {s.nombre for s in delta.simbolos_upsert}
+    assert indexador._solo_cli and indexador._sesion is None
