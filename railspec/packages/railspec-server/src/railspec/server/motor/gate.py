@@ -25,10 +25,10 @@ from pydantic import BaseModel, Field, ValidationError
 from railspec.contracts.comun import CausaEscalado, Criterio, GateFase, NivelCodigo, Severidad
 from railspec.contracts.hallazgos import Cita, Hallazgo, bloqueantes
 from railspec.contracts.orden import ItemGobernanza
-from railspec.contracts.repositorio import PerfilConfig, TopeGate
+from railspec.contracts.repositorio import PerfilConfig, RequisitoRol, TopeGate
 
 from ..proveedores.base import ErrorProveedor, PeticionModelo, RespuestaModelo
-from ..proveedores.seleccion import PerfilInsatisfacible, Proveedores
+from ..proveedores.seleccion import Eleccion, PerfilInsatisfacible, Proveedores
 from .perfiles import requisito
 
 # --- Lentes ---------------------------------------------------------------------------
@@ -183,6 +183,9 @@ class EntradaGate:
     tope: TopeGate
     nivel: NivelCodigo
     hallazgos_previos: list[Hallazgo] = field(default_factory=list)
+    org: str | None = None
+    #: ``Workspace.zona_datos_azure``: zona exigida a ``restringido``/``interno``.
+    zona: str | None = None
 
 
 @dataclass
@@ -194,6 +197,22 @@ class Llamada:
     respuesta: RespuestaModelo
     sha256_enviado: str
     effort: str | None
+    despliegue: str | None = None
+    #: Respondida por la caché de nodos: no salió nada hacia el proveedor ni costó tokens.
+    desde_cache: bool = False
+
+
+@dataclass
+class LlamadaFallida:
+    """Una llamada que el proveedor no completó: también se audita (lo enviado salió)."""
+
+    nodo: str
+    rol: str
+    eleccion: Eleccion
+    sha256_enviado: str
+    effort: str | None
+    error: str
+    duracion_ms: int
 
 
 @dataclass
@@ -203,6 +222,48 @@ class EvaluacionPanel:
     criticos: list[str]
     refutador: bool
     error: str | None = None
+    fallidas: list[LlamadaFallida] = field(default_factory=list)
+
+
+def requisitos_del_gate(
+    perfil: PerfilConfig, nivel: NivelCodigo, adversarial: bool
+) -> list[tuple[str, RequisitoRol]]:
+    """Cada ``(rol, requisito)`` que el gate puede pedir con este perfil y nivel (validación al arrancar)."""
+
+    pares: list[tuple[str, RequisitoRol]] = []
+    for fase, lentes in LENTES.items():
+        roles = sorted({lente.rol for lente in lentes} | ({"refutador"} if adversarial else set()))
+        pares += [(rol, requisito(perfil, rol, fase, nivel)) for rol in roles]
+    return pares
+
+
+async def _completar(
+    proveedores: Proveedores,
+    org: str | None,
+    eleccion: Eleccion,
+    peticion: PeticionModelo,
+    nodo: str,
+    sha: str,
+    fallidas: list[LlamadaFallida],
+) -> tuple[RespuestaModelo, bool]:
+    """La llamada, o su respuesta guardada si ya se hizo con las mismas entradas."""
+
+    cache = proveedores.cache if org else None
+    if cache is not None:
+        guardada = cache.obtener(org, eleccion.proveedor.proveedor, peticion)
+        if guardada is not None:
+            return guardada, True
+    try:
+        r = await eleccion.proveedor.completar(peticion)
+    except ErrorProveedor as exc:
+        effort = peticion.effort.value if peticion.effort else None
+        fallidas.append(
+            LlamadaFallida(nodo, peticion.rol, eleccion, sha, effort, str(exc)[:500], exc.duracion_ms)
+        )
+        raise
+    if cache is not None:
+        cache.guardar(org, peticion, r)
+    return r, False
 
 
 def _sistema(fase: GateFase, lentes: list[Lente], gobernanza: list[ItemGobernanza]) -> str:
@@ -271,32 +332,45 @@ async def evaluar_panel(
     grupos = repartir(lentes, entrada.tope.criticos)
     contenido = _contenido(entrada)
     llamadas: list[Llamada] = []
+    fallidas: list[LlamadaFallida] = []
+    try:
+        await proveedores.refrescar(entrada.org)
+    except Exception as exc:  # el catálogo nunca tumba el gate: escala
+        return EvaluacionPanel([], llamadas, [], False, error=f"catálogo: {exc}")
 
     async def critico(
         i: int, grupo: list[Lente]
     ) -> tuple[list[Lente], RespuestaModelo[SalidaCritico], Llamada]:
         rol = grupo[0].rol
-        req = requisito(entrada.perfil, rol)
-        eleccion = proveedores.elegir(rol, req, entrada.nivel)
+        req = requisito(entrada.perfil, rol, entrada.fase, entrada.nivel)
+        eleccion = proveedores.elegir(rol, req, entrada.nivel, org=entrada.org, zona=entrada.zona)
         sistema = _sistema(entrada.fase, grupo, entrada.gobernanza)
-        r = await eleccion.proveedor.completar(
-            PeticionModelo(
-                rol=rol,
-                modelo=eleccion.modelo,
-                sistema=sistema,
-                contenido=contenido,
-                esquema=SalidaCritico,
-                effort=req.effort,
-                etiqueta=f"critico-{i + 1}",
-            )
-        )
         nodo = f"gate-{entrada.fase.value}:" + "+".join(lente.id for lente in grupo)
-        return grupo, r, Llamada(nodo, rol, r, _sha(sistema + "\n" + contenido), req.effort)
+        sha = _sha(sistema + "\n" + contenido)
+        peticion = PeticionModelo(
+            rol=rol,
+            modelo=eleccion.modelo,
+            sistema=sistema,
+            contenido=contenido,
+            esquema=SalidaCritico,
+            effort=req.effort,
+            etiqueta=f"critico-{i + 1}",
+            despliegue=eleccion.despliegue,
+            region=eleccion.region,
+        )
+        r, cacheada = await _completar(proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas)
+        return grupo, r, Llamada(nodo, rol, r, sha, req.effort, eleccion.despliegue, cacheada)
 
-    try:
-        resultados = await asyncio.gather(*(critico(i, g) for i, g in enumerate(grupos)))
-    except (ErrorProveedor, PerfilInsatisfacible) as exc:
-        return EvaluacionPanel([], llamadas, [], False, error=str(exc))
+    # return_exceptions: una llamada que falla no oculta las que sí se completaron
+    # (se cobraron y se auditan igual).
+    crudos = await asyncio.gather(*(critico(i, g) for i, g in enumerate(grupos)), return_exceptions=True)
+    resultados = [r for r in crudos if not isinstance(r, BaseException)]
+    fallo = next((r for r in crudos if isinstance(r, BaseException)), None)
+    if fallo is not None:
+        llamadas += [llamada for _, _, llamada in resultados]
+        if not isinstance(fallo, (ErrorProveedor, PerfilInsatisfacible)):
+            raise fallo
+        return EvaluacionPanel([], llamadas, [], False, error=str(fallo), fallidas=fallidas)
 
     criterios = {c.id for c in entrada.criterios}
     hallazgos: list[Hallazgo] = []
@@ -311,17 +385,25 @@ async def evaluar_panel(
         altas = [h for h in hallazgos if h.severidad == Severidad.alta]
         if altas:
             refutador = True
-            try:
-                veredictos = await asyncio.gather(*(_refutar(h, entrada, proveedores) for h in altas))
-            except (ErrorProveedor, PerfilInsatisfacible) as exc:
-                return EvaluacionPanel(hallazgos, llamadas, _nombres(grupos), True, error=str(exc))
+            crudos_ref = await asyncio.gather(
+                *(_refutar(h, entrada, proveedores, fallidas) for h in altas), return_exceptions=True
+            )
+            fallo = next((r for r in crudos_ref if isinstance(r, BaseException)), None)
+            if fallo is not None:
+                llamadas += [r[1] for r in crudos_ref if not isinstance(r, BaseException)]
+                if not isinstance(fallo, (ErrorProveedor, PerfilInsatisfacible)):
+                    raise fallo
+                return EvaluacionPanel(
+                    hallazgos, llamadas, _nombres(grupos), True, error=str(fallo), fallidas=fallidas
+                )
+            veredictos = crudos_ref
             refutados = set()
             for h, (salida, llamada) in zip(altas, veredictos, strict=True):
                 llamadas.append(llamada)
                 if salida.refutado:
                     refutados.add(h.id)
             hallazgos = [h.model_copy(update={"refutado": h.id in refutados}) for h in hallazgos]
-    return EvaluacionPanel(hallazgos, llamadas, _nombres(grupos), refutador)
+    return EvaluacionPanel(hallazgos, llamadas, _nombres(grupos), refutador, fallidas=fallidas)
 
 
 def _nombres(grupos: list[list[Lente]]) -> list[str]:
@@ -329,10 +411,10 @@ def _nombres(grupos: list[list[Lente]]) -> list[str]:
 
 
 async def _refutar(
-    h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores
+    h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores, fallidas: list[LlamadaFallida]
 ) -> tuple[SalidaRefutador, Llamada]:
-    req = requisito(entrada.perfil, "refutador")
-    eleccion = proveedores.elegir("refutador", req, entrada.nivel)
+    req = requisito(entrada.perfil, "refutador", entrada.fase, entrada.nivel)
+    eleccion = proveedores.elegir("refutador", req, entrada.nivel, org=entrada.org, zona=entrada.zona)
     sistema = (
         f"Eres el verificador adversarial del gate '{entrada.fase.value}'. Intenta demostrar que el "
         "hallazgo es falso o irrelevante para el material. Ante la duda, refuta."
@@ -341,20 +423,21 @@ async def _refutar(
         f"Hallazgo {h.id} [{h.lente}/{h.severidad.value}]: {h.titulo}\nEvidencia: {h.evidencia}\n\n"
         + _contenido(entrada)
     )
-    r = await eleccion.proveedor.completar(
-        PeticionModelo(
-            rol="refutador",
-            modelo=eleccion.modelo,
-            sistema=sistema,
-            contenido=contenido,
-            esquema=SalidaRefutador,
-            effort=req.effort,
-            etiqueta=f"refutar-{h.id}",
-        )
+    nodo = f"gate-{entrada.fase.value}:refutador"
+    sha = _sha(sistema + contenido)
+    peticion = PeticionModelo(
+        rol="refutador",
+        modelo=eleccion.modelo,
+        sistema=sistema,
+        contenido=contenido,
+        esquema=SalidaRefutador,
+        effort=req.effort,
+        etiqueta=f"refutar-{h.id}",
+        despliegue=eleccion.despliegue,
+        region=eleccion.region,
     )
-    return r.valor, Llamada(
-        f"gate-{entrada.fase.value}:refutador", "refutador", r, _sha(sistema + contenido), req.effort
-    )
+    r, cacheada = await _completar(proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas)
+    return r.valor, Llamada(nodo, "refutador", r, sha, req.effort, eleccion.despliegue, cacheada)
 
 
 # --- Convergencia ---------------------------------------------------------------------

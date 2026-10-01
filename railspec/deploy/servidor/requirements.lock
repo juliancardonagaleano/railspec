@@ -164,7 +164,9 @@ annotated-types==0.8.0 \
 anthropic==0.116.0 \
     --hash=sha256:5fc248fbb9fe03ef686f8a774f81586bca31a043260aab88b387ea3660f4a396 \
     --hash=sha256:6c0a7698e8d652455da3499978279bb2588c7264d0a35be3666009a4258c8256
-    # via agent-framework-anthropic
+    # via
+    #   -r railspec/deploy/servidor/requirements.in
+    #   agent-framework-anthropic
 anyio==4.15.1 \
     --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101 \
     --hash=sha256:9f28306018cbd6d329e64a36d58256edff76dd996fe423bc957326e578b82a94
@@ -734,6 +736,7 @@ httpx==0.28.1 \
     --hash=sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc \
     --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad
     # via
+    #   -r railspec/deploy/servidor/requirements.in
     #   agent-framework-foundry
     #   anthropic
 httpx2==2.13.1 \
@@ -1141,6 +1144,7 @@ openai==3.22.1 \
     --hash=sha256:2575f961e4c1df8761f8eeb4d78e967de3f9b9f91b22f7120d60e393e970094d \
     --hash=sha256:43ff3de5457a8beb4afa177d4e0ba6841cfadd5219ebc62297fde6c8a9d401a6
     # via
+    #   -r railspec/deploy/servidor/requirements.in
     #   agent-framework-openai
     #   azure-ai-projects
 opentelemetry-api==1.45.0 \

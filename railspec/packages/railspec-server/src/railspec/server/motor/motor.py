@@ -268,6 +268,14 @@ class Motor:
     async def start(self, e: UnitStartEntrada, actor: Actor) -> UnitStartSalida:
         negociada = negociar(e.version_contrato_cliente)
         self._humano(actor, "arrancar una unidad")
+        motivos = await self.n.validar_perfil(
+            e.alcance, e.perfil or Perfil.estandar, e.repositorios[0].repositorio, triaje(e)
+        )
+        if motivos:
+            raise ErrorNegocio(
+                CodigoError.perfil_insatisfacible,
+                f"perfil {(e.perfil or Perfil.estandar).value}: " + " | ".join(motivos),
+            )
         numero = self.n.almacen.siguiente_numero_unidad(e.alcance)
         alcance = AlcanceUnidad(
             org=e.alcance.org,

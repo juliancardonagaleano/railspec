@@ -18,6 +18,10 @@ motor = [
   "pymongo>=4.8,<5",
   "agent-framework-anthropic>=1.0.0b260918",
   "agent-framework-foundry>=1.13",
+  # SDK oficiales de los adaptadores de proveedor (Claude por Messages API, resto por chat completions).
+  "anthropic>=0.116",
+  "openai>=3.22",
+  "httpx>=0.27",
   "azure-identity>=1.19",
   "mcp>=2.2,<3",
   "fastapi>=0.115",
