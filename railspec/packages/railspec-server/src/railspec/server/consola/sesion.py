@@ -27,7 +27,7 @@ from typing import Any
 
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, TipoActor
 
-from ..api.identidad import TokenInvalido
+from ..api.identidad import TokenInvalido, con_equipos
 
 log = logging.getLogger("railspec.consola")
 
@@ -118,7 +118,9 @@ class IdentidadConConsola:
     """Identidad del servidor que además acepta tokens ``rsc1`` de tipo ``api``.
 
     Envuelve la identidad compuesta (GitHub u OIDC de Actions): todo lo demás
-    se le delega sin cambios.
+    se le delega sin cambios. El actor de un token ``rsc1`` lleva los equipos
+    firmados en el token (``ActorConEquipos``); un token vencido o con la carga
+    alterada no llega a ser actor.
     """
 
     def __init__(self, base: Any, firmador: Firmador) -> None:
@@ -128,7 +130,10 @@ class IdentidadConConsola:
 
     def actor_desde_token(self, token: str, canal: str) -> Actor:
         if token.startswith(PREFIJO + "."):
-            return self.firmador.sesion(token, "api").actor(Canal(canal))
+            sesion = self.firmador.sesion(token, "api")
+            # Los equipos viajan firmados en el token (leídos en el login): el autorizador de /v1 y MCP
+            # los usa para los roles por equipo, igual que la consola.
+            return con_equipos(sesion.actor(Canal(canal)), sesion.equipos)
         return self.base.actor_desde_token(token, canal)
 
     def workspaces_visibles(self, actor: Actor, org: str) -> list[AlcanceWorkspace]:

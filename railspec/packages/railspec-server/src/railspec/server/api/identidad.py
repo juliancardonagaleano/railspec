@@ -12,6 +12,11 @@
   comprueba la tool que lo usa (``graph.index``).
 - ``IdentidadCompuesta``: un JWT de GitHub Actions va al verificador OIDC;
   cualquier otro token, a la identidad humana.
+
+Roles por equipo (R3): una identidad que conoce los equipos de GitHub de la
+persona devuelve un ``ActorConEquipos``; el autorizador de roles los suma a
+las asignaciones de la persona. Sin equipos (token de desarrollo, OIDC) el
+actor es un ``Actor`` común y solo cuentan las asignaciones personales.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ import time
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, OidcGithubActions, TipoActor
 
 EMISOR_ACTIONS = "https://token.actions.githubusercontent.com"
@@ -28,6 +34,26 @@ EMISOR_ACTIONS = "https://token.actions.githubusercontent.com"
 
 class TokenInvalido(Exception):
     pass
+
+
+class ActorConEquipos(Actor):
+    """``Actor`` autenticado más los ``equipo_id`` de GitHub que su identidad resolvió.
+
+    Solo lo construyen las identidades del servidor desde un token verificado
+    (R2: el actor nunca viaja en la entrada de una tool). ``equipos`` no se
+    serializa: ni el estado ni la auditoría lo guardan, y como no es parte del
+    contrato ``Actor`` tampoco aparece en sus esquemas.
+    """
+
+    equipos: frozenset[int] = Field(default=frozenset(), exclude=True)
+
+
+def con_equipos(actor: Actor, equipos: frozenset[int]) -> Actor:
+    """El mismo actor con sus equipos; sin equipos (o sin ser persona) queda como ``Actor`` común."""
+
+    if not equipos or actor.tipo != TipoActor.humano:
+        return actor
+    return ActorConEquipos(**actor.model_dump(), equipos=equipos)
 
 
 class IdentidadDesarrollo:

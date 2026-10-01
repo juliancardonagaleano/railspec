@@ -106,10 +106,16 @@ oculta lo que el rol no permite, pero decide el servidor.
 | Crear organizaciones | administrador de la plataforma |
 
 Las tools llamadas desde la consola (`POST /consola/api/tools/{nombre}`) pasan
-por el mismo registro que MCP y `/v1/tools`, con un autorizador que además
-resuelve equipos. Por MCP y `/v1/tools` los roles de equipo todavía no se
-resuelven (el token de GitHub del arnés no trae equipos); hasta entonces, a
-quien use el arnés hay que asignarle el rol como persona.
+por el mismo registro que MCP y `/v1/tools`. El token `rsc1` de
+`POST /consola/api/auth/token` lleva firmados los equipos leídos en el login,
+así que con él los roles de equipo valen igual en `/v1/tools`, `/v1/chat` y
+MCP: la identidad devuelve un actor con esos equipos y el autorizador los suma
+a las asignaciones de la persona (misma consulta que la consola). Los equipos
+no se guardan en el estado ni en la auditoría, un token vencido o con la carga
+alterada no es actor (401) y un rol de equipo vale solo en la organización y
+el workspace en que se asignó. Con un token de GitHub o de desarrollo directos
+(el del arnés) todavía no hay equipos: a quien use el arnés con ese token hay
+que asignarle el rol como persona.
 
 ## Aprobaciones e integración (R7)
 
@@ -198,7 +204,8 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
 ## Pendiente
 
 - Sincronizar el catálogo de modelos por API de cada proveedor (hoy 501).
-- Roles por equipo en MCP y `/v1/tools` (hoy solo en la consola).
+- Roles por equipo en MCP y `/v1/tools` con el token de GitHub o de desarrollo del
+  arnés (no traen equipos; el token `rsc1` de la consola ya los lleva).
 - Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el
   repositorio; hoy la consola edita las `exclusiones` del vínculo).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).

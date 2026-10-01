@@ -34,7 +34,6 @@ from railspec.contracts.repositorio import (
     PresupuestoConfig,
     ProveedorContexto,
     RegistroAuditoria,
-    SujetoUsuario,
     TelemetriaNodo,
     VinculoRepositorio,
     Workspace,
@@ -61,6 +60,21 @@ def _limpio(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     if doc is None:
         return None
     return {k: v for k, v in doc.items() if not k.startswith("_")}
+
+
+def filtro_sujetos(github_id: int, equipos: frozenset[int] = frozenset()) -> list[dict[str, Any]]:
+    """Alternativas de ``$or`` que casan las asignaciones de una persona y de sus equipos.
+
+    Única definición de "a quién le toca una asignación" (R3): la usan el
+    autorizador de ``/v1`` y MCP y la consola. Los equipos se casan por
+    ``equipo_id`` (único en GitHub); la organización y el workspace los filtra
+    quien llama.
+    """
+
+    sujetos: list[dict[str, Any]] = [{"sujeto.tipo": "usuario", "sujeto.github_id": github_id}]
+    if equipos:
+        sujetos.append({"sujeto.tipo": "equipo", "sujeto.equipo_id": {"$in": sorted(equipos)}})
+    return sujetos
 
 
 def _filtro_ws(org: str, workspace: str, prefijo: str) -> dict[str, Any]:
@@ -390,8 +404,12 @@ class AlmacenMongo:
         )
         return VinculoRepositorio.model_validate(_limpio(doc)) if doc else None
 
-    def asignaciones(self, org: str, github_id: int) -> list[AsignacionRol]:
-        cursor = self.db.roles.find({"org": org, "sujeto.tipo": "usuario", "sujeto.github_id": github_id})
+    def asignaciones(
+        self, org: str, github_id: int, equipos: frozenset[int] = frozenset()
+    ) -> list[AsignacionRol]:
+        """Asignaciones de la organización a la persona y a los ``equipos`` (ids) que se le conocen."""
+
+        cursor = self.db.roles.find({"org": org, "$or": filtro_sujetos(github_id, equipos)})
         return [AsignacionRol.model_validate(_limpio(d)) for d in cursor]
 
     def workspace(self, alcance: AlcanceWorkspace) -> Workspace | None:
@@ -479,8 +497,6 @@ class AlmacenMongo:
                     {"_id": clave}, {"_id": clave, **_doc(e)}, upsert=True
                 )
             elif isinstance(e, AsignacionRol):
-                if not isinstance(e.sujeto, SujetoUsuario):
-                    raise ValueError("las asignaciones a equipos necesitan resolver membresía (pendiente)")
                 self.db.roles.replace_one({"_id": str(e.id)}, {"_id": str(e.id), **_doc(e)}, upsert=True)
             else:
                 raise TypeError(f"no es configuración: {type(e).__name__}")

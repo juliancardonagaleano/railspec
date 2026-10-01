@@ -25,6 +25,7 @@ from railspec.contracts.repositorio import Rol
 from railspec.contracts.tools import TOOLS, CodigoError, ErrorTool, Superficie, ToolDef, resolver_tool
 
 from ..motor.motor import ErrorNegocio, Motor
+from .identidad import ActorConEquipos
 
 log = logging.getLogger("railspec.api")
 
@@ -44,6 +45,10 @@ class Autorizador(Protocol):
 class AutorizadorRoles:
     """Rol efectivo desde ``AsignacionRol``: el mayor entre el de la organización y el del workspace.
 
+    Cuenta las asignaciones de la persona y, si la identidad resolvió sus
+    equipos de GitHub (``ActorConEquipos``), las de esos equipos. Un ``Actor``
+    común (token de desarrollo) solo tiene las personales.
+
     ``abierto=True`` (solo desarrollo, sin Mongo) da ``desarrollador`` a toda
     persona autenticada sin asignaciones.
     """
@@ -59,9 +64,12 @@ class AutorizadorRoles:
         github_id = actor.github_id if actor.tipo == TipoActor.humano else actor.en_nombre_de
         if github_id is None:
             return None
+        equipos: frozenset[int] = frozenset()
+        if isinstance(actor, ActorConEquipos) and actor.tipo == TipoActor.humano:
+            equipos = actor.equipos
         roles = [
             a.rol
-            for a in self._almacen.asignaciones(org, github_id)
+            for a in self._almacen.asignaciones(org, github_id, equipos)
             if a.workspace is None or a.workspace == workspace
         ]
         if not roles:

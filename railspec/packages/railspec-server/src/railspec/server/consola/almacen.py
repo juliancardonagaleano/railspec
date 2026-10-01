@@ -36,6 +36,8 @@ from railspec.contracts.repositorio import (
 )
 from railspec.contracts.snapshot import Snapshot
 
+from ..estado.mongo import filtro_sujetos
+
 #: Workspace reservado para auditar cambios a nivel organización.
 WORKSPACE_ORG = "org"
 
@@ -127,11 +129,11 @@ class AlmacenConsola:
         return self.db.roles.delete_one({"org": org, "_id": id_}).deleted_count == 1
 
     def asignaciones(self, org: str, github_id: int, equipos: frozenset[int]) -> list[AsignacionRol]:
-        filtro = {"org": org, "$or": _sujetos(github_id, equipos)}
+        filtro = {"org": org, "$or": filtro_sujetos(github_id, equipos)}
         return self._varios("roles", filtro, AsignacionRol, [("workspace", ASCENDING)])
 
     def asignaciones_de_sujeto(self, github_id: int, equipos: frozenset[int]) -> list[AsignacionRol]:
-        filtro = {"$or": _sujetos(github_id, equipos)}
+        filtro = {"$or": filtro_sujetos(github_id, equipos)}
         return self._varios("roles", filtro, AsignacionRol, [("org", ASCENDING)])
 
     # --- vínculos de repositorio ------------------------------------------------------------
@@ -267,13 +269,6 @@ class AlmacenConsola:
         }
         doc = self.db.snapshots.find_one(filtro)
         return Snapshot.model_validate(_limpio(doc)) if doc else None
-
-
-def _sujetos(github_id: int, equipos: frozenset[int]) -> list[dict[str, Any]]:
-    sujetos: list[dict[str, Any]] = [{"sujeto.tipo": "usuario", "sujeto.github_id": github_id}]
-    if equipos:
-        sujetos.append({"sujeto.tipo": "equipo", "sujeto.equipo_id": {"$in": sorted(equipos)}})
-    return sujetos
 
 
 def _filtro_vinculo(a: AlcanceRepositorio) -> dict[str, Any]:

@@ -5,15 +5,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 from apoyo_motor import ORG, WS, construir, entrada_start
 from railspec.contracts.comun import Actor, Canal, OidcGithubActions, TipoActor
-from railspec.contracts.repositorio import AsignacionRol, Auditoria, Rol, SujetoUsuario
+from railspec.contracts.repositorio import AsignacionRol, Auditoria, Rol, SujetoEquipo, SujetoUsuario
 from railspec.contracts.tools import Superficie
 from railspec.server.api import AutorizadorRoles, IdentidadDesarrollo, Registro
-from railspec.server.api.identidad import IdentidadGithub, TokenInvalido, token_de_cabecera
+from railspec.server.api.identidad import IdentidadGithub, TokenInvalido, con_equipos, token_de_cabecera
 from railspec.server.api.superficies import aplicacion
 
 TOKENS = {"tk-julian": ("juliancardonagaleano", 83125327), "tk-ana": ("ana", 7)}
@@ -85,8 +86,6 @@ def test_http_errores():
 
 
 def _asignacion(github_id: int, rol: Rol, workspace: str | None) -> AsignacionRol:
-    from datetime import UTC, datetime
-
     from apoyo_motor import JULIAN
 
     ahora = datetime(2026, 9, 30, tzinfo=UTC)
@@ -124,6 +123,89 @@ def test_roles_desde_asignaciones():
             assert r.status_code == 403
 
     asyncio.run(caso())
+
+
+def _asignacion_equipo(equipo_id: int, rol: Rol, workspace: str | None, org: str = ORG) -> AsignacionRol:
+    return _asignacion(1, rol, workspace).model_copy(
+        update={
+            "org": org,
+            "sujeto": SujetoEquipo(github_org="acme", equipo="plataforma", equipo_id=equipo_id),
+        }
+    )
+
+
+def _humano(github_id: int = 9, equipos=()) -> Actor:
+    base = Actor(tipo=TipoActor.humano, canal=Canal.arnes, github_id=github_id, login="luis")
+    return con_equipos(base, frozenset(equipos))
+
+
+def test_autorizador_suma_los_roles_de_los_equipos_del_actor():
+    _, registro, _ = montar(abierto=False)
+    almacen = registro._autorizador._almacen
+    almacen.guardar_configuracion(
+        [
+            _asignacion_equipo(4242, Rol.lector, WS),
+            _asignacion_equipo(4243, Rol.desarrollador, "reportes"),
+            _asignacion_equipo(777, Rol.org_admin, None),
+            _asignacion_equipo(4242, Rol.org_admin, None, org="otra"),
+            _asignacion(9, Rol.workspace_admin, WS),
+        ]
+    )
+    autorizador = AutorizadorRoles(almacen)
+    # Sin equipos solo cuenta la persona; los equipos de las asignaciones no se le atribuyen.
+    assert autorizador.rol(_humano(), ORG, WS) == Rol.workspace_admin
+    assert autorizador.rol(_humano(10), ORG, WS) is None
+    # El equipo da su rol, en su workspace y en su organización, y no más.
+    luis = _humano(10, {4242})
+    assert autorizador.rol(luis, ORG, WS) == Rol.lector
+    assert autorizador.rol(luis, ORG, "reportes") is None
+    assert autorizador.rol(luis, ORG, None) is None
+    assert autorizador.rol(luis, "otra", WS) == Rol.org_admin  # asignación explícita de ese equipo en "otra"
+    assert autorizador.rol(luis, "tercera", WS) is None
+    # Un rol de organización del equipo cubre todos los workspaces de esa organización.
+    admin = _humano(10, {777})
+    assert [autorizador.rol(admin, ORG, w) for w in (WS, "reportes", None)] == [Rol.org_admin] * 3
+    assert autorizador.rol(admin, "otra", WS) is None
+    # Persona y equipos: el mayor.
+    assert autorizador.rol(_humano(9, {4242, 4243}), ORG, WS) == Rol.workspace_admin
+    assert autorizador.rol(_humano(10, {4242, 4243}), ORG, "reportes") == Rol.desarrollador
+    # Un actor de servicio no recibe equipos (ni los necesita): su alcance lo fija la tool.
+    servicio = Actor(
+        tipo=TipoActor.servicio,
+        canal=Canal.ci,
+        oidc=OidcGithubActions(repositorio="acme/certificados-api", workflow="ci.yml"),
+    )
+    assert con_equipos(servicio, frozenset({777})) is servicio
+    assert autorizador.rol(servicio, "otra", WS) == Rol.desarrollador
+    # ``abierto`` solo rellena a quien no tiene ninguna asignación, ni propia ni de equipo.
+    abierto = AutorizadorRoles(almacen, abierto=True)
+    assert abierto.rol(_humano(10), ORG, WS) == Rol.desarrollador
+    assert abierto.rol(luis, ORG, "reportes") == Rol.desarrollador
+    assert abierto.rol(luis, ORG, WS) == Rol.lector
+
+
+def test_actor_con_equipos_no_se_serializa_ni_entra_por_la_entrada():
+    import warnings
+
+    from apoyo_motor import JULIAN
+    from railspec.contracts.repositorio import Auditoria
+    from railspec.server.api.identidad import ActorConEquipos
+
+    base = Actor(tipo=TipoActor.humano, canal=Canal.arnes, github_id=9, login="luis")
+    actor = con_equipos(base, frozenset({4242}))
+    assert isinstance(actor, ActorConEquipos) and actor.equipos == {4242}
+    assert con_equipos(base, frozenset()) is base
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert actor.model_dump() == base.model_dump()
+        assert "equipos" not in actor.model_dump_json() and "4242" not in actor.model_dump_json()
+        # Dentro de otro contrato (estado, auditoría) tampoco sale.
+        ahora = datetime.now(UTC)
+        auditoria = Auditoria(creado_por=actor, creado_en=ahora, actualizado_por=JULIAN, actualizado_en=ahora)
+        assert "equipos" not in auditoria.model_dump_json() and "4242" not in auditoria.model_dump_json()
+    # El contrato ``Actor`` rechaza campos desconocidos: una entrada no puede declarar equipos.
+    with pytest.raises(ValueError):
+        Actor.model_validate({**base.model_dump(mode="json"), "equipos": [4242]})
 
 
 def test_superficie_y_tipo_de_actor():
