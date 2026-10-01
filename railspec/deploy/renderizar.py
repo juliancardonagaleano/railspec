@@ -42,6 +42,7 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
         "Despliegues declarados, despliegue=modelo[:SKU] separados por comas.",
     ),
     "RAILSPEC_CATALOGO_TTL_S": ("3600", "Vigencia del catálogo de modelos, en segundos."),
+    "RAILSPEC_CACHE_NODOS_S": ("86400", "Caché de nodos de modelo por hash de entradas (s); 0 la apaga."),
     "RAILSPEC_PCE_URL": ("", "URL MCP de la gobernanza (PCE)."),
     "RAILSPEC_CONTEXTO_CACHE_S": ("900", "Caché de consultas a proveedores de contexto, en segundos."),
     "RAILSPEC_ANTHROPIC_HABILITADO": ("false", "Anthropic directo (solo nivel abierto)."),
@@ -73,7 +74,7 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     for nombre in ("RAILSPEC_IMAGEN", "RAILSPEC_DOMINIO", "RAILSPEC_NAMESPACE", "RAILSPEC_SECRETO"):
         if re.search(r"[\s\"'$]", salida[nombre]):
             raise ErrorRender(f"{nombre} tiene caracteres no válidos")
-    for nombre in ("RAILSPEC_CATALOGO_TTL_S", "RAILSPEC_CONTEXTO_CACHE_S"):
+    for nombre in ("RAILSPEC_CATALOGO_TTL_S", "RAILSPEC_CACHE_NODOS_S", "RAILSPEC_CONTEXTO_CACHE_S"):
         if not re.fullmatch(r"\d+(\.\d+)?", salida[nombre]):
             raise ErrorRender(f"{nombre} debe ser un número de segundos")
     if re.search(r"[\"\\]", salida["RAILSPEC_FOUNDRY_DESPLIEGUES"]):

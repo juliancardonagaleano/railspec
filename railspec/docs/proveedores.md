@@ -41,6 +41,7 @@ necesita acceso de inferencia al recurso y lectura del proyecto si se usa
 | `RAILSPEC_FOUNDRY_PROYECTO_API_VERSION` | `v1` | entorno del contenedor | `api-version` de la API de proyectos. No pasa por el renderizador. |
 | `RAILSPEC_FOUNDRY_DESPLIEGUES` | vacío | ConfigMap | Despliegues declarados a mano, que se suman a los del proyecto y ganan por nombre. Forma compacta `despliegue=modelo[:SKU]` separada por comas, o una lista JSON de objetos con `despliegue`, `modelo`, `sku`, `efforts`, `structured_outputs` y `contexto`. En el ConfigMap solo cabe la forma compacta (ver más abajo). |
 | `RAILSPEC_CATALOGO_TTL_S` | `3600` | ConfigMap | Vigencia del catálogo leído por API, en segundos. |
+| `RAILSPEC_CACHE_NODOS_S` | `86400` | ConfigMap | Vigencia de la caché de nodos de modelo por hash de entradas, en segundos; `0` la desactiva. |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | ConfigMap | Activa Anthropic directo. Si está activa y falta la clave, el servidor no arranca. |
 | `RAILSPEC_ANTHROPIC_API_KEY` | vacío | Secret | Clave de Anthropic directo. |
 | `RAILSPEC_PCE_URL` | vacío | ConfigMap | URL MCP de PCE. Es la herramienta de gobernanza por defecto de toda organización que no configure la suya. |
@@ -287,6 +288,22 @@ y lo comparan los topes del presupuesto. El costo es una estimación con las
 tarifas de primera parte (`PRECIOS_USD_MTOK` en `base.py`); la factura real de
 Azure manda.
 
+## Caché de nodos
+
+Una llamada a modelo con las mismas entradas no se paga dos veces. La clave es
+el `sha256` de proveedor, modelo, despliegue, effort, tope de tokens, esquema
+de salida, sistema y contenido (`proveedores/cache.py`); el contenido incluye
+el material, los criterios y los hallazgos previos, así que un gate que se
+repite tras una caída, otra réplica que reanuda desde el checkpoint o un
+material idéntico reciben la respuesta guardada. Se guarda por organización en
+la colección `cache_nodos` (índice TTL en `_expira`), con la salida
+estructurada validada y el uso de la llamada original; lo enviado no se guarda.
+
+Un acierto no sale hacia el proveedor: no deja `RegistroAuditoria` ni suma al
+consumo de la unidad, y su `TelemetriaNodo` queda con cero tokens. Si el
+esquema de salida cambió, la entrada guardada no valida y se llama de nuevo.
+`RAILSPEC_CACHE_NODOS_S` fija la vigencia (un día por defecto); `0` la apaga.
+
 ## Prueba de humo manual
 
 `python -m railspec.server.humo` comprueba la configuración contra los
@@ -331,8 +348,6 @@ cubiertos solo con dobles.
 
 ## Pendiente
 
-- Caché de nodos por hash de entradas, para que repetir un gate con las
-  mismas entradas no vuelva a llamar al modelo (idempotencia).
 - Probar el adaptador de Anthropic directo contra la API real.
 - `contexto.yaml` por repositorio para declarar herramientas de contexto
   junto al código, además de la configuración de la consola.

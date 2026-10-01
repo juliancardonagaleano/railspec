@@ -198,6 +198,8 @@ class Llamada:
     sha256_enviado: str
     effort: str | None
     despliegue: str | None = None
+    #: Respondida por la caché de nodos: no salió nada hacia el proveedor ni costó tokens.
+    desde_cache: bool = False
 
 
 @dataclass
@@ -236,20 +238,32 @@ def requisitos_del_gate(
 
 
 async def _completar(
+    proveedores: Proveedores,
+    org: str | None,
     eleccion: Eleccion,
     peticion: PeticionModelo,
     nodo: str,
     sha: str,
     fallidas: list[LlamadaFallida],
-) -> RespuestaModelo:
+) -> tuple[RespuestaModelo, bool]:
+    """La llamada, o su respuesta guardada si ya se hizo con las mismas entradas."""
+
+    cache = proveedores.cache if org else None
+    if cache is not None:
+        guardada = cache.obtener(org, eleccion.proveedor.proveedor, peticion)
+        if guardada is not None:
+            return guardada, True
     try:
-        return await eleccion.proveedor.completar(peticion)
+        r = await eleccion.proveedor.completar(peticion)
     except ErrorProveedor as exc:
         effort = peticion.effort.value if peticion.effort else None
         fallidas.append(
             LlamadaFallida(nodo, peticion.rol, eleccion, sha, effort, str(exc)[:500], exc.duracion_ms)
         )
         raise
+    if cache is not None:
+        cache.guardar(org, peticion, r)
+    return r, False
 
 
 def _sistema(fase: GateFase, lentes: list[Lente], gobernanza: list[ItemGobernanza]) -> str:
@@ -344,8 +358,8 @@ async def evaluar_panel(
             despliegue=eleccion.despliegue,
             region=eleccion.region,
         )
-        r = await _completar(eleccion, peticion, nodo, sha, fallidas)
-        return grupo, r, Llamada(nodo, rol, r, sha, req.effort, eleccion.despliegue)
+        r, cacheada = await _completar(proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas)
+        return grupo, r, Llamada(nodo, rol, r, sha, req.effort, eleccion.despliegue, cacheada)
 
     # return_exceptions: una llamada que falla no oculta las que sí se completaron
     # (se cobraron y se auditan igual).
@@ -422,8 +436,8 @@ async def _refutar(
         despliegue=eleccion.despliegue,
         region=eleccion.region,
     )
-    r = await _completar(eleccion, peticion, nodo, sha, fallidas)
-    return r.valor, Llamada(nodo, "refutador", r, sha, req.effort, eleccion.despliegue)
+    r, cacheada = await _completar(proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas)
+    return r.valor, Llamada(nodo, "refutador", r, sha, req.effort, eleccion.despliegue, cacheada)
 
 
 # --- Convergencia ---------------------------------------------------------------------

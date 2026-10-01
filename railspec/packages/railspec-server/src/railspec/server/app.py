@@ -117,7 +117,10 @@ def _proveedores(config: Configuracion, almacen: Any) -> Proveedores:
     if not disponibles:
         log.warning("sin proveedores de modelo: unit.start rechazará los perfiles (perfil-insatisfacible)")
     catalogo = Catalogo(fuentes, almacen, ttl_s=config.catalogo_ttl_s) if fuentes else None
-    return Proveedores(disponibles, catalogo, zona_recurso=f.zona_datos if f else None)
+    from .proveedores.cache import CacheNodos
+
+    cache = CacheNodos(almacen, config.cache_nodos_s) if config.cache_nodos_s > 0 else None
+    return Proveedores(disponibles, catalogo, zona_recurso=f.zona_datos if f else None, cache=cache)
 
 
 class _FuentesFoundry:

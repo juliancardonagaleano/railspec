@@ -21,6 +21,7 @@ from railspec.contracts.comun import NivelCodigo, Proveedor
 from railspec.contracts.repositorio import RequisitoRol
 
 from .base import ProveedorModelo
+from .cache import CacheNodos
 from .catalogo import REGION_GLOBAL, Catalogo, EntradaCatalogo
 
 
@@ -45,9 +46,12 @@ class Proveedores:
         disponibles: dict[Proveedor, ProveedorModelo],
         catalogo: Catalogo | None = None,
         zona_recurso: str | None = None,
+        cache: CacheNodos | None = None,
     ) -> None:
         self._disponibles = disponibles
         self.catalogo = catalogo
+        #: Caché de nodos por hash de entradas; ``None`` = siempre llama al proveedor.
+        self.cache = cache
         #: Zona de datos del recurso de Foundry (``RAILSPEC_FOUNDRY_ZONA_DATOS``).
         self.zona_recurso = zona_recurso
 

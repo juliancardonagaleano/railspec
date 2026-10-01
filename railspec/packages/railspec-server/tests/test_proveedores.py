@@ -604,3 +604,67 @@ def test_humo_sin_llamada(monkeypatch, capsys):
     assert "perfil estandar satisfacible" in capsys.readouterr().out
     monkeypatch.setenv("RAILSPEC_FOUNDRY_DESPLIEGUES", "opus=claude-opus-5-5:GlobalStandard")
     assert humo.main(["--sin-llamada", "--nivel", "restringido"]) == 1
+
+
+# --- Caché de nodos por hash de entradas ---------------------------------------------------
+
+
+def test_cache_de_nodos_por_hash_caduca_y_distingue_entradas():
+    from datetime import timedelta
+
+    from railspec.server.proveedores.base import RespuestaModelo, Uso
+    from railspec.server.proveedores.cache import CacheNodos, clave_nodo
+
+    # mongomock aplica el índice TTL con el reloj real.
+    ahora = [datetime.now(UTC)]
+    almacen = almacen_en_memoria()
+    cache = CacheNodos(almacen, ttl_s=60, reloj=lambda: ahora[0])
+    p = _peticion()
+    r = RespuestaModelo(
+        valor=SalidaCritico(hallazgos=[]),
+        uso=Uso(tokens_entrada=10, tokens_salida=3),
+        proveedor=Proveedor.foundry,
+        modelo="claude-opus-5-5",
+        region="zona-us",
+    )
+    assert cache.obtener(ORG, Proveedor.foundry, p) is None
+    cache.guardar(ORG, p, r)
+    guardada = cache.obtener(ORG, Proveedor.foundry, p)
+    assert guardada.valor == r.valor and guardada.uso.tokens_entrada == 10 and guardada.region == "zona-us"
+    # Otra organización, otro contenido u otro effort no comparten entrada.
+    assert cache.obtener("otra-org", Proveedor.foundry, p) is None
+    assert cache.obtener(ORG, Proveedor.foundry, _peticion(contenido="otro")) is None
+    assert clave_nodo(Proveedor.foundry, p) != clave_nodo(Proveedor.foundry, _peticion(effort=Effort.low))
+    assert clave_nodo(Proveedor.foundry, p) != clave_nodo(Proveedor.foundry, _peticion(despliegue="opus-dz"))
+    # Lo enviado nunca se guarda.
+    doc = almacen.db.cache_nodos.find_one({})
+    assert "material" not in json.dumps(doc, default=str)
+    ahora[0] += timedelta(seconds=61)
+    assert cache.obtener(ORG, Proveedor.foundry, p) is None
+    assert CacheNodos(almacen, ttl_s=0).obtener(ORG, Proveedor.foundry, p) is None
+
+
+def test_un_gate_repetido_sale_de_la_cache_sin_auditoria_ni_consumo():
+    async def caso():
+        from railspec.contracts.estado import TipoCheckpoint
+        from railspec.server.proveedores.cache import CacheNodos
+        from test_motor_gate import es_checkpoint, hasta
+
+        motor, proveedor = construir()
+        motor.n.proveedores.cache = CacheNodos(motor.n.almacen)
+        primera = (await motor.start(entrada_start(), JULIAN)).estado.unidad
+        await hasta(motor, primera, es_checkpoint(TipoCheckpoint.aprobar_spec))
+        pagadas = len(proveedor.peticiones)
+        auditadas = motor.n.almacen.db.auditoria.count_documents({"evento": "llamada-modelo"})
+        assert pagadas and auditadas == pagadas
+
+        # Otra unidad con el mismo material y los mismos criterios: mismas entradas.
+        segunda = (await motor.start(entrada_start(), JULIAN)).estado.unidad
+        await hasta(motor, segunda, es_checkpoint(TipoCheckpoint.aprobar_spec))
+        assert len(proveedor.peticiones) == pagadas
+        assert motor.n.almacen.db.auditoria.count_documents({"evento": "llamada-modelo"}) == auditadas
+        estado = motor.n.almacen.obtener_estado(segunda)
+        assert estado.consumo.tokens == 0 and estado.gates[GateFase.spec].veredicto.value == "aprobado"
+        assert motor.n.almacen.obtener_estado(primera).consumo.tokens > 0
+
+    correr(caso())

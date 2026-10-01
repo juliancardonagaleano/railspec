@@ -105,6 +105,13 @@ class AlmacenMotor(Protocol):
     def proveedores_contexto(self, alcance: AlcanceWorkspace) -> list[ProveedorContexto]:
         """Los de la organización con los del workspace encima."""
 
+    # --- caché de nodos de modelo (por organización, con caducidad) --------------------------
+    def nodo_en_cache(self, org: str, clave: str, ahora: datetime) -> dict[str, Any] | None: ...
+
+    def guardar_nodo_en_cache(
+        self, org: str, clave: str, respuesta: dict[str, Any], expira: datetime
+    ) -> None: ...
+
     # --- catálogo de modelos (por organización, leído por API) -----------------------------
     def catalogo(self, org: str) -> list[ModeloCatalogo]: ...
 

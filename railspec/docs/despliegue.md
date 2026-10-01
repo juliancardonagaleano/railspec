@@ -77,6 +77,7 @@ no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
 | `RAILSPEC_FOUNDRY_PROYECTO` | vacío | Endpoint del proyecto de Foundry para leer los despliegues por API. |
 | `RAILSPEC_FOUNDRY_DESPLIEGUES` | vacío | Despliegues declarados en la forma compacta `despliegue=modelo[:SKU],…`. La lista JSON no cabe en el ConfigMap: el renderizador la rechaza. |
 | `RAILSPEC_CATALOGO_TTL_S` | `3600` | Vigencia del catálogo de modelos, en segundos. |
+| `RAILSPEC_CACHE_NODOS_S` | `86400` | Caché de nodos de modelo por hash de entradas, en segundos; `0` la desactiva. |
 | `RAILSPEC_PCE_URL` | vacío | Gobernanza por MCP; sin ella todo gate escala con `sin-gobernanza`. |
 | `RAILSPEC_CONTEXTO_CACHE_S` | `900` | Caché de consultas a las herramientas de contexto, en segundos; `0` la desactiva. |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | Anthropic directo. |

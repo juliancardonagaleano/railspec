@@ -54,6 +54,8 @@ class Configuracion:
     contexto_cache_s: float = 900.0
     #: Vigencia del catálogo de modelos leído por API, en segundos.
     catalogo_ttl_s: float = 3600.0
+    #: Vigencia de la caché de nodos de modelo por hash de entradas, en segundos; 0 la desactiva.
+    cache_nodos_s: float = 86400.0
     #: Montaje de Kubernetes Secrets para ``credencial_ref`` (``secret://<secreto>/<clave>``).
     secretos_dir: str = "/var/run/secrets/railspec"
     #: Tokens de desarrollo ``token=login:github_id`` separados por coma. Solo
@@ -101,6 +103,7 @@ class Configuracion:
             pce_api_key=env.get("RAILSPEC_PCE_API_KEY") or None,
             contexto_cache_s=float(env.get("RAILSPEC_CONTEXTO_CACHE_S") or 900),
             catalogo_ttl_s=float(env.get("RAILSPEC_CATALOGO_TTL_S") or 3600),
+            cache_nodos_s=float(env.get("RAILSPEC_CACHE_NODOS_S") or 86400),
             secretos_dir=env.get("RAILSPEC_SECRETOS_DIR") or "/var/run/secrets/railspec",
             tokens_desarrollo=_tokens(env.get("RAILSPEC_TOKENS_DESARROLLO", "")),
             oidc_audiencia=env.get("RAILSPEC_OIDC_AUDIENCIA", "railspec").strip() or None,

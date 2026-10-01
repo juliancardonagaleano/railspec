@@ -75,6 +75,7 @@ def test_render_proveedores_en_configmap():
     assert mapa["RAILSPEC_FOUNDRY_DESPLIEGUES"].startswith("opus=claude-opus-5-5:DataZoneStandard")
     assert mapa["RAILSPEC_FOUNDRY_PROYECTO"] == ""
     assert mapa["RAILSPEC_CATALOGO_TTL_S"] == "3600"
+    assert mapa["RAILSPEC_CACHE_NODOS_S"] == "86400"
     assert mapa["RAILSPEC_CONTEXTO_CACHE_S"] == "900"
 
 

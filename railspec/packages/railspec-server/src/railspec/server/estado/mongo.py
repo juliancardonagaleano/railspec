@@ -97,6 +97,7 @@ class AlmacenMongo:
         db.auditoria.create_index([("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING)])
         db.entradas.create_index([("_clave", ASCENDING), ("_recibida", ASCENDING)])
         db.catalogo.create_index([("org", ASCENDING), ("proveedor", ASCENDING)])
+        db.cache_nodos.create_index("_expira", expireAfterSeconds=0)
 
     # --- StateStore: estado ----------------------------------------------------------
 
@@ -386,6 +387,24 @@ class AlmacenMongo:
                 p = ProveedorContexto.model_validate(_limpio(d))
                 elegidos[(p.rol.value, p.nombre)] = p
         return [elegidos[k] for k in sorted(elegidos)]
+
+    # --- Caché de nodos de modelo (por organización, con caducidad) ----------------------------
+
+    def nodo_en_cache(self, org: str, clave: str, ahora: datetime) -> dict[str, Any] | None:
+        doc = self.db.cache_nodos.find_one({"_id": f"{org}/{clave}", "org": org})
+        # El índice TTL de Mongo borra con retraso: la caducidad se comprueba también al leer.
+        if doc is None or _aware(doc["_expira"]) <= ahora:
+            return None
+        return doc["respuesta"]
+
+    def guardar_nodo_en_cache(
+        self, org: str, clave: str, respuesta: dict[str, Any], expira: datetime
+    ) -> None:
+        self.db.cache_nodos.replace_one(
+            {"_id": f"{org}/{clave}"},
+            {"_id": f"{org}/{clave}", "org": org, "_expira": expira, "respuesta": respuesta},
+            upsert=True,
+        )
 
     # --- Catálogo de modelos (leído por API del proveedor, por organización) ------------------
 

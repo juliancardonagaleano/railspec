@@ -38,6 +38,7 @@ from railspec.contracts.eventos import (
 )
 from railspec.contracts.repositorio import EventoAuditoria, PerfilConfig, RegistroAuditoria, TelemetriaNodo
 
+from ..proveedores.base import Uso
 from ..proveedores.seleccion import Proveedores
 from .gate import Llamada, LlamadaFallida, requisitos_del_gate
 from .gobernanza import GobernanzaNoConfigurada, ProveedorGobernanza
@@ -255,6 +256,8 @@ class Nucleo:
             )
         for ll in llamadas:
             r = ll.respuesta
+            # Un acierto de caché no salió hacia el proveedor: telemetría a cero, sin auditoría ni consumo.
+            u = Uso() if ll.desde_cache else r.uso
             ahora = self.reloj()
             self.almacen.registrar_telemetria(
                 TelemetriaNodo(
@@ -268,42 +271,43 @@ class Nucleo:
                     tier=estado.riesgo,
                     proveedor=r.proveedor,
                     modelo=r.modelo,
-                    tokens_entrada=r.uso.tokens_entrada,
-                    tokens_salida=r.uso.tokens_salida,
-                    tokens_cache_lectura=r.uso.tokens_cache_lectura,
-                    tokens_cache_escritura=r.uso.tokens_cache_escritura,
-                    costo_usd=r.uso.costo_usd,
-                    duracion_ms=r.uso.duracion_ms,
+                    tokens_entrada=u.tokens_entrada,
+                    tokens_salida=u.tokens_salida,
+                    tokens_cache_lectura=u.tokens_cache_lectura,
+                    tokens_cache_escritura=u.tokens_cache_escritura,
+                    costo_usd=u.costo_usd,
+                    duracion_ms=u.duracion_ms,
                     veredicto=veredicto,
                     en=ahora,
                 )
             )
-            self.almacen.registrar_auditoria(
-                RegistroAuditoria(
-                    id=self.nuevo_id(),
-                    alcance=alcance_ws,
-                    evento=EventoAuditoria.llamada_modelo,
-                    actor=ACTOR_SERVIDOR,
-                    en=ahora,
-                    repositorio=repo,
-                    unidad=estado.unidad.unidad,
-                    nivel_codigo=nivel,
-                    proveedor=r.proveedor,
-                    modelo=r.modelo,
-                    region=r.region or "desconocida",
-                    sha256_enviado=ll.sha256_enviado,
-                    detalle={
-                        "nodo": ll.nodo[:120],
-                        "rol": ll.rol,
-                        "resultado": "ok",
-                        "tokens_entrada": r.uso.tokens_entrada,
-                        "tokens_salida": r.uso.tokens_salida,
-                        "tokens_cache_lectura": r.uso.tokens_cache_lectura,
-                        "tokens_cache_escritura": r.uso.tokens_cache_escritura,
-                        **({"despliegue": ll.despliegue} if ll.despliegue else {}),
-                    },
+            if not ll.desde_cache:
+                self.almacen.registrar_auditoria(
+                    RegistroAuditoria(
+                        id=self.nuevo_id(),
+                        alcance=alcance_ws,
+                        evento=EventoAuditoria.llamada_modelo,
+                        actor=ACTOR_SERVIDOR,
+                        en=ahora,
+                        repositorio=repo,
+                        unidad=estado.unidad.unidad,
+                        nivel_codigo=nivel,
+                        proveedor=r.proveedor,
+                        modelo=r.modelo,
+                        region=r.region or "desconocida",
+                        sha256_enviado=ll.sha256_enviado,
+                        detalle={
+                            "nodo": ll.nodo[:120],
+                            "rol": ll.rol,
+                            "resultado": "ok",
+                            "tokens_entrada": u.tokens_entrada,
+                            "tokens_salida": u.tokens_salida,
+                            "tokens_cache_lectura": u.tokens_cache_lectura,
+                            "tokens_cache_escritura": u.tokens_cache_escritura,
+                            **({"despliegue": ll.despliegue} if ll.despliegue else {}),
+                        },
+                    )
                 )
-            )
             ejecuciones.append(
                 EjecucionModelo(
                     fase=fase,
@@ -316,9 +320,9 @@ class Nucleo:
                 )
             )
             consumo = Consumo(
-                tokens=consumo.tokens + r.uso.tokens,
-                segundos=consumo.segundos + r.uso.duracion_ms // 1000,
-                costo_usd=round(consumo.costo_usd + r.uso.costo_usd, 6),
+                tokens=consumo.tokens + u.tokens,
+                segundos=consumo.segundos + u.duracion_ms // 1000,
+                costo_usd=round(consumo.costo_usd + u.costo_usd, 6),
             )
         return {"modelo_ejecucion": ejecuciones, "consumo": consumo}
 
