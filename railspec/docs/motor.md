@@ -41,7 +41,12 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   de código no los cuenta como archivos fuera del plan.
 - El gate de código revisa primero archivos fuera del plan y la validación
   fallida. Con `railspec-graph` configurado, suma a los críticos el impacto
-  aguas arriba de la superposición de la unidad (`impacto_superposicion`).
+  de la superposición de la unidad (`impacto`: tocados, afectados aguas
+  arriba, procesos y riesgo) y cuántos símbolos tiene enlazados cada `CA-NN`
+  (ver `grafo.md`). El grafo informa, no genera hallazgos deterministas.
+- `unit.report` ingiere el snapshot en el grafo con la política del vínculo y
+  enlaza los criterios de las tareas completadas; `unit.integrate` descarta
+  la superposición de la unidad en cada repositorio.
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
   siguiente gate.

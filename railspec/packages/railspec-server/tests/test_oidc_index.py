@@ -6,15 +6,19 @@ import asyncio
 import contextlib
 import hashlib
 import time
+import uuid
+from datetime import UTC, datetime
 
 import httpx
 import jwt
 import pytest
-from apoyo_motor import ORG, REPO, WS, vinculo
+from apoyo_motor import JULIAN, ORG, REPO, WS, vinculo
 from cryptography.hazmat.primitives.asymmetric import rsa
+from railspec.contracts import tools
 from railspec.contracts.comun import AlcanceRepositorio, Canal, NivelCodigo, TipoActor
+from railspec.contracts.repositorio import AsignacionRol, Auditoria, Rol, SujetoUsuario
 from railspec.contracts.snapshot import DeltaIndice, MotorIndice, Simbolo, TipoSimbolo, id_simbolo
-from railspec.graph import AccesoGrafo, MotorMemoria
+from railspec.graph import AccesoGrafo, AlmacenGrafo, MotorMemoria
 from railspec.server.api.identidad import (
     EMISOR_ACTIONS,
     IdentidadCompuesta,
@@ -146,11 +150,11 @@ def lote(i: int, n: int, *simbolos: Simbolo, commit=COMMIT_1, anterior=None, ram
 
 
 @contextlib.asynccontextmanager
-async def servidor():
+async def servidor(*configuracion):
     motor_grafo = MotorMemoria()
     config = Configuracion.desde_entorno({"RAILSPEC_TOKENS_DESARROLLO": "tk-julian=juliancardonagaleano:1"})
     motor, app = ensamblar(config, motor_grafo=motor_grafo, verificador_oidc=verificador())
-    motor.n.almacen.guardar_configuracion([vinculo(NivelCodigo.restringido)])
+    motor.n.almacen.guardar_configuracion([vinculo(NivelCodigo.restringido), *configuracion])
     async with app.router.lifespan_context(app):
         transporte = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transporte, base_url="http://railspec") as c:
@@ -284,3 +288,60 @@ def test_ensamblado_declara_las_sondas_de_sus_bases():
     config = Configuracion.desde_entorno({"RAILSPEC_MONGO_URI": "mongodb://x"})
     assert set(_sondas(config, object(), MotorMemoria())) == {"mongo", "falkordb"}
     assert _sondas(Configuracion.desde_entorno({}), object(), None) == {}
+
+
+@pytest.mark.skipif(not hasattr(tools, "ConsultaImpact"), reason="el contrato instalado no trae 1.4")
+def test_graph_query_impact_y_trace_por_http():
+    unidad = "0001-emitir-pdf"
+    ahora = datetime(2026, 9, 30, tzinfo=UTC)
+    lector = AsignacionRol(
+        version=1,
+        auditoria=Auditoria(creado_por=JULIAN, creado_en=ahora, actualizado_por=JULIAN, actualizado_en=ahora),
+        id=uuid.uuid4(),
+        org=ORG,
+        workspace=WS,
+        rol=Rol.lector,
+        sujeto=SujetoUsuario(github_id=1),
+    )
+
+    async def caso():
+        async with servidor(lector) as (c, acceso):
+            r = await c.post("/v1/tools/graph.index", json=lote(1, 1, simbolo("firmar")), headers=_oidc())
+            assert r.status_code == 200, r.text
+            # La superposición y la traza las deja unit.report (ingerir); aquí se siembran directo.
+            grafo = AlmacenGrafo(acceso)
+            cambiado = simbolo("firmar").model_copy(update={"sha256": "f" * 64})
+            delta = DeltaIndice(motor=MotorIndice(version="0.11.0"), simbolos_upsert=[cambiado])
+            grafo.aplicar_delta(ALCANCE, COMMIT_1, delta, unidad)
+            grafo.enlazar_criterios(ALCANCE, unidad, ["CA-01"], [cambiado.id])
+
+            humano = {"Authorization": "Bearer tk-julian"}
+            base = {"alcance": {"org": ORG, "workspace": WS}}
+
+            async def q(consulta, **extra):
+                r = await c.post(
+                    "/v1/tools/graph.query", json={**base, **extra, "consulta": consulta}, headers=humano
+                )
+                assert r.status_code == 200, r.text
+                return r.json()["resultados"]
+
+            impacto = await q({"verbo": "impact"}, unidad=unidad)
+            assert [(x["ref"]["nombre"], x["distancia"], x["riesgo"]) for x in impacto] == [
+                ("firmar", 0, "bajo")
+            ]
+
+            por_criterio = await q({"verbo": "trace", "criterio": "CA-01"}, unidad=unidad)
+            assert [x["ref"]["simbolo"] for x in por_criterio] == [cambiado.id]
+
+            por_simbolo = await q({"verbo": "trace", "simbolo": cambiado.id})
+            assert [x["ref"] for x in por_simbolo] == [
+                {"tipo": "criterio", "workspace": WS, "unidad": unidad, "criterio": "CA-01"}
+            ]
+
+            # impact sin unidad lo rechaza el contrato.
+            r = await c.post(
+                "/v1/tools/graph.query", json={**base, "consulta": {"verbo": "impact"}}, headers=humano
+            )
+            assert r.status_code in (400, 422)
+
+    asyncio.run(caso())

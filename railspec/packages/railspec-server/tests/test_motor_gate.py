@@ -381,6 +381,60 @@ def test_impacto_de_grafo_llega_al_panel_de_codigo():
     correr(caso())
 
 
+def test_grafo_real_traza_criterios_informa_al_gate_y_se_descarta_al_integrar():
+    """Fase 5 con railspec-graph de verdad (motor en memoria): el snapshot de
+    implementar crea la superposición y enlaza los CA-NN de sus tareas; el
+    panel de código recibe impacto y trazas; integrar descarta la superposición."""
+
+    from railspec.contracts.comun import AlcanceRepositorio, NivelCodigo
+    from railspec.contracts.snapshot import DeltaIndice, ModoDelta, MotorIndice, Simbolo
+    from railspec.contracts.tools import UnitIntegrateEntrada
+    from railspec.graph import AccesoGrafo, AlmacenGrafo, MotorMemoria, Traza
+
+    firma = Simbolo(
+        id="a" * 64,
+        nombre="pdf.firmar",
+        tipo="funcion",
+        ruta="src/pdf.py",
+        linea_inicio=1,
+        linea_fin=9,
+        sha256="b" * 64,
+    )
+
+    def implementar(orden):
+        r = reporte(orden)
+        delta = DeltaIndice(motor=MotorIndice(version="0.11.0"), simbolos_upsert=[firma])
+        snap = r.snapshot.model_copy(update={"modo_delta": ModoDelta.completo, "delta_indice": delta})
+        return r.model_copy(update={"snapshot": snap})
+
+    async def caso():
+        motor, proveedor = construir(nivel=NivelCodigo.restringido)
+        acceso = AccesoGrafo(MotorMemoria())
+        motor.n.grafo = AlmacenGrafo(acceso)
+        alcance = await iniciar(motor)
+        await hasta(
+            motor, alcance, lambda av: av.tipo == "cerrada", textos={("implementar", None): implementar}
+        )
+        repo = AlcanceRepositorio(
+            org=alcance.org, workspace=alcance.workspace, repositorio="certificados-api"
+        )
+        assert motor.n.grafo.trazas(repo, alcance.unidad) == [
+            Traza(alcance.unidad, "CA-01", firma.id),
+            Traza(alcance.unidad, "CA-02", firma.id),
+        ]
+        codigo = [p.contenido for p in proveedor.peticiones if "Trazas CA-NN" in p.contenido]
+        assert codigo and "CA-01: 1 símbolos" in codigo[0] and "Impacto en el grafo" in codigo[0]
+        assert acceso.superposiciones(repo) == [alcance.unidad]
+
+        await motor.integrate(
+            UnitIntegrateEntrada(unidad=alcance, especificacion_viva="specs/pdf.md"), JULIAN
+        )
+        assert acceso.superposiciones(repo) == []
+        assert motor.n.grafo.trazas(repo, alcance.unidad)
+
+    correr(caso())
+
+
 def test_plan_invalido_no_se_acepta():
     async def caso():
         motor, _ = construir()
