@@ -117,6 +117,28 @@ describe("contrato 1.4 de graph.query en la SPA", () => {
     expect(cuerpos).toEqual([{ alcance: { org: "acme", workspace: "cert" }, unidad: "0001-firma", consulta: { verbo: "trace", criterio: "CA-07" } }]);
   });
 
+  it("trazabilidad: un criterio sin redacción (texto null, solo aparece en tareas) se pinta con un aviso", async () => {
+    const tarea = { id: "T-01", descripcion: "Verificar la cadena", grupo: null, completada: false, orden: null };
+    const datos: Trazabilidad = {
+      criterios: [
+        { id: "CA-07", texto: "Firma el certificado", tareas: [], archivos: [], simbolos: [], hallazgos: [] },
+        { id: "CA-09", texto: null, tareas: [tarea], archivos: [], simbolos: [], hallazgos: [] },
+      ],
+      sin_criterio: { tareas: [] },
+    };
+    montar(() => <PestanaTrazabilidad datos={datos} org="acme" ws="cert" unidad="0001-firma" />);
+    const filas = await screen.findAllByRole("row");
+    const huerfano = filas.find((f) => within(f).queryByText("CA-09"));
+    expect(huerfano).toBeDefined();
+    expect(within(huerfano as HTMLElement).getByText("Sin redacción: solo aparece en tareas.")).toBeInTheDocument();
+    expect(within(huerfano as HTMLElement).getByText(/Verificar la cadena/)).toBeInTheDocument();
+    expect(within(huerfano as HTMLElement).queryByText("null")).toBeNull();
+    // El criterio redactado conserva su texto y no lleva el aviso.
+    const redactado = filas.find((f) => within(f).queryByText("CA-07")) as HTMLElement;
+    expect(within(redactado).getByText("Firma el certificado")).toBeInTheDocument();
+    expect(within(redactado).queryByText(/Sin redacción/)).toBeNull();
+  });
+
   it("símbolo: trace por símbolo envía solo el símbolo (sin criterio ni unidad) y enlaza las unidades de los RefCriterio", async () => {
     const cuerpos = servidor(() =>
       json(200, salida([{ ref: { tipo: "criterio", workspace: "cert", unidad: "0002-revocar", criterio: "CA-03" } }])),

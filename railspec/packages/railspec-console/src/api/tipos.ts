@@ -322,7 +322,8 @@ export interface SimboloTraza {
 
 export interface CriterioTraza {
   id: string;
-  texto: string;
+  /** `null` cuando el criterio CA-NN solo aparece en tareas y ninguna orden lo redacta. */
+  texto: string | null;
   tareas: TareaTraza[];
   archivos: { repositorio: string; ruta: string; estado: string }[];
   simbolos: SimboloTraza[];
