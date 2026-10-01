@@ -75,7 +75,7 @@ function FormularioProveedor({
         <Campo
           etiqueta="Credencial (referencia)"
           htmlFor="prov-cred"
-          ayuda="Solo la referencia al secreto, con forma secret://secreto/clave. Nunca pegues el valor."
+          ayuda="Solo la referencia al secreto, con forma secret://<organización>--nombre/clave (el secreto lleva el prefijo de la organización). Solo un org-admin cambia la URL y la referencia; sin permiso, déjala vacía para conservar la actual. Nunca pegues el valor."
         >
           <Input
             id="prov-cred"
@@ -179,7 +179,7 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
                     <TableCell>{p.rol}</TableCell>
                     <TableCell className="font-medium">{p.nombre}</TableCell>
                     <TableCell className="max-w-56 truncate text-xs">{p.url}</TableCell>
-                    <TableCell className="font-mono text-xs">{p.credencial_ref ?? "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{p.credencial_ref ?? (p.credencial_configurada ? "configurada" : "—")}</TableCell>
                     <TableCell>
                       <Badge tono={p.politica_fallo === "estricta" ? "peligro" : "neutro"}>{p.politica_fallo}</Badge>
                     </TableCell>
