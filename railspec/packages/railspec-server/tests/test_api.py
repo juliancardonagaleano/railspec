@@ -334,6 +334,49 @@ def test_mcp_lista_y_llama():
     asyncio.run(caso())
 
 
+def test_mcp_con_token_de_github_resuelve_roles_por_equipo():
+    import httpx2
+    from apoyo_github import APP, equipos_fijos, github_simulado, sin_permiso
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+    from railspec.server.api.identidad import IdentidadCompuesta
+
+    async def llamar(app, token: str):
+        http = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app),
+            base_url="http://railspec",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        async with http, streamable_http_client("http://railspec/mcp/", http_client=http) as flujos:
+            async with ClientSession(flujos[0], flujos[1]) as sesion:
+                await sesion.initialize()
+                return await sesion.call_tool("unit_start", cuerpo_start())
+
+    async def caso():
+        motor, _ = construir()
+        almacen = motor.n.almacen
+        almacen.guardar_configuracion([_asignacion_equipo(4242, Rol.desarrollador, WS)])
+        cliente_gh, _ = github_simulado(
+            {
+                "t-luis": ("luis", 9, equipos_fijos(4242)),
+                "t-ana": ("ana", 7, equipos_fijos(31337)),
+                "t-pablo": ("pablo", 11, sin_permiso),
+            }
+        )
+        registro = Registro.del_motor(motor, AutorizadorRoles(almacen))
+        app = aplicacion(registro, IdentidadCompuesta(IdentidadGithub(cliente_gh, app=APP), None))
+        async with app.router.lifespan_context(app):
+            r = await llamar(app, "t-luis")
+            assert not r.is_error, r
+            assert r.structured_content["estado"]["dueno"]["login"] == "luis"
+            # Sin el equipo (otro equipo, o sin poder leer los suyos) no hay rol.
+            for token in ("t-ana", "t-pablo"):
+                r = await llamar(app, token)
+                assert r.is_error and r.structured_content["codigo"] == "fuera-de-alcance", token
+
+    asyncio.run(caso())
+
+
 def test_identidad():
     assert token_de_cabecera("Bearer abc") == "abc"
     assert token_de_cabecera("Basic abc") is None and token_de_cabecera(None) is None
