@@ -201,8 +201,8 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         limite: int = 25,
     ) -> dict[str, Any]:
         """Consulta el grafo de código del workspace. `consulta` lleva `verbo`
-        (resolve, search, traverse, related) y sus campos. Devuelve referencias, nunca código:
-        resuélvelas leyendo el clon."""
+        (resolve, search, traverse, related, impact, trace) y sus campos. Devuelve referencias,
+        nunca código: resuélvelas leyendo el clon."""
         return await proxy().consultar_grafo(consulta, repositorios, unidad, limite)
 
     @_errores

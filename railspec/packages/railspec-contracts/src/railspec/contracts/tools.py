@@ -861,7 +861,7 @@ TOOLS: dict[str, ToolDef] = {
         ),
         ToolDef(
             nombre="graph.query",
-            descripcion="Consulta el grafo de código (resolve, search, traverse, related).",
+            descripcion="Consulta el grafo de código (resolve, search, traverse, related, impact, trace).",
             efecto=_L,
             rol_minimo=Rol.lector,
             superficies=frozenset({_M, _H, _C}),

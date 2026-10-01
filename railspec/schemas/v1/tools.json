@@ -685,7 +685,7 @@
     },
     {
       "codigo_interno": [],
-      "description": "Consulta el grafo de código (resolve, search, traverse, related).",
+      "description": "Consulta el grafo de código (resolve, search, traverse, related, impact, trace).",
       "efecto": "lectura",
       "inputSchema": {
         "$defs": {
