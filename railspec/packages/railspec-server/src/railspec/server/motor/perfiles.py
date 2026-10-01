@@ -1,10 +1,24 @@
 """Perfiles de esfuerzo por defecto y resolución de rol → modelo.
 
 La consola edita ``PerfilConfig`` por organización o workspace; si no hay
-ninguno guardado, rigen estos. Los modelos son despliegues de Claude en
-Foundry (primario) y el mismo id en Anthropic directo; ``effort`` se pasa en
-``output_config``. El ``riesgo`` de la unidad fija el tope del gate (críticos,
-iteraciones, verificación adversarial) dentro del perfil.
+ninguno guardado, rigen estos. Los modelos son ids del catálogo (``claude-opus-5-5``);
+la selección los resuelve al despliegue de Foundry que corresponda. ``effort``
+se pasa en ``output_config``. El ``riesgo`` de la unidad fija el tope del gate
+(críticos, iteraciones, verificación adversarial) dentro del perfil.
+
+Elección de modelo por etapa del DAG y por nivel del repositorio: además del
+rol a secas, ``PerfilConfig.roles`` admite claves más específicas, y gana la
+más específica que exista:
+
+1. ``<rol>@<gate>:<nivel>``  (``critico-profundo@codigo:restringido``)
+2. ``<rol>@<gate>``          (``critico-profundo@plan``)
+3. ``<rol>:<nivel>``         (``refutador:interno``)
+4. ``<rol>``
+
+``<gate>`` es ``spec``, ``plan``, ``tasks`` o ``codigo``; ``<nivel>``,
+``restringido``, ``interno`` o ``abierto``. Así un workspace con Claude solo en
+despliegue Global puede mandar ``restringido`` a un modelo en zona de datos
+sin tocar el resto del perfil.
 """
 
 from __future__ import annotations
@@ -16,6 +30,8 @@ from railspec.contracts.comun import (
     AlcanceWorkspace,
     Canal,
     Effort,
+    GateFase,
+    NivelCodigo,
     Perfil,
     Proveedor,
     Riesgo,
@@ -105,10 +121,29 @@ def perfil_por_defecto(alcance: AlcanceWorkspace, nombre: Perfil) -> PerfilConfi
     )
 
 
-def requisito(perfil: PerfilConfig, rol: str) -> RequisitoRol:
-    """El rol del perfil guardado; si la consola no lo definió, el del perfil por defecto."""
+def claves_rol(rol: str, fase: GateFase | None = None, nivel: NivelCodigo | None = None) -> list[str]:
+    """Claves de ``PerfilConfig.roles`` que aplican, de la más específica a la menos."""
 
-    return perfil.roles.get(rol) or _ROLES_POR_PERFIL[perfil.nombre][rol]
+    claves = []
+    if fase is not None and nivel is not None:
+        claves.append(f"{rol}@{fase.value}:{nivel.value}")
+    if fase is not None:
+        claves.append(f"{rol}@{fase.value}")
+    if nivel is not None:
+        claves.append(f"{rol}:{nivel.value}")
+    claves.append(rol)
+    return claves
+
+
+def requisito(
+    perfil: PerfilConfig, rol: str, fase: GateFase | None = None, nivel: NivelCodigo | None = None
+) -> RequisitoRol:
+    """El requisito más específico del perfil guardado; si no hay, el del perfil por defecto."""
+
+    for clave in claves_rol(rol, fase, nivel):
+        if clave in perfil.roles:
+            return perfil.roles[clave]
+    return _ROLES_POR_PERFIL[perfil.nombre][rol]
 
 
 def tope_gate(perfil: PerfilConfig, riesgo: Riesgo) -> TopeGate:

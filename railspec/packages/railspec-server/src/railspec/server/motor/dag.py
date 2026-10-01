@@ -422,11 +422,15 @@ class Gate(Nodo):
                 tope=tope,
                 nivel=nivel,
                 hallazgos_previos=previos,
+                org=self.alcance.org,
+                zona=self.n.zona(estado),
             )
             panel = await evaluar_panel(entrada, self.n.proveedores, datos.siguiente_hallazgo)
-            if panel.llamadas:
+            if panel.llamadas or panel.fallidas:
                 self.n.escribir(
-                    self.alcance, lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas), anunciar=False
+                    self.alcance,
+                    lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas, fallidas=panel.fallidas),
+                    anunciar=False,
                 )
             if panel.error:
                 await self.escalar(

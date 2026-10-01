@@ -60,6 +60,33 @@ def test_render_falla_sin_obligatorias():
         renderizar.renderizar({**MINIMO, "RAILSPEC_REPLICAS": "dos"})
 
 
+def test_render_proveedores_en_configmap():
+    yaml = pytest.importorskip("yaml")
+    texto = renderizar.renderizar(
+        {
+            **MINIMO,
+            "RAILSPEC_FOUNDRY_REGION": "eastus2",
+            "RAILSPEC_FOUNDRY_ZONA_DATOS": "us",
+            "RAILSPEC_FOUNDRY_DESPLIEGUES": "opus=claude-opus-5-5:DataZoneStandard,gpt=gpt-5:Standard",
+        }
+    )
+    mapa = next(d for d in yaml.safe_load_all(texto) if d and d["kind"] == "ConfigMap")["data"]
+    assert mapa["RAILSPEC_FOUNDRY_REGION"] == "eastus2"
+    assert mapa["RAILSPEC_FOUNDRY_DESPLIEGUES"].startswith("opus=claude-opus-5-5:DataZoneStandard")
+    assert mapa["RAILSPEC_FOUNDRY_PROYECTO"] == ""
+    assert mapa["RAILSPEC_CATALOGO_TTL_S"] == "3600"
+    assert mapa["RAILSPEC_CONTEXTO_CACHE_S"] == "900"
+
+
+def test_render_rechaza_despliegues_json_y_ttl_no_numerico():
+    with pytest.raises(renderizar.ErrorRender, match="forma despliegue=modelo"):
+        renderizar.renderizar(
+            {**MINIMO, "RAILSPEC_FOUNDRY_DESPLIEGUES": '[{"despliegue": "o", "modelo": "claude-opus-5-5"}]'}
+        )
+    with pytest.raises(renderizar.ErrorRender, match="CATALOGO_TTL_S"):
+        renderizar.renderizar({**MINIMO, "RAILSPEC_CATALOGO_TTL_S": "una hora"})
+
+
 def test_render_rechaza_variable_desconocida(tmp_path):
     (tmp_path / "x.yaml").write_text("a: ${RAILSPEC_NO_EXISTE}\n")
     with pytest.raises(renderizar.ErrorRender, match="desconocida"):

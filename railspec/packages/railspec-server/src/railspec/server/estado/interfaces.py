@@ -9,17 +9,26 @@ igual que en los contratos: no hay consulta sin workspace.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import TypeAdapter
-from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil
+from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil, Proveedor
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.reporte import ReporteOrden
-from railspec.contracts.repositorio import AsignacionRol, PerfilConfig, PresupuestoConfig, VinculoRepositorio
+from railspec.contracts.repositorio import (
+    AsignacionRol,
+    ModeloCatalogo,
+    PerfilConfig,
+    PresupuestoConfig,
+    ProveedorContexto,
+    VinculoRepositorio,
+    Workspace,
+)
 from railspec.contracts.snapshot import Snapshot
 from railspec.contracts.tools import UnitListEntrada
 
@@ -90,3 +99,13 @@ class AlmacenMotor(Protocol):
     def vinculo(self, alcance: AlcanceRepositorio) -> VinculoRepositorio | None: ...
 
     def asignaciones(self, org: str, github_id: int) -> list[AsignacionRol]: ...
+
+    def workspace(self, alcance: AlcanceWorkspace) -> Workspace | None: ...
+
+    def proveedores_contexto(self, alcance: AlcanceWorkspace) -> list[ProveedorContexto]:
+        """Los de la organización con los del workspace encima."""
+
+    # --- catálogo de modelos (por organización, leído por API) -----------------------------
+    def catalogo(self, org: str) -> list[ModeloCatalogo]: ...
+
+    def guardar_catalogo(self, org: str, proveedor: Proveedor, modelos: Iterable[ModeloCatalogo]) -> None: ...

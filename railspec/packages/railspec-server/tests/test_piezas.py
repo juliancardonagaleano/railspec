@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 from railspec.contracts.comun import Proveedor
 from railspec.server.config import Configuracion
-from railspec.server.motor.gate import SalidaCritico
-from railspec.server.proveedores import ErrorProveedor, PeticionModelo, Proveedores
+from railspec.server.proveedores import Proveedores
 from railspec.server.proveedores.falso import ProveedorGuionado
-from railspec.server.proveedores.maf import AdaptadorChatMAF
 
 
 def test_configuracion_desde_entorno():
@@ -36,82 +33,6 @@ def test_configuracion_desde_entorno():
         Configuracion.desde_entorno({"RAILSPEC_ANTHROPIC_HABILITADO": "1"})
     with pytest.raises(ValueError):
         Configuracion.desde_entorno({"RAILSPEC_TOKENS_DESARROLLO": "a=julian"})
-
-
-class ClienteFalso:
-    def __init__(self, respuesta=None, error=None):
-        self.llamadas = []
-        self._respuesta, self._error = respuesta, error
-
-    async def get_response(self, mensajes, options):
-        self.llamadas.append((mensajes, options))
-        if self._error:
-            raise self._error
-        return self._respuesta
-
-
-def _peticion(**extra):
-    return PeticionModelo(
-        rol="critico",
-        modelo="claude-opus-5-5",
-        sistema="Eres un crítico.",
-        contenido="spec",
-        esquema=SalidaCritico,
-        **extra,
-    )
-
-
-def test_adaptador_maf_arma_la_peticion_y_lee_el_uso():
-    respuesta = SimpleNamespace(
-        value=SalidaCritico(hallazgos=[]),
-        text="",
-        finish_reason="stop",
-        usage_details={
-            "input_token_count": 1000,
-            "output_token_count": 100,
-            "cache_read_input_token_count": 800,
-        },
-    )
-    cliente = ClienteFalso(respuesta)
-    creados = []
-    adaptador = AdaptadorChatMAF(Proveedor.foundry, lambda m: creados.append(m) or cliente, region="eastus2")
-
-    async def caso():
-        r = await adaptador.completar(_peticion())
-        await adaptador.completar(_peticion())
-        return r
-
-    r = asyncio.run(caso())
-    assert creados == ["claude-opus-5-5"]  # un cliente por modelo
-    _, opciones = cliente.llamadas[0]
-    assert opciones["instructions"][0]["cache_control"] == {"type": "ephemeral"}
-    assert opciones["response_format"] is SalidaCritico
-    assert r.valor == SalidaCritico(hallazgos=[]) and r.region == "eastus2"
-    assert r.uso.tokens_entrada == 1000 and r.uso.tokens_cache_lectura == 800 and r.uso.costo_usd > 0
-
-
-def test_adaptador_maf_convierte_fallos_en_error_proveedor():
-    def correr(cliente):
-        adaptador = AdaptadorChatMAF(Proveedor.foundry, lambda m: cliente)
-        return asyncio.run(adaptador.completar(_peticion()))
-
-    with pytest.raises(ErrorProveedor):
-        correr(ClienteFalso(error=RuntimeError("429")))
-    with pytest.raises(ErrorProveedor):
-        correr(ClienteFalso(SimpleNamespace(value=None, text="{}", finish_reason="length", usage_details={})))
-    with pytest.raises(ErrorProveedor):
-        correr(
-            ClienteFalso(
-                SimpleNamespace(value=None, text="no es json", finish_reason="stop", usage_details={})
-            )
-        )
-    # Sin value, el texto JSON se valida contra el esquema.
-    r = correr(
-        ClienteFalso(
-            SimpleNamespace(value=None, text='{"hallazgos": []}', finish_reason="stop", usage_details=None)
-        )
-    )
-    assert r.valor.hallazgos == []
 
 
 def test_anthropic_solo_para_nivel_abierto():

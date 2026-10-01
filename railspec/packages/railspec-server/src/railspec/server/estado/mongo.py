@@ -22,19 +22,22 @@ from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.database import Database
 from pymongo.errors import DuplicateKeyError
 from railspec.contracts.almacen import ConflictoVersion
-from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil
+from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil, Proveedor
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.eventos import Direccion, EventoSync
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import (
     AsignacionRol,
+    ModeloCatalogo,
     PerfilConfig,
     PresupuestoConfig,
+    ProveedorContexto,
     RegistroAuditoria,
     SujetoUsuario,
     TelemetriaNodo,
     VinculoRepositorio,
+    Workspace,
 )
 from railspec.contracts.snapshot import Snapshot
 from railspec.contracts.tools import (
@@ -93,6 +96,7 @@ class AlmacenMongo:
         db.telemetria.create_index([("org", ASCENDING), ("workspace", ASCENDING), ("_en", ASCENDING)])
         db.auditoria.create_index([("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING)])
         db.entradas.create_index([("_clave", ASCENDING), ("_recibida", ASCENDING)])
+        db.catalogo.create_index([("org", ASCENDING), ("proveedor", ASCENDING)])
 
     # --- StateStore: estado ----------------------------------------------------------
 
@@ -368,6 +372,39 @@ class AlmacenMongo:
         cursor = self.db.roles.find({"org": org, "sujeto.tipo": "usuario", "sujeto.github_id": github_id})
         return [AsignacionRol.model_validate(_limpio(d)) for d in cursor]
 
+    def workspace(self, alcance: AlcanceWorkspace) -> Workspace | None:
+        doc = self.db.workspaces.find_one(_filtro_ws(alcance.org, alcance.workspace, "alcance"))
+        return Workspace.model_validate(_limpio(doc)) if doc else None
+
+    def proveedores_contexto(self, alcance: AlcanceWorkspace) -> list[ProveedorContexto]:
+        """Los de la organización con los del workspace encima (mismo rol y nombre: gana el workspace)."""
+
+        elegidos: dict[tuple[str, str], ProveedorContexto] = {}
+        for workspace in (None, alcance.workspace):
+            cursor = self.db.proveedores_contexto.find({"org": alcance.org, "workspace": workspace})
+            for d in cursor.sort("nombre", 1):
+                p = ProveedorContexto.model_validate(_limpio(d))
+                elegidos[(p.rol.value, p.nombre)] = p
+        return [elegidos[k] for k in sorted(elegidos)]
+
+    # --- Catálogo de modelos (leído por API del proveedor, por organización) ------------------
+
+    def catalogo(self, org: str) -> list[ModeloCatalogo]:
+        cursor = self.db.catalogo.find({"org": org}).sort(
+            [("proveedor", 1), ("modelo", 1), ("despliegue", 1)]
+        )
+        return [ModeloCatalogo.model_validate(_limpio(d)) for d in cursor]
+
+    def guardar_catalogo(self, org: str, proveedor: Proveedor, modelos: Iterable[ModeloCatalogo]) -> None:
+        """Reemplaza el catálogo de un proveedor en la organización: lo que ya no lista, sale."""
+
+        docs = [_doc(m) for m in modelos]
+        if any(d["org"] != org or d["proveedor"] != proveedor.value for d in docs):
+            raise ValueError("catálogo de otra organización o proveedor")
+        self.db.catalogo.delete_many({"org": org, "proveedor": proveedor.value})
+        if docs:
+            self.db.catalogo.insert_many(docs)
+
     # --- Escritura de configuración (consola y pruebas) ----------------------------------------
 
     def guardar_configuracion(self, entidades: Iterable[Any]) -> None:
@@ -388,6 +425,18 @@ class AlmacenMongo:
                     {"_id": f"{a.org}/{a.workspace}/{a.repositorio}"},
                     {"_id": f"{a.org}/{a.workspace}/{a.repositorio}", **_doc(e)},
                     upsert=True,
+                )
+            elif isinstance(e, Workspace):
+                a = e.alcance
+                self.db.workspaces.replace_one(
+                    {"_id": f"{a.org}/{a.workspace}"},
+                    {"_id": f"{a.org}/{a.workspace}", **_doc(e)},
+                    upsert=True,
+                )
+            elif isinstance(e, ProveedorContexto):
+                clave = f"{e.org}/{e.workspace or '*'}/{e.rol.value}/{e.nombre}"
+                self.db.proveedores_contexto.replace_one(
+                    {"_id": clave}, {"_id": clave, **_doc(e)}, upsert=True
                 )
             elif isinstance(e, AsignacionRol):
                 if not isinstance(e.sujeto, SujetoUsuario):

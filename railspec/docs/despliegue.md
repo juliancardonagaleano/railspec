@@ -49,12 +49,15 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_MONGO_URI` | sí | Estado y checkpoints. Sin ella el contenedor no arranca: la imagen no trae el Mongo simulado de desarrollo. |
    | `RAILSPEC_FALKORDB_URL` | no | Grafo central; sin él no hay `graph.query` ni impacto en el gate de código. |
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
-   | `RAILSPEC_PCE_API_KEY` | no | Gobernanza. |
+   | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
 
 ## Variables de los manifiestos
 
-`python3 railspec/deploy/renderizar.py --variables` imprime esta tabla.
+`python3 railspec/deploy/renderizar.py --variables` imprime esta tabla. El
+significado de las variables de proveedores, catálogo y contexto, y las que
+no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
+`RAILSPEC_SECRETOS_DIR`), está en [proveedores.md](proveedores.md).
 
 | Variable | Defecto | Uso |
 | --- | --- | --- |
@@ -69,7 +72,13 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
 | `RAILSPEC_MEMORIA` | `1Gi` | Memoria solicitada y límite. |
 | `RAILSPEC_MONGO_DB` | `railspec` | Base de datos. |
 | `RAILSPEC_FOUNDRY_ENDPOINT` | vacío | Recurso de Azure AI Foundry. |
+| `RAILSPEC_FOUNDRY_REGION` | vacío | Región del recurso (`eastus2`). Sin ella, `restringido` e `interno` no tienen modelo en zona. |
+| `RAILSPEC_FOUNDRY_ZONA_DATOS` | vacío | Zona de datos del recurso (`us`, `eu`), la de los SKU DataZone. |
+| `RAILSPEC_FOUNDRY_PROYECTO` | vacío | Endpoint del proyecto de Foundry para leer los despliegues por API. |
+| `RAILSPEC_FOUNDRY_DESPLIEGUES` | vacío | Despliegues declarados en la forma compacta `despliegue=modelo[:SKU],…`. La lista JSON no cabe en el ConfigMap: el renderizador la rechaza. |
+| `RAILSPEC_CATALOGO_TTL_S` | `3600` | Vigencia del catálogo de modelos, en segundos. |
 | `RAILSPEC_PCE_URL` | vacío | Gobernanza por MCP; sin ella todo gate escala con `sin-gobernanza`. |
+| `RAILSPEC_CONTEXTO_CACHE_S` | `900` | Caché de consultas a las herramientas de contexto, en segundos; `0` la desactiva. |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | Anthropic directo. |
 | `RAILSPEC_AZURE_CLIENT_ID` | vacío | Identidad administrada para Workload Identity (Foundry por Entra ID). Activa la etiqueta del pod. |
 | `RAILSPEC_OIDC_AUDIENCIA` | `railspec` | Audiencia del token OIDC de CI; debe coincidir con la del workflow de reindexado. Vacía desactiva `graph.index`. |
