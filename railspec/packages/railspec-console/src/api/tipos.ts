@@ -677,7 +677,9 @@ export interface ProveedorContexto {
   rol: RolContexto;
   nombre: string;
   url: string;
+  /** Solo la reciben org-admin y plataforma; el resto ve `credencial_configurada`. */
   credencial_ref?: string | null;
+  credencial_configurada?: boolean;
   politica_fallo: "estricta" | "blanda";
   fases?: Fase[];
   presupuesto_tokens?: number | null;

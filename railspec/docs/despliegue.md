@@ -107,7 +107,9 @@ no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
 | `RAILSPEC_CATALOGO_TTL_S` | `3600` | Vigencia del catálogo de modelos, en segundos. |
 | `RAILSPEC_CACHE_NODOS_S` | `86400` | Caché de nodos de modelo por hash de entradas, en segundos; `0` la desactiva. |
 | `RAILSPEC_PCE_URL` | vacío | Gobernanza por MCP; sin ella todo gate escala con `sin-gobernanza`. |
+| `RAILSPEC_PROVEEDORES_HOSTS` | vacío | Hosts permitidos (coma o espacio; `*.dominio` admite subdominios) para los proveedores de contexto que configura una organización; se suma el host de `RAILSPEC_PCE_URL`. **Vacía, ninguna organización configura proveedores.** Los secretos de `credencial_ref` se llaman `<org>--<nombre>` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
 | `RAILSPEC_CONTEXTO_CACHE_S` | `900` | Caché de consultas a las herramientas de contexto, en segundos; `0` la desactiva. |
+| `RAILSPEC_VINCULOS_OWNERS` | vacío | Owners de GitHub (coma) que puede vincular una organización sin `github_org`. Vacía: esas organizaciones no vinculan repositorios hasta que la plataforma les fije `github_org` ([consola.md](consola.md#vínculos-de-repositorio)). |
 | `RAILSPEC_ANTHROPIC_HABILITADO` | `false` | Anthropic directo. |
 | `RAILSPEC_AZURE_CLIENT_ID` | vacío | Identidad administrada para Workload Identity (Foundry por Entra ID). Activa la etiqueta del pod. |
 | `RAILSPEC_OIDC_AUDIENCIA` | vacío (OIDC desactivado) | Audiencia del token OIDC de CI; debe coincidir con la variable del mismo nombre del repositorio que corre el workflow de reindexado. **Un valor largo y no adivinable** (`openssl rand -hex 24`): cualquier repositorio de GitHub puede pedir un token con la audiencia que quiera, y `railspec` se rechaza. Vacía desactiva `graph.index` (el renderizador respeta la cadena vacía). |

@@ -9,9 +9,10 @@ que ya no sirve a la consola tampoco debe seguir sirviendo a nadie más.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from ..api.identidad import equipos_de_usuario
 from .config import ConfigGithubApp
@@ -21,6 +22,10 @@ TOKEN = "https://github.com/login/oauth/access_token"
 API = "https://api.github.com"
 
 log = logging.getLogger("railspec.consola")
+
+#: Login de GitHub: alfanumérico y guiones, sin guion inicial, hasta 39 caracteres.
+PATRON_LOGIN = r"[A-Za-z0-9][A-Za-z0-9-]{0,38}"
+_LOGIN = re.compile(PATRON_LOGIN)
 
 
 class ErrorGithub(Exception):
@@ -106,9 +111,17 @@ class ClienteGithub:
         return equipos_de_usuario(self._http(), cabeceras)
 
     def id_de_login(self, login: str) -> int | None:
-        """``GET /users/{login}`` (público). None si no existe."""
+        """``GET /users/{login}`` (público). None si no existe o si no es un login de GitHub.
 
-        r = self._http().get(f"{API}/users/{login}", headers={"Accept": "application/vnd.github+json"})
+        El login se valida antes de armar la ruta: ``../orgs/x`` no debe llegar a
+        otro endpoint de ``api.github.com`` (httpx normaliza los ``..``).
+        """
+
+        if not _LOGIN.fullmatch(login):
+            return None
+        r = self._http().get(
+            f"{API}/users/{quote(login, safe='')}", headers={"Accept": "application/vnd.github+json"}
+        )
         if r.status_code == 404:
             return None
         if r.status_code != 200:

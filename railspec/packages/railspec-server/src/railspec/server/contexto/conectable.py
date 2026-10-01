@@ -17,6 +17,12 @@ Reglas:
 - ``fases`` vacía = todas. El gate ``codigo`` cuenta como fase ``implement``.
 - ``presupuesto_tokens`` recorta los ítems de ese proveedor (orden estable por
   id, ~4 caracteres por token) para que el prefijo del prompt tenga tamaño acotado.
+- Lo que guarda una organización no es de confianza: al usar un proveedor de
+  Mongo se revalida su URL contra la allowlist de la plataforma
+  (``destinos.py``) y su ``credencial_ref`` contra el namespace de la
+  organización que consulta (``secretos.py``); si no pasa, esas consultas
+  cuentan como fallidas y ni la clave ni la consulta salen del servidor. La
+  fuente por defecto del entorno (``RAILSPEC_PCE_URL``) la fija la plataforma.
 """
 
 from __future__ import annotations
@@ -26,13 +32,14 @@ import hashlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from railspec.contracts.comun import AlcanceUnidad, AlcanceWorkspace, Fase, GateFase, GobernanzaConsultada
 from railspec.contracts.orden import ItemGobernanza
 from railspec.contracts.repositorio import ProveedorContexto, RolContexto
 
 from ..motor.gobernanza import ResultadoGobernanza
+from .destinos import DestinoNoPermitido, PoliticaDestinos
 from .pce import ClienteContexto, ClientePce
 from .secretos import ResolutorSecretos, SecretoNoDisponible
 
@@ -57,6 +64,9 @@ class FuenteContexto:
     presupuesto_tokens: int | None = None
     api_key: str | None = field(default=None, repr=False)
     credencial_ref: str | None = None
+    #: ``entorno``: la fija la plataforma (``RAILSPEC_PCE_*``), de confianza. ``configuracion``: la guardó una
+    #: organización; su URL y su credencial se validan cada vez que se usa.
+    origen: Literal["entorno", "configuracion"] = "entorno"
 
     @property
     def estricta(self) -> bool:
@@ -75,6 +85,7 @@ def fuente_de_config(p: ProveedorContexto) -> FuenteContexto:
         fases=tuple(p.fases),
         presupuesto_tokens=p.presupuesto_tokens,
         credencial_ref=p.credencial_ref,
+        origen="configuracion",
     )
 
 
@@ -107,25 +118,38 @@ class ContextoConectable:
         *,
         cache_s: float = 900.0,
         fabrica: FabricaCliente | None = None,
+        destinos: PoliticaDestinos | None = None,
     ) -> None:
         self._almacen = almacen
         self._defecto = list(defecto)
         self._resolutor = resolutor
-        self._fabrica = fabrica or (lambda f, clave: ClientePce(f.url, clave, cache_s=cache_s))
-        self._clientes: dict[tuple[str, str], ClienteContexto] = {}
+        #: Sin política explícita rige la del entorno (``RAILSPEC_PROVEEDORES_HOSTS``): por defecto, ninguno.
+        self._destinos = destinos if destinos is not None else PoliticaDestinos.desde_entorno()
+        self._fabrica = fabrica or (
+            lambda f, clave: ClientePce(
+                f.url,
+                clave,
+                cache_s=cache_s,
+                destinos=None if f.origen == "entorno" else self._destinos,
+            )
+        )
+        self._clientes: dict[tuple[str, str, str], ClienteContexto] = {}
 
     def fuentes(self, ws: AlcanceWorkspace) -> list[FuenteContexto]:
         leer = getattr(self._almacen, "proveedores_contexto", None)
-        propias = [fuente_de_config(p) for p in leer(ws)] if leer else []
+        # Solo los de la organización consultada (el almacén ya filtra; esto es defensa en profundidad).
+        propias = [fuente_de_config(p) for p in leer(ws) if p.org == ws.org] if leer else []
         roles = {f.rol for f in propias}
         return propias + [f for f in self._defecto if f.rol not in roles]
 
-    def _cliente(self, f: FuenteContexto) -> ClienteContexto:
+    def _cliente(self, f: FuenteContexto, org: str) -> ClienteContexto:
+        if f.origen == "configuracion":
+            self._destinos.validar_url(f.url)  # DestinoNoPermitido: la URL la editó una organización
         clave = f.api_key
         if f.credencial_ref:
-            clave = self._resolutor.resolver(f.credencial_ref)
+            clave = self._resolutor.resolver(f.credencial_ref, org)  # solo el namespace de ``org``
         huella = hashlib.sha256((clave or "").encode()).hexdigest()[:16]
-        k = (f.url, huella)
+        k = (f.origen, f.url, huella)
         if k not in self._clientes:
             self._clientes[k] = self._fabrica(f, clave)
         return self._clientes[k]
@@ -138,7 +162,7 @@ class ContextoConectable:
             return ResultadoGobernanza(
                 GobernanzaConsultada.no, detalle="rol gobernanza sin proveedor resuelto"
             )
-        resultados = await asyncio.gather(*(self._una(f, objeto) for f in fuentes))
+        resultados = await asyncio.gather(*(self._una(f, objeto, alcance.org) for f in fuentes))
         pedidas = fallidas = 0
         notas: list[str] = []
         por_rol: dict[RolContexto, list[ItemGobernanza]] = {}
@@ -165,12 +189,14 @@ class ContextoConectable:
                     items.append(item)
         return ResultadoGobernanza(consultada, items, "; ".join(notas))
 
-    async def _una(self, f: FuenteContexto, objeto: str) -> tuple[list[ItemGobernanza], int, int, str]:
+    async def _una(
+        self, f: FuenteContexto, objeto: str, org: str
+    ) -> tuple[list[ItemGobernanza], int, int, str]:
         tipos: tuple[str | None, ...] = TIPOS_GOBERNANZA if f.rol == RolContexto.gobernanza else (None,)
         consultas = [(t, objeto) for t in tipos]
         try:
-            cliente = self._cliente(f)
-        except SecretoNoDisponible as exc:
+            cliente = self._cliente(f, org)
+        except (SecretoNoDisponible, DestinoNoPermitido) as exc:
             return [], len(consultas), len(consultas), str(exc)
         try:
             respuestas = await cliente.buscar(consultas)

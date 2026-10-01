@@ -68,7 +68,11 @@ class ClonesGit:
         nombre = repositorio_de_url(vinculo.url)
         if nombre is None:
             return None
-        clon = self.raiz / nombre
+        raiz = self.raiz.resolve()
+        clon = (raiz / nombre).resolve()
+        # Defensa en profundidad: ni ``..`` ni un enlace simbólico sacan la lectura de la carpeta de clones.
+        if clon == raiz or not clon.is_relative_to(raiz):
+            return None
         return clon if clon.is_dir() else None
 
     def _git(self, clon: Path, *args: str) -> str | None:
