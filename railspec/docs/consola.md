@@ -90,8 +90,14 @@ si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo `RAILSPEC_PERMITIR_DESARROLLO=1`
   "consola")`): Actor humano con `github_id`, login y canal `consola`. Es el
   que usa el chat. Un token de sesión (cookie) no vale como Bearer.
 - **Bearer en la consola**: `/consola/api` también acepta
-  `Authorization: Bearer` (token de GitHub, de desarrollo o `rsc1`) para
-  scripts; sin cookie no hace falta la cabecera anti-CSRF.
+  `Authorization: Bearer` (token de usuario de la GitHub App de Railspec, de
+  desarrollo o `rsc1`) para scripts; sin cookie no hace falta la cabecera
+  anti-CSRF. El token de GitHub se comprueba con las credenciales de la App
+  (`POST /applications/{client_id}/token`): uno personal (PAT) o de otra OAuth
+  app se rechaza con 401, y si GitHub no responde, con 503 (falla cerrado). Sin
+  GitHub App configurada se rechaza todo token de GitHub, salvo con
+  `RAILSPEC_PERMITIR_DESARROLLO=1`. Para un script lo más simple es un `rsc1`
+  de `POST /auth/token`.
 - Cerrar sesión borra la cookie; un token ya emitido vale hasta su expiración.
 
 ## Autorización

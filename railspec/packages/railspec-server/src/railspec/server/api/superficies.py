@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 from railspec.contracts.comun import Actor
 from railspec.contracts.tools import Superficie
 
-from .identidad import TokenInvalido, token_de_cabecera
+from .identidad import IdentidadNoDisponible, TokenInvalido, token_de_cabecera
 from .registro import Registro
 
 #: Hilos para resolver identidades. ``actor_desde_token`` es síncrono y, con un token que no está en
@@ -32,6 +32,12 @@ from .registro import Registro
 #: segundo para colgar /livez. Un grupo propio y acotado tampoco deja que esas esperas agoten el grupo
 #: por defecto, que usan las sondas de /healthz y la consola.
 _HILOS_IDENTIDAD = ThreadPoolExecutor(max_workers=16, thread_name_prefix="railspec-identidad")
+
+
+def estado_de_identidad(exc: TokenInvalido) -> int:
+    """401 si el token no vale; 503 si no se pudo comprobar (GitHub caído, límite de tasa, saturación)."""
+
+    return 503 if isinstance(exc, IdentidadNoDisponible) else 401
 
 
 async def _actor(identidad: Any, autorizacion: str | None, canal: str) -> Actor:
@@ -136,7 +142,7 @@ def aplicacion(
         try:
             actor = await _actor(identidad, request.headers.get("authorization"), "consola")
         except TokenInvalido as exc:
-            return JSONResponse({"detalle": str(exc)}, status_code=401)
+            return JSONResponse({"detalle": str(exc)}, status_code=estado_de_identidad(exc))
         try:
             argumentos = await request.json()
         except ValueError:

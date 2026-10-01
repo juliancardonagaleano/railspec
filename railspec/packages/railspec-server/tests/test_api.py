@@ -263,13 +263,18 @@ def test_identidad():
     llamadas = []
 
     class Falso:
-        def get(self, url, headers):
-            llamadas.append(headers["Authorization"])
-            if headers["Authorization"] == "Bearer malo":
-                return httpx.Response(401)
-            return httpx.Response(200, json={"login": "julian", "id": 83125327})
+        """api.github.com: la comprobación de la GitHub App (M3; antes bastaba ``GET /user``)."""
 
-    gh = IdentidadGithub(Falso())
+        def post(self, url, *, auth, json, headers):
+            llamadas.append(json["access_token"])
+            if json["access_token"] == "malo":
+                return httpx.Response(404)
+            usuario = {"login": "julian", "id": 83125327}
+            return httpx.Response(200, json={"app": {"client_id": "Iv1.x"}, "user": usuario})
+
+    from railspec.server.consola.config import ConfigGithubApp
+
+    gh = IdentidadGithub(Falso(), app=ConfigGithubApp("Iv1.x", "secreto"))
     assert gh.actor_desde_token("bueno", "arnes").login == "julian"
     gh.actor_desde_token("bueno", "arnes")
     assert len(llamadas) == 1  # cacheado

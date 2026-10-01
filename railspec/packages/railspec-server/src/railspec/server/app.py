@@ -72,7 +72,15 @@ def ensamblar(
     # ``validar_arranque`` ya impide tokens de desarrollo sin la bandera; se repite aquí para que ni
     # la identidad ni lo que anuncia /consola/api/auth/config dependan de esa llamada.
     tokens_desarrollo = dict(config.tokens_desarrollo) if config.permitir_desarrollo else {}
-    humana = IdentidadDesarrollo(tokens_desarrollo) if tokens_desarrollo else IdentidadGithub()
+    # Los tokens de GitHub solo valen si los emitió la GitHub App de Railspec (``config.consola.github_app``);
+    # sin App se rechazan, salvo en modo desarrollo explícito.
+    humana = (
+        IdentidadDesarrollo(tokens_desarrollo)
+        if tokens_desarrollo
+        else IdentidadGithub(
+            cliente_github, app=config.consola.github_app, permitir_sin_app=config.permitir_desarrollo
+        )
+    )
     if verificador_oidc is None and config.oidc_audiencia:
         if config.oidc_audiencia.lower() == "railspec":
             raise ValueError(

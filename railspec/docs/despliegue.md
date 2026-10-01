@@ -55,7 +55,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
    | `RAILSPEC_CONSOLA_SECRETO` | sí, con más de una réplica | Clave de las sesiones de la consola web; sin ella cada réplica inventa una y las sesiones se pierden al cambiar de réplica. |
-   | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | para iniciar sesión en la consola | GitHub App de Railspec (ver `consola.md`). |
+   | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
 
 **Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y
 `RAILSPEC_PERMITIR_DESARROLLO` no son variables del despliegue: el Deployment

@@ -1,7 +1,10 @@
 """Identidad del actor a partir del token (R2): nunca viaja en la entrada de la tool.
 
-- ``IdentidadGithub``: token de usuario de GitHub (OAuth de la GitHub App).
-  Resuelve ``github_id`` y login con ``GET /user`` y cachea por hash del token.
+- ``IdentidadGithub``: token de usuario de la GitHub App de Railspec. Comprueba
+  con las credenciales de la App que el token lo emitió ella (no cualquier
+  OAuth app de terceros) y resuelve ``github_id`` y login; cachés acotadas
+  (``verificacion_github``). Sin App configurada rechaza todo token de GitHub
+  salvo en modo desarrollo explícito.
 - ``IdentidadDesarrollo``: tokens fijos por variable de entorno, solo para
   desarrollo sin GitHub App.
 
@@ -18,18 +21,26 @@
 
 from __future__ import annotations
 
-import hashlib
-import time
+import logging
 from datetime import datetime
 from typing import Any
 
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, OidcGithubActions, TipoActor
+
+from .verificacion_github import GithubNoDisponible, TokenRechazado, VerificadorTokenGithub
+
+log = logging.getLogger("railspec.identidad")
 
 EMISOR_ACTIONS = "https://token.actions.githubusercontent.com"
 
 
 class TokenInvalido(Exception):
     pass
+
+
+class IdentidadNoDisponible(TokenInvalido):
+    """No se pudo comprobar el token (GitHub caído, límite de tasa, saturación). Se rechaza igual
+    (es un ``TokenInvalido``: falla cerrado), pero las superficies responden 503 en vez de 401."""
 
 
 class IdentidadDesarrollo:
@@ -52,32 +63,57 @@ class IdentidadDesarrollo:
 
 
 class IdentidadGithub:
-    nombre = "github"
-    API = "https://api.github.com/user"
+    """Token de usuario de GitHub -> ``Actor`` humano, solo si es de la GitHub App de Railspec.
 
-    def __init__(self, cliente: Any | None = None, ttl_s: int = 300) -> None:
-        self._cliente = cliente
-        self._ttl = ttl_s
-        self._cache: dict[str, tuple[float, str, int]] = {}
+    ``app``: credenciales de la App (``client_id`` y ``client_secret``, p. ej. ``ConfigGithubApp``).
+    Sin ``app`` todos los tokens de GitHub se rechazan, salvo con ``permitir_sin_app`` (modo desarrollo
+    explícito: ``GET /user`` sin comprobar de qué app es el token). ``cliente``: ``httpx.Client`` o
+    un doble. El resto de argumentos acotan las cachés y la concurrencia (ver ``verificacion_github``).
+    """
+
+    nombre = "github"
+
+    def __init__(
+        self,
+        cliente: Any | None = None,
+        ttl_s: int = 300,
+        *,
+        app: Any | None = None,
+        permitir_sin_app: bool = False,
+        **limites: Any,
+    ) -> None:
+        self._verificador: VerificadorTokenGithub | None = None
+        if app is not None:
+            credenciales = (app.client_id, app.client_secret)
+            self._verificador = VerificadorTokenGithub(cliente, app=credenciales, ttl_s=ttl_s, **limites)
+        elif permitir_sin_app:
+            log.warning(
+                "tokens de GitHub sin GitHub App configurada (RAILSPEC_PERMITIR_DESARROLLO=1): no se "
+                "comprueba de qué app es el token. Solo para desarrollo."
+            )
+            self._verificador = VerificadorTokenGithub(cliente, app=None, ttl_s=ttl_s, **limites)
+        else:
+            log.warning(
+                "sin GitHub App (RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET): se rechazan los tokens de GitHub; "
+                "solo valen los tokens rsc1 de la consola, los de desarrollo y el OIDC de CI"
+            )
+
+    def tamanos_de_cache(self) -> tuple[int, int]:
+        """(tokens aceptados, tokens rechazados) en caché; ambas acotadas."""
+
+        return self._verificador.tamanos() if self._verificador else (0, 0)
 
     def actor_desde_token(self, token: str, canal: str) -> Actor:
-        clave = hashlib.sha256(token.encode()).hexdigest()
-        ahora = time.monotonic()
-        cacheado = self._cache.get(clave)
-        if cacheado is None or cacheado[0] < ahora:
-            import httpx
-
-            cliente = self._cliente or httpx.Client(timeout=10)
-            r = cliente.get(
-                self.API,
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        if self._verificador is None:
+            raise TokenInvalido(
+                "la GitHub App de Railspec no está configurada: no se admiten tokens de GitHub"
             )
-            if r.status_code != 200:
-                raise TokenInvalido(f"GitHub rechazó el token ({r.status_code})")
-            datos = r.json()
-            cacheado = (ahora + self._ttl, datos["login"], int(datos["id"]))
-            self._cache[clave] = cacheado
-        _, login, github_id = cacheado
+        try:
+            login, github_id = self._verificador.verificar(token)
+        except TokenRechazado as exc:
+            raise TokenInvalido(str(exc)) from exc
+        except GithubNoDisponible as exc:
+            raise IdentidadNoDisponible(str(exc)) from exc
         return Actor(tipo=TipoActor.humano, canal=Canal(canal), github_id=github_id, login=login)
 
     def workspaces_visibles(self, actor: Actor, org: str) -> list[AlcanceWorkspace]:

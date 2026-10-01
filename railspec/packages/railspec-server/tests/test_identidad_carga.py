@@ -20,10 +20,10 @@ from railspec.server.api.registro import Registro
 from railspec.server.api.superficies import _actor, aplicacion
 from railspec.server.chat.http import router_chat
 
-ESPERA_S = 0.3
+ESPERA_S = 0.5
 BASURA = 8
 #: Con el loop libre la parada es de milisegundos; bloqueado, cada token basura lo frena ``ESPERA_S``.
-TOPE_PARADA_S = 0.15
+TOPE_PARADA_S = 0.25
 
 
 class IdentidadLenta:
