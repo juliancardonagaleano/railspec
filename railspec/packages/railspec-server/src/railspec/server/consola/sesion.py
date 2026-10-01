@@ -149,7 +149,8 @@ class IdentidadConConsola:
     """Identidad del servidor que además acepta tokens ``rsc1`` de tipo ``api``.
 
     Envuelve la identidad compuesta (GitHub u OIDC de Actions): todo lo demás
-    se le delega sin cambios.
+    se le delega sin cambios. El token ``api`` es la credencial de ``/v1`` y del
+    chat (canal ``consola``); no vale como credencial del arnés (``/mcp``).
     """
 
     def __init__(self, base: Any, firmador: Firmador) -> None:
@@ -159,6 +160,8 @@ class IdentidadConConsola:
 
     def actor_desde_token(self, token: str, canal: str) -> Actor:
         if token.startswith(PREFIJO + "."):
+            if canal != Canal.consola:
+                raise TokenInvalido("los tokens de la consola solo valen en el canal consola")
             return self.firmador.sesion(token, "api").actor(Canal(canal))
         return self.base.actor_desde_token(token, canal)
 

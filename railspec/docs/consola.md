@@ -83,14 +83,24 @@ con token de desarrollo, solo para entornos sin GitHub App.
 - **Anti-CSRF**: con cookie, toda petición que no sea GET exige la cabecera
   `X-Railspec-Consola: 1` (un formulario de otro sitio no puede ponerla).
 - **Token para `/v1/*`**: `POST /consola/api/auth/token` devuelve
-  `{"token": "rsc1…", "expira_en": ISO}`, válido una hora como
-  `Authorization: Bearer` en `/v1/tools` y en cualquier ruta que resuelva el
-  actor con la identidad del servidor (`identidad.actor_desde_token(token,
-  "consola")`): Actor humano con `github_id`, login y canal `consola`. Es el
-  que usa el chat. Un token de sesión (cookie) no vale como Bearer.
-- **Bearer en la consola**: `/consola/api` también acepta
-  `Authorization: Bearer` (token de GitHub, de desarrollo o `rsc1`) para
-  scripts; sin cookie no hace falta la cabecera anti-CSRF.
+  `{"token": "rsc1…", "expira_en": ISO}`, válido una hora (nunca más que la
+  sesión que lo pide) como `Authorization: Bearer` en `/v1/tools` y en las
+  rutas que resuelven el actor con la identidad del servidor
+  (`identidad.actor_desde_token(token, "consola")`): Actor humano con
+  `github_id`, login y canal `consola`. Es el que usa el chat. Solo se emite con
+  la **cookie de sesión** y la cabecera anti-CSRF: un `Bearer` (token `api`, de
+  GitHub o de desarrollo) recibe 401, de modo que una fuga del token `api` no
+  da acceso indefinido (no se renueva solo ni sobrevive a la sesión). Lleva
+  `aud: "v1"` y vale únicamente con canal `consola` (`/v1/tools`, `/v1/chat`);
+  no es credencial del arnés (`/mcp`) ni de la API de la consola. Un token de
+  sesión (cookie) no vale como Bearer.
+- **Bearer en la consola (scripts)**: `/consola/api` acepta
+  `Authorization: Bearer` con un **token de GitHub o de desarrollo**, no con
+  `rsc1`; sin cookie no hace falta la cabecera anti-CSRF. Un script que ya
+  tiene un token de GitHub lo usa directamente (en `/v1` y en `/consola/api`):
+  no necesita `POST /auth/token`. El token `rsc1` `api` no vale en
+  `/consola/api` (ni en lecturas ni en escrituras): la SPA usa la cookie y
+  solo manda el token al chat.
 - Cerrar sesión borra la cookie; un token ya emitido vale hasta su expiración.
 
 ## Autorización
@@ -147,7 +157,7 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /auth/github/callback` | Lo llama GitHub; pone la cookie y vuelve a la SPA. |
 | `POST /auth/desarrollo` `{token}` | Sesión con token de desarrollo. |
 | `POST /auth/salir` | Borra la cookie. |
-| `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`. |
+| `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`; exige la cookie de sesión y `X-Railspec-Consola: 1`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
 | `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola` (`unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`). |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |

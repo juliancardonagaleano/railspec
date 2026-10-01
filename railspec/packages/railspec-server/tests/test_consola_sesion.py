@@ -8,11 +8,12 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from railspec.contracts.repositorio import Rol
 from railspec.server.api.identidad import TokenInvalido
 from railspec.server.api.superficies import aplicacion
 from railspec.server.consola import ConfigConsola, montar_consola
 from railspec.server.consola.sesion import COOKIE, Firmador
-from test_consola import Montaje, correr
+from test_consola import ANA_ID, CSRF, JULIAN_ID, ORG, WS, Montaje, asignar, correr
 
 SECRETO = "s" * 40
 
@@ -167,3 +168,103 @@ def test_la_clave_depende_del_secreto_y_el_token_lleva_audiencia():
     assert (_carga(token["api"])["aud"], _carga(token["sesion"])["aud"]) == ("v1", "consola")
     with pytest.raises(TokenInvalido, match="firma"):
         Firmador("t" * 40).sesion(token["api"], "api")
+
+
+# --- A3: el token api no se renueva solo ni vale en /consola/api -----------------------------------------
+
+
+async def _token_api(m: Montaje, token_dev: str) -> str:
+    async with m.cliente(token_dev) as c:
+        r = await c.post("/consola/api/auth/token", headers=CSRF)
+        assert r.status_code == 200, r.text
+        return r.json()["token"]
+
+
+def test_un_token_api_no_sirve_para_pedir_otro():
+    async def caso():
+        m = Montaje()
+        api = await _token_api(m, "tk-ana")
+        bearer = {"Authorization": f"Bearer {api}"}
+        async with m.cliente() as c:
+            # Ni con la cabecera anti-CSRF: hace falta la cookie de sesión.
+            r = await c.post("/consola/api/auth/token", headers={**bearer, **CSRF})
+            assert r.status_code == 401, r.text
+            assert "token" not in r.json()
+        # Tampoco un token de desarrollo o de GitHub: solo la cookie emite tokens api.
+        async with m.cliente() as c:
+            r = await c.post("/consola/api/auth/token", headers={"Authorization": "Bearer tk-ana", **CSRF})
+            assert r.status_code == 401
+
+    correr(caso())
+
+
+def test_el_token_api_solo_vale_en_v1_no_en_consola_api():
+    async def caso():
+        m = Montaje()
+        api = await _token_api(m, "tk-julian")
+        bearer = {"Authorization": f"Bearer {api}"}
+        async with m.cliente() as c:
+            # Lectura y escritura administrativa (sin CSRF, como lo haría quien filtró el token).
+            assert (await c.get("/consola/api/yo", headers=bearer)).status_code == 401
+            org = {"id": ORG, "nombre": "A", "region_datos": "eastus2"}
+            r = await c.post("/consola/api/orgs", json=org, headers=bearer)
+            assert r.status_code == 401, r.text
+            r = await c.post("/consola/api/orgs", json=org, headers={**bearer, **CSRF})
+            assert r.status_code == 401
+            assert m.ctx.datos.organizaciones(None) == []
+            # En /v1 sigue valiendo (tools y chat), y el actor es la persona del token.
+            asignar(m.almacen, Rol.lector, JULIAN_ID)
+            r = await c.post(
+                "/v1/tools/unit.list", json={"alcance": {"org": ORG, "workspace": WS}}, headers=bearer
+            )
+            assert r.status_code == 200, r.text
+        # Y el token de GitHub o de desarrollo sigue valiendo como Bearer en la consola (scripts).
+        async with m.cliente() as c:
+            r = await c.get("/consola/api/yo", headers={"Authorization": "Bearer tk-julian"})
+            assert r.json()["login"] == "juliancardonagaleano"
+
+    correr(caso())
+
+
+def test_el_token_api_solo_vale_con_canal_consola():
+    # /mcp resuelve el actor con canal "arnes": un token de la consola no es credencial del arnés.
+    m = Montaje()
+    token = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "api")
+    assert m.ctx.identidad.actor_desde_token(token, "consola").github_id == ANA_ID
+    with pytest.raises(TokenInvalido):
+        m.ctx.identidad.actor_desde_token(token, "arnes")
+
+
+def test_cookie_y_token_api_no_son_intercambiables():
+    async def caso():
+        m = Montaje()
+        api = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "api")
+        sesion = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "sesion")
+        async with m.cliente() as c:
+            # Un token api puesto como cookie no abre sesión.
+            c.cookies.set(COOKIE, api, domain="railspec.test", path="/consola")
+            assert (await c.get("/consola/api/yo")).status_code == 401
+        async with m.cliente() as c:
+            # La cookie de sesión como Bearer no vale ni en /v1 ni en la consola.
+            r = await c.get("/consola/api/yo", headers={"Authorization": f"Bearer {sesion}"})
+            assert r.status_code == 401
+            r = await c.post("/v1/tools/unit.list", json={}, headers={"Authorization": f"Bearer {sesion}"})
+            assert r.status_code == 401
+
+    correr(caso())
+
+
+def test_el_token_api_no_dura_mas_que_la_sesion():
+    async def caso():
+        m = Montaje()
+        sesion = m.firmador.emitir("julian", JULIAN_ID, frozenset(), timedelta(minutes=10), "sesion")
+        async with m.cliente() as c:
+            c.cookies.set(COOKIE, sesion, domain="railspec.test", path="/consola")
+            r = await c.post("/consola/api/auth/token", headers=CSRF)
+            assert r.status_code == 200, r.text
+        token = r.json()["token"]
+        restante = m.firmador.sesion(token, "api").expira - m.firmador.ahora()
+        # Pedido a 60 minutos (minutos_token), pero a la sesión le quedan 10.
+        assert timedelta(minutes=9) < restante <= timedelta(minutes=10)
+
+    correr(caso())

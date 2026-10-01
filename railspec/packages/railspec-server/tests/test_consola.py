@@ -177,7 +177,7 @@ def test_login_desarrollo_cookie_y_csrf():
     correr(caso())
 
 
-def test_token_api_vale_como_bearer_en_v1_y_en_consola():
+def test_token_api_vale_como_bearer_en_v1_y_no_en_consola():
     async def caso():
         m = Montaje()
         asignar(m.almacen, Rol.desarrollador, ANA_ID)
@@ -194,8 +194,9 @@ def test_token_api_vale_como_bearer_en_v1_y_en_consola():
             assert r.status_code == 200, r.text
             assert r.json()["estado"]["dueno"]["login"] == "ana"
             assert r.json()["estado"]["dueno"]["canal"] == "consola"
-            # El Bearer no necesita cabecera anti-CSRF.
-            assert (await c.get("/consola/api/yo", headers=bearer)).json()["login"] == "ana"
+            # El token api es la credencial de /v1 y del chat: en /consola/api no vale (la consola
+            # usa la cookie; los scripts, un token de GitHub). Ver test_consola_sesion.py.
+            assert (await c.get("/consola/api/yo", headers=bearer)).status_code == 401
         # Un token de sesión (cookie) no vale como Bearer en /v1.
         sesion = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "sesion")
         with pytest.raises(TokenInvalido):

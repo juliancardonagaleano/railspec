@@ -65,12 +65,23 @@ class ContextoConsola:
 
     # --- sesión ----------------------------------------------------------------------
 
-    async def sesion(self, request: Request) -> Sesion:
-        token = token_de_cabecera(request.headers.get("authorization"))
+    async def sesion(self, request: Request, *, solo_cookie: bool = False) -> Sesion:
+        """La sesión de la petición: cookie (con CSRF fuera de GET) o Bearer de GitHub/desarrollo.
+
+        Un ``Authorization: Bearer rsc1…`` (token ``api``) nunca vale aquí: es la credencial de
+        ``/v1`` y del chat, no de la consola. ``solo_cookie`` ignora todo Bearer: lo usa quien
+        emite tokens, que solo puede hacerlo a partir de una sesión real del navegador.
+        """
+
+        token = None if solo_cookie else token_de_cabecera(request.headers.get("authorization"))
         try:
             if token is not None:
                 if token.startswith("rsc1."):
-                    return self.firmador.sesion(token, "api")
+                    raise HTTPException(
+                        401,
+                        "los tokens rsc1 no valen en /consola/api: usa la cookie de sesión "
+                        "o un token de GitHub",
+                    )
                 actor = await asyncio.to_thread(self.identidad.actor_desde_token, token, "consola")
                 if actor.github_id is None or actor.login is None:
                     raise HTTPException(403, "la consola solo admite personas")

@@ -166,8 +166,13 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
 
     @api.post("/auth/token")
     async def token_api(request: Request) -> dict[str, str]:
-        sesion = await ctx.sesion(request)
-        vida = timedelta(minutes=ctx.config.minutos_token)
+        # Solo con la cookie de sesión del navegador (y su cabecera anti-CSRF): un token api, uno
+        # de GitHub o de desarrollo no sirven para acuñar otro. Así una fuga del token api no da
+        # acceso indefinido, y el nuevo nunca vive más que la sesión que lo pide.
+        sesion = await ctx.sesion(request, solo_cookie=True)
+        vida = min(
+            timedelta(minutes=ctx.config.minutos_token), sesion.expira - ctx.firmador.ahora()
+        )
         token = ctx.firmador.emitir(sesion.login, sesion.github_id, sesion.equipos, vida, "api")
         return {"token": token, "expira_en": (ctx.firmador.ahora() + vida).isoformat()}
 
