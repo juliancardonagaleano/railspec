@@ -268,6 +268,9 @@ class Motor:
     async def start(self, e: UnitStartEntrada, actor: Actor) -> UnitStartSalida:
         negociada = negociar(e.version_contrato_cliente)
         self._humano(actor, "arrancar una unidad")
+        for insumo in e.insumos:
+            if self.n.insumos is None or not self.n.insumos.existe(e.alcance, insumo):
+                raise ErrorNegocio(CodigoError.no_encontrado, f"insumo {insumo} no existe en este workspace")
         numero = self.n.almacen.siguiente_numero_unidad(e.alcance)
         alcance = AlcanceUnidad(
             org=e.alcance.org,

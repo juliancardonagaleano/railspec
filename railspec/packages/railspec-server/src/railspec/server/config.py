@@ -49,6 +49,12 @@ class Configuracion:
     oidc_emisor: str = "https://token.actions.githubusercontent.com"
     #: ``owner/repo`` que pueden presentar un token OIDC; vacío = cualquiera con vínculo.
     oidc_repositorios: frozenset[str] = frozenset()
+    #: Chat de contexto: carpeta con un clon de solo lectura por repositorio (``<owner>/<repo>``)
+    #: para ``code.read``; sin ella el chat responde sin leer código.
+    chat_clones: str | None = None
+    #: Regiones de Azure de la zona de datos donde el chat puede enviar código (restringido/interno).
+    chat_zona_datos: frozenset[str] = frozenset()
+    chat_modelo: str = "claude-sonnet-5-5"
     host: str = "0.0.0.0"
     puerto: int = 8080
 
@@ -85,6 +91,11 @@ class Configuracion:
             oidc_repositorios=frozenset(
                 r.strip() for r in env.get("RAILSPEC_OIDC_REPOSITORIOS", "").split(",") if r.strip()
             ),
+            chat_clones=env.get("RAILSPEC_CHAT_CLONES") or None,
+            chat_zona_datos=frozenset(
+                r.strip() for r in env.get("RAILSPEC_CHAT_ZONA_DATOS", "").split(",") if r.strip()
+            ),
+            chat_modelo=env.get("RAILSPEC_CHAT_MODELO") or "claude-sonnet-5-5",
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
         )
