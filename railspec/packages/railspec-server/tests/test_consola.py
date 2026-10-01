@@ -25,7 +25,7 @@ from railspec.contracts.repositorio import (
 )
 from railspec.contracts.snapshot import DeltaIndice, ModoDelta, MotorIndice, Simbolo, id_simbolo
 from railspec.server.api import AutorizadorRoles, IdentidadDesarrollo, Registro
-from railspec.server.api.identidad import IdentidadCompuesta, TokenInvalido
+from railspec.server.api.identidad import IdentidadCompuesta, IdentidadGithub, TokenInvalido
 from railspec.server.api.superficies import aplicacion
 from railspec.server.consola import ConfigConsola, ConfigGithubApp, montar_consola
 from railspec.server.consola.almacen import AlmacenConsola
@@ -729,6 +729,38 @@ def test_chat_resuelve_roles_por_equipo_con_el_token_rsc1():
             sin_equipo = _bearer_rsc1(m, LUIS_ID, "luis", set())
             r = await c.post("/v1/chat/conversaciones", json=cuerpo, headers=sin_equipo)
             assert r.status_code == 403 and r.json()["codigo"] == "fuera-de-alcance"
+
+    correr(caso())
+
+
+def test_bearer_de_github_en_la_consola_trae_los_equipos_del_usuario():
+    from apoyo_github import equipos_fijos, github_simulado
+
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.workspace_admin, equipo=4242)
+        cliente_gh, _ = github_simulado(
+            {"t-luis": ("luis", LUIS_ID, equipos_fijos(4242)), "t-ana": ("ana", ANA_ID, equipos_fijos(1))}
+        )
+        m.ctx.identidad = IdentidadConConsola(
+            IdentidadCompuesta(IdentidadGithub(cliente_gh), None), m.firmador
+        )
+        async with m.cliente() as c:
+            yo = (await c.get("/consola/api/yo", headers={"Authorization": "Bearer t-luis"})).json()
+            assert yo["organizaciones"][0]["workspaces"] == [
+                {"workspace": WS, "nombre": WS, "rol": "workspace-admin"}
+            ]
+            yo = (await c.get("/consola/api/yo", headers={"Authorization": "Bearer t-ana"})).json()
+            assert yo["organizaciones"] == []
+            # Los equipos resueltos también valen para las tools por la consola.
+            r = await c.post(
+                "/consola/api/tools/unit.list", json=LISTAR, headers={"Authorization": "Bearer t-luis"}
+            )
+            assert r.status_code == 200, r.text
+            r = await c.post(
+                "/consola/api/tools/unit.list", json=LISTAR, headers={"Authorization": "Bearer t-ana"}
+            )
+            assert r.status_code == 403
 
     correr(caso())
 

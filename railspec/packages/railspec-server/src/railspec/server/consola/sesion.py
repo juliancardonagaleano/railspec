@@ -8,7 +8,9 @@ Un único formato firmado con HMAC-SHA256, sin estado en el servidor:
   la consola usa para resolver roles asignados a equipos (R3).
 - ``api``: lo pide la SPA con ``POST /consola/api/auth/token`` y vale como
   ``Authorization: Bearer`` en ``/v1/*`` (tools y chat), canal ``consola``.
-  Vida corta; la SPA lo renueva.
+  Vida corta; la SPA lo renueva. Conserva los equipos del login: el actor que
+  sale de él los lleva (``ActorConEquipos``) y los roles por equipo valen en
+  ``/v1/*`` igual que en ``/consola/api``.
 
 Cerrar sesión borra la cookie; un token ya emitido vale hasta que expira.
 """

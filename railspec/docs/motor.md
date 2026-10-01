@@ -118,7 +118,4 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
 
 - Manejadores de `insumo.get` y `code.read` (`graph.query` y `graph.index` ya se enchufan con el grafo): el registro los
   acepta enchufados y no los anuncia mientras falten.
-- Roles por equipo de GitHub: valen con el token `rsc1` de la consola (lleva los equipos
-  del login, ver `consola.md`); con un token de GitHub o de desarrollo directos solo se
-  resuelven asignaciones de usuario.
 - La forma de la respuesta de PCE no está verificada contra el servicio real.

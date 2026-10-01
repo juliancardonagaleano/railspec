@@ -284,17 +284,115 @@ def test_identidad():
 
     class Falso:
         def get(self, url, headers):
-            llamadas.append(headers["Authorization"])
+            llamadas.append(url.split("?")[0].rsplit("/", 1)[-1])
             if headers["Authorization"] == "Bearer malo":
                 return httpx.Response(401)
+            if "/user/teams" in url:
+                return httpx.Response(200, json=[])
             return httpx.Response(200, json={"login": "julian", "id": 83125327})
 
     gh = IdentidadGithub(Falso())
     assert gh.actor_desde_token("bueno", "arnes").login == "julian"
     gh.actor_desde_token("bueno", "arnes")
-    assert len(llamadas) == 1  # cacheado
+    assert llamadas == ["user", "teams"]  # una vez cada una: la segunda llamada sale del caché
     with pytest.raises(TokenInvalido):
         gh.actor_desde_token("malo", "arnes")
+
+
+def test_identidad_github_resuelve_los_equipos_con_el_token_del_usuario():
+    from apoyo_github import (
+        equipos_fijos,
+        equipos_paginados,
+        github_simulado,
+        respuesta_inesperada,
+        sin_permiso,
+        sin_red,
+    )
+    from railspec.server.api.identidad import ActorConEquipos
+
+    usuarios = {
+        "t-luis": ("luis", 9, equipos_paginados([4242], [777])),
+        "t-ana": ("ana", 7, equipos_fijos()),
+        "t-sin-permiso": ("pablo", 11, sin_permiso),
+        "t-rara": ("rita", 12, respuesta_inesperada),
+        "t-sin-red": ("ruben", 13, sin_red),
+    }
+    cliente_gh, llamadas = github_simulado(usuarios)
+    gh = IdentidadGithub(cliente_gh)
+
+    luis = gh.actor_desde_token("t-luis", "arnes")
+    assert isinstance(luis, ActorConEquipos) and luis.github_id == 9
+    assert luis.equipos == {4242, 777}  # sigue el Link de la segunda página
+    assert llamadas == ["/user", "/user/teams", "/user/teams"]
+
+    # Cada token tiene los suyos. Sin equipos, o sin poder leerlos (permiso, respuesta rara, red), el
+    # actor es el de siempre: el token sigue autenticando y solo cuentan las asignaciones personales.
+    for token, github_id in (("t-ana", 7), ("t-sin-permiso", 11), ("t-rara", 12), ("t-sin-red", 13)):
+        actor = gh.actor_desde_token(token, "arnes")
+        assert type(actor) is Actor and actor.github_id == github_id, token
+
+    # Cacheado por token, y el token no queda guardado (solo su hash).
+    antes = len(llamadas)
+    assert gh.actor_desde_token("t-luis", "arnes").equipos == {4242, 777}
+    assert len(llamadas) == antes
+    assert "t-luis" not in repr(gh._cache)
+    # Un token que GitHub rechaza no es actor, y no se le piden equipos.
+    antes = len(llamadas)
+    with pytest.raises(TokenInvalido):
+        gh.actor_desde_token("t-malo", "arnes")
+    assert llamadas[antes:] == ["/user"]
+
+
+def test_identidad_github_refresca_los_equipos_al_vencer_el_cache():
+    from apoyo_github import equipos_fijos, github_simulado
+
+    usuarios = {"t-luis": ("luis", 9, equipos_fijos(4242))}
+    cliente_gh, _ = github_simulado(usuarios)
+    gh = IdentidadGithub(cliente_gh, ttl_s=-1)  # vencido de inmediato
+    assert gh.actor_desde_token("t-luis", "arnes").equipos == {4242}
+    # Lo sacan del equipo: en la próxima resolución ya no lo tiene.
+    usuarios["t-luis"] = ("luis", 9, equipos_fijos())
+    assert type(gh.actor_desde_token("t-luis", "arnes")) is Actor
+
+
+def test_v1_tools_con_token_de_github_resuelve_roles_por_equipo():
+    from apoyo_github import equipos_fijos, github_simulado, sin_permiso
+    from railspec.server.api.identidad import IdentidadCompuesta
+
+    async def caso():
+        motor, _ = construir()
+        almacen = motor.n.almacen
+        almacen.guardar_configuracion([_asignacion_equipo(4242, Rol.desarrollador, WS)])
+        cliente_gh, _ = github_simulado(
+            {
+                "t-luis": ("luis", 9, equipos_fijos(4242)),
+                "t-ana": ("ana", 7, equipos_fijos(31337)),
+                "t-pablo": ("pablo", 11, sin_permiso),
+            }
+        )
+        registro = Registro.del_motor(motor, AutorizadorRoles(almacen))
+        app = aplicacion(registro, IdentidadCompuesta(IdentidadGithub(cliente_gh), None))
+        async with cliente(app) as c:
+            r = await c.post(
+                "/v1/tools/unit.start", json=cuerpo_start(), headers={"Authorization": "Bearer t-luis"}
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["estado"]["dueno"]["login"] == "luis"
+            # Sin el equipo (otro equipo, o sin poder leer los suyos) no hay rol.
+            for token in ("t-ana", "t-pablo"):
+                r = await c.post(
+                    "/v1/tools/unit.start", json=cuerpo_start(), headers={"Authorization": f"Bearer {token}"}
+                )
+                assert r.status_code == 403 and r.json()["codigo"] == "fuera-de-alcance", token
+        # Un token de desarrollo no trae equipos: la misma persona, sin asignación propia, no tiene rol.
+        app = aplicacion(registro, IdentidadDesarrollo({"tk-luis": ("luis", 9)}))
+        async with cliente(app) as c:
+            r = await c.post(
+                "/v1/tools/unit.start", json=cuerpo_start(), headers={"Authorization": "Bearer tk-luis"}
+            )
+            assert r.status_code == 403
+
+    asyncio.run(caso())
 
 
 def test_graph_query_con_repositorios_vinculados():

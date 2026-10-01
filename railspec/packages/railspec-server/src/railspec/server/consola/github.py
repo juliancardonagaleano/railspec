@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
+from ..api.identidad import equipos_de_usuario
 from .config import ConfigGithubApp
 
 AUTORIZAR = "https://github.com/login/oauth/authorize"
@@ -76,17 +77,7 @@ class ClienteGithub:
     def _equipos(self, cabeceras: dict[str, str]) -> frozenset[int]:
         """Equipos del usuario (permiso de la App: Members, lectura). Sin permiso, ninguno."""
 
-        equipos: set[int] = set()
-        url: str | None = f"{API}/user/teams?per_page=100"
-        for _ in range(10):
-            if url is None:
-                break
-            r = self._http().get(url, headers=cabeceras)
-            if r.status_code != 200:
-                break
-            equipos.update(int(e["id"]) for e in r.json())
-            url = r.links.get("next", {}).get("url") if hasattr(r, "links") else None
-        return frozenset(equipos)
+        return equipos_de_usuario(self._http(), cabeceras)
 
     def id_de_login(self, login: str) -> int | None:
         """``GET /users/{login}`` (público). None si no existe."""

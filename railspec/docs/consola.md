@@ -36,12 +36,16 @@ GitHub Apps):
 - **Callback URL**: `https://<dominio>/consola/api/auth/github/callback`.
 - **Request user authorization (OAuth) during installation**: no hace falta.
 - **Permisos**: Organization → Members: *Read-only* (equipos del usuario para
-  roles por equipo). Sin ese permiso la consola funciona, pero solo resuelve
-  roles asignados a personas.
+  roles por equipo). Sin ese permiso la consola y el arnés funcionan, pero solo
+  resuelven roles asignados a personas.
 - Instalarla en la organización de GitHub cuyos equipos se usen en roles.
 
-El token de usuario de GitHub solo se usa dentro del callback (leer el usuario
-y sus equipos) y se descarta.
+En el inicio de sesión, el token de usuario de GitHub solo se usa dentro del
+callback (leer el usuario y sus equipos) y se descarta. Cuando alguien presenta
+su propio token de GitHub (el del arnés por MCP, o un script) el servidor lo usa
+solo para identificarlo (`GET /user`) y leer sus equipos (`GET /user/teams`, el
+mismo permiso de arriba, o el alcance `read:org` en un token OAuth); guarda el
+resultado cinco minutos bajo el hash del token y nunca el token.
 
 ## Variables de entorno
 
@@ -87,7 +91,9 @@ con token de desarrollo, solo para entornos sin GitHub App.
   que usa el chat. Un token de sesión (cookie) no vale como Bearer.
 - **Bearer en la consola**: `/consola/api` también acepta
   `Authorization: Bearer` (token de GitHub, de desarrollo o `rsc1`) para
-  scripts; sin cookie no hace falta la cabecera anti-CSRF.
+  scripts; sin cookie no hace falta la cabecera anti-CSRF. Con token de GitHub
+  o `rsc1` los equipos cuentan igual que en la sesión; los tokens de desarrollo
+  no tienen equipos.
 - Cerrar sesión borra la cookie; un token ya emitido vale hasta su expiración.
 
 ## Autorización
@@ -106,16 +112,23 @@ oculta lo que el rol no permite, pero decide el servidor.
 | Crear organizaciones | administrador de la plataforma |
 
 Las tools llamadas desde la consola (`POST /consola/api/tools/{nombre}`) pasan
-por el mismo registro que MCP y `/v1/tools`. El token `rsc1` de
-`POST /consola/api/auth/token` lleva firmados los equipos leídos en el login,
-así que con él los roles de equipo valen igual en `/v1/tools`, `/v1/chat` y
-MCP: la identidad devuelve un actor con esos equipos y el autorizador los suma
-a las asignaciones de la persona (misma consulta que la consola). Los equipos
-no se guardan en el estado ni en la auditoría, un token vencido o con la carga
-alterada no es actor (401) y un rol de equipo vale solo en la organización y
-el workspace en que se asignó. Con un token de GitHub o de desarrollo directos
-(el del arnés) todavía no hay equipos: a quien use el arnés con ese token hay
-que asignarle el rol como persona.
+por el mismo registro que MCP y `/v1/tools`, y los roles de equipo valen igual
+por las tres vías: la identidad del token devuelve un actor con los equipos de
+GitHub de la persona y el autorizador los suma a las asignaciones personales
+(la misma consulta que usa la consola).
+
+| Token | Equipos |
+| --- | --- |
+| `rsc1` de `POST /consola/api/auth/token` (SPA y chat) | Los del login, firmados en el token. |
+| Token de GitHub (el del arnés por MCP, scripts) | `GET /user/teams` con ese mismo token, cacheado cinco minutos. Sin permiso o sin respuesta de GitHub, ninguno: el token sigue valiendo y cuentan las asignaciones personales. |
+| Token de desarrollo | Ninguno: asignar el rol como persona. |
+| OIDC de Actions | No aplica: el alcance lo fija la tool. |
+
+Los equipos no se guardan en el estado ni en la auditoría. Un token `rsc1`
+vencido o con la carga alterada no es actor (401), y un rol de equipo vale solo
+en la organización y el workspace en que se asignó. Un cambio de membresía se
+nota al renovar el token de GitHub (cinco minutos) o al volver a iniciar
+sesión (el `rsc1` conserva los equipos del login).
 
 ## Aprobaciones e integración (R7)
 
@@ -204,8 +217,6 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
 ## Pendiente
 
 - Sincronizar el catálogo de modelos por API de cada proveedor (hoy 501).
-- Roles por equipo en MCP y `/v1/tools` con el token de GitHub o de desarrollo del
-  arnés (no traen equipos; el token `rsc1` de la consola ya los lleva).
 - Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el
   repositorio; hoy la consola edita las `exclusiones` del vínculo).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).

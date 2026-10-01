@@ -1,7 +1,9 @@
 """Identidad del actor a partir del token (R2): nunca viaja en la entrada de la tool.
 
 - ``IdentidadGithub``: token de usuario de GitHub (OAuth de la GitHub App).
-  Resuelve ``github_id`` y login con ``GET /user`` y cachea por hash del token.
+  Resuelve ``github_id`` y login con ``GET /user`` y los equipos con
+  ``GET /user/teams`` (el mismo token y el mismo permiso que el inicio de
+  sesión de la consola); cachea por hash del token, sin guardarlo.
 - ``IdentidadDesarrollo``: tokens fijos por variable de entorno, solo para
   desarrollo sin GitHub App.
 
@@ -17,11 +19,13 @@ Roles por equipo (R3): una identidad que conoce los equipos de GitHub de la
 persona devuelve un ``ActorConEquipos``; el autorizador de roles los suma a
 las asignaciones de la persona. Sin equipos (token de desarrollo, OIDC) el
 actor es un ``Actor`` común y solo cuentan las asignaciones personales.
+Leer los equipos falla cerrado: sin permiso o sin respuesta de GitHub, ninguno.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 from datetime import datetime
 from typing import Any
@@ -30,6 +34,9 @@ from pydantic import Field
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, OidcGithubActions, TipoActor
 
 EMISOR_ACTIONS = "https://token.actions.githubusercontent.com"
+URL_EQUIPOS = "https://api.github.com/user/teams?per_page=100"
+
+log = logging.getLogger("railspec.api")
 
 
 class TokenInvalido(Exception):
@@ -54,6 +61,28 @@ def con_equipos(actor: Actor, equipos: frozenset[int]) -> Actor:
     if not equipos or actor.tipo != TipoActor.humano:
         return actor
     return ActorConEquipos(**actor.model_dump(), equipos=equipos)
+
+
+def equipos_de_usuario(cliente: Any, cabeceras: dict[str, str]) -> frozenset[int]:
+    """``equipo_id`` de los equipos del usuario del token (``GET /user/teams``, con paginación).
+
+    Necesita el permiso de la App (Members, lectura) o el alcance ``read:org``;
+    sin él, o ante una respuesta que no es la esperada, devuelve los que
+    haya leído hasta ahí (ninguno si falla la primera página).
+    """
+
+    equipos: set[int] = set()
+    url: str | None = URL_EQUIPOS
+    for _ in range(10):
+        if url is None:
+            break
+        r = cliente.get(url, headers=cabeceras)
+        cuerpo = r.json() if r.status_code == 200 else None
+        if not isinstance(cuerpo, list):
+            break
+        equipos.update(int(e["id"]) for e in cuerpo)
+        url = r.links.get("next", {}).get("url") if hasattr(r, "links") else None
+    return frozenset(equipos)
 
 
 class IdentidadDesarrollo:
@@ -82,7 +111,7 @@ class IdentidadGithub:
     def __init__(self, cliente: Any | None = None, ttl_s: int = 300) -> None:
         self._cliente = cliente
         self._ttl = ttl_s
-        self._cache: dict[str, tuple[float, str, int]] = {}
+        self._cache: dict[str, tuple[float, str, int, frozenset[int]]] = {}
 
     def actor_desde_token(self, token: str, canal: str) -> Actor:
         clave = hashlib.sha256(token.encode()).hexdigest()
@@ -92,17 +121,29 @@ class IdentidadGithub:
             import httpx
 
             cliente = self._cliente or httpx.Client(timeout=10)
-            r = cliente.get(
-                self.API,
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-            )
+            cabeceras = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+            r = cliente.get(self.API, headers=cabeceras)
             if r.status_code != 200:
                 raise TokenInvalido(f"GitHub rechazó el token ({r.status_code})")
             datos = r.json()
-            cacheado = (ahora + self._ttl, datos["login"], int(datos["id"]))
+            equipos = self._equipos(cliente, cabeceras)
+            cacheado = (ahora + self._ttl, datos["login"], int(datos["id"]), equipos)
             self._cache[clave] = cacheado
-        _, login, github_id = cacheado
-        return Actor(tipo=TipoActor.humano, canal=Canal(canal), github_id=github_id, login=login)
+        _, login, github_id, equipos = cacheado
+        actor = Actor(tipo=TipoActor.humano, canal=Canal(canal), github_id=github_id, login=login)
+        return con_equipos(actor, equipos)
+
+    @staticmethod
+    def _equipos(cliente: Any, cabeceras: dict[str, str]) -> frozenset[int]:
+        # El token ya autenticó a la persona: que no se puedan leer sus equipos (permiso, red) no
+        # invalida la sesión, solo deja los roles por equipo sin aplicar hasta el próximo refresco.
+        try:
+            return equipos_de_usuario(cliente, cabeceras)
+        except Exception as exc:
+            log.warning(
+                "no se pudieron leer los equipos de GitHub (%s); sin roles por equipo", type(exc).__name__
+            )
+            return frozenset()
 
     def workspaces_visibles(self, actor: Actor, org: str) -> list[AlcanceWorkspace]:
         return []

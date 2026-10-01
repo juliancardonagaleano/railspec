@@ -20,7 +20,7 @@ from fastapi import HTTPException, Request
 from railspec.contracts.comun import Actor, AlcanceWorkspace
 from railspec.contracts.repositorio import Auditoria, EventoAuditoria, RegistroAuditoria, Rol
 
-from ..api.identidad import TokenInvalido, token_de_cabecera
+from ..api.identidad import ActorConEquipos, TokenInvalido, token_de_cabecera
 from .almacen import WORKSPACE_ORG, AlmacenConsola
 from .config import ConfigConsola
 from .github import ClienteGithub
@@ -74,7 +74,8 @@ class ContextoConsola:
                 actor = await asyncio.to_thread(self.identidad.actor_desde_token, token, "consola")
                 if actor.github_id is None or actor.login is None:
                     raise HTTPException(403, "la consola solo admite personas")
-                return Sesion(actor.login, actor.github_id, self.reloj())
+                equipos = actor.equipos if isinstance(actor, ActorConEquipos) else frozenset()
+                return Sesion(actor.login, actor.github_id, self.reloj(), equipos)
             cookie = request.cookies.get(COOKIE)
             if cookie is None:
                 raise HTTPException(401, "sin sesión")
