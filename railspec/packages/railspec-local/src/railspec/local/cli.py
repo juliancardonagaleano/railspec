@@ -7,6 +7,7 @@
 - ``railspec exportar`` e ``railspec importar``: una unidad a o desde un paquete en
   disco; ``importar`` también convierte a demanda unidades del kit SDD (``.spec/units/``).
 - ``railspec estado`` y ``railspec sync``: estado local y envío de la cola.
+- ``railspec hook <arnés>``: guardia de las reglas de conducta (la llaman los hooks del arnés).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from uuid import UUID
 
 from railspec.contracts.comun import Arnes, NivelCodigo
 
-from . import __version__, adaptadores, config, git
+from . import __version__, adaptadores, config, git, guardia
 from .almacen import EXCLUIR_DE_GIT
 from .cliente import ClienteServidor
 from .errores import ConfigInvalida, ErrorRailspec
@@ -117,12 +118,8 @@ def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
     if arneses and shutil.which(adaptadores.COMANDO_PROXY[0]) is None:
         avisos.append(
             f"`{adaptadores.COMANDO_PROXY[0]}` no está en el PATH: el arnés no podrá lanzar el proxy. "
-            "Instala railspec-local en un entorno cuyo PATH vea el arnés (pipx install railspec-local)."
-        )
-    if Arnes.opencode in arneses:
-        avisos.append(
-            f"OpenCode pedirá permiso la primera vez que toque {worktrees} (worktrees de las unidades): "
-            "respóndele que siempre."
+            "Pon el binario de la release en un PATH que vea el arnés (~/.local/bin/railspec) o instala "
+            "railspec-local con pipx; ver railspec/docs/proxy-local.md."
         )
     if Arnes.codex in arneses:
         avisos.append(
@@ -215,6 +212,34 @@ def _cmd_sync(args: argparse.Namespace) -> int:
     return 0 if not resultado["pendientes"] else 2
 
 
+def _cmd_hook(args: argparse.Namespace) -> int:
+    """Lee la entrada del hook por stdin y responde por stdout; ante un fallo, rechaza.
+
+    Siempre sale con 0: la decisión viaja en el JSON, que es lo que el arnés lee.
+    """
+
+    try:
+        respuesta = guardia.HOOKS[args.arnes_hook](json.loads(sys.stdin.read() or "{}"))
+    except Exception as exc:  # noqa: BLE001 - la guardia falla cerrada, con salida de emergencia
+        motivo = (
+            f"Railspec: la guardia falló ({exc}). Relanza el arnés con {guardia.ENV_GUARDIA}=0 para saltarla."
+        )
+        respuesta = (
+            {"decision": "deny", "motivo": motivo}
+            if args.arnes_hook == "opencode"
+            else {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": motivo,
+                }
+            }
+        )
+    if respuesta is not None:
+        print(json.dumps(respuesta, ensure_ascii=False))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="railspec", description="Proxy local de Railspec.")
     p.add_argument("--version", action="version", version=f"railspec-local {__version__}")
@@ -277,6 +302,10 @@ def parser() -> argparse.ArgumentParser:
     syn = sub.add_parser("sync", help="Envía la cola de reportes pendientes.")
     syn.add_argument("--unidad")
     syn.set_defaults(fn=_cmd_sync)
+
+    hook = sub.add_parser("hook", help="Guardia de las reglas de conducta; la llaman los hooks del arnés.")
+    hook.add_argument("arnes_hook", metavar="arnes", choices=sorted(guardia.HOOKS))
+    hook.set_defaults(fn=_cmd_hook)
     return p
 
 

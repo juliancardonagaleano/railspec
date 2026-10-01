@@ -18,6 +18,10 @@ configuración del arnés, y los permisos del arnés se ajustan para que el bucl
 corra sin preguntas pero todo lo que decide un humano (aprobar un checkpoint,
 cambiar de modo, integrar) pase siempre por su confirmación.
 
+Donde el arnés tiene hooks previos a cada tool, las reglas de conducta se
+aplican además con ``railspec hook <arnés>`` (ver ``guardia.py``): un hook
+``PreToolUse`` en Claude Code y un plugin en OpenCode.
+
 ``instalar``, ``verificar`` y ``desinstalar`` son idempotentes y solo tocan lo
 de Railspec: la entrada ``railspec`` de cada JSON, los permisos que añadió y el
 bloque entre marcadores.
@@ -32,6 +36,7 @@ from pathlib import Path
 
 from railspec.contracts.comun import Arnes
 
+from .. import guardia
 from ..errores import ErrorRailspec
 from .piezas import (
     FIN_BLOQUE,
@@ -40,6 +45,7 @@ from .piezas import (
     ArchivoPropio,
     BloqueReglas,
     ElementosLista,
+    EntradaHook,
     EntradaJson,
     Pieza,
     leer_jsonc,
@@ -78,10 +84,20 @@ TOOLS_AUTOMATICAS = (
     "railspec_sync",
 )
 #: Tools que registran una decisión humana: el arnés pide confirmación siempre.
-TOOLS_HUMANAS = ("unit_approve", "unit_set_mode", "unit_integrate")
+TOOLS_HUMANAS = guardia.TOOLS_HUMANAS
+
+#: Tools de Claude Code que la guardia revisa: las que escriben archivos y las humanas.
+HOOK_CLAUDE_CODE = {
+    "matcher": "|".join(
+        ["Write", "Edit", "MultiEdit", "NotebookEdit"] + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]
+    ),
+    "hooks": [{"type": "command", "command": "railspec hook claude-code", "timeout": 30}],
+}
 
 
 def plantilla(nombre: str) -> str:
+    """Texto de una plantilla del paquete (``plantillas/<nombre>``)."""
+
     return files(__package__).joinpath("plantillas", nombre).read_text(encoding="utf-8")
 
 
@@ -137,6 +153,8 @@ class Adaptador:
             ElementosLista(
                 compartido, ("permissions", "ask"), tuple(f"mcp__railspec__{t}" for t in TOOLS_HUMANAS)
             ),
+            # Reglas de conducta aplicadas: escrituras fuera de la orden y decisiones humanas.
+            EntradaHook(compartido, ("hooks", "PreToolUse"), HOOK_CLAUDE_CODE, "railspec hook "),
             # Por máquina: confiar en el `.mcp.json` del proyecto y abrir la carpeta de worktrees.
             ElementosLista(local, ("enabledMcpjsonServers",), (NOMBRE_SERVIDOR,)),
         ]
@@ -169,6 +187,8 @@ class Adaptador:
             )
             for t in TOOLS_HUMANAS
         ]
+        # Reglas de conducta aplicadas por plugin (`tool.execute.before`) y permiso de los worktrees.
+        piezas.append(ArchivoPropio(".opencode/plugins/railspec.js", plantilla("plugin-opencode.js")))
         # Rutas de versiones anteriores del adaptador (carpetas en singular).
         piezas += [
             ArchivoLegado(".opencode/command/railspec.md"),
