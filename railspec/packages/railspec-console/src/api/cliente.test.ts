@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { construirUrl, ErrorApi, fijarRedireccionLogin, invocarTool, pedir, rutaActualSpa, urlLogin } from "./cliente";
+import { construirUrl, ErrorApi, esSinContrato14, fijarRedireccionLogin, invocarTool, pedir, rutaActualSpa, urlLogin } from "./cliente";
 
 function respuesta(status: number, cuerpo?: unknown): Response {
   return new Response(cuerpo === undefined ? null : JSON.stringify(cuerpo), {
@@ -96,6 +96,26 @@ describe("cliente de la API", () => {
   it("construye URLs con consulta omitiendo vacíos", () => {
     expect(construirUrl("/orgs/a/roles", { workspace: undefined })).toBe("/consola/api/orgs/a/roles");
     expect(construirUrl("/x", { workspace: "w s", vacio: "", n: 3 })).toBe("/consola/api/x?workspace=w+s&n=3");
+  });
+
+  it("solo un servidor anterior a 1.4 cuenta como sin contrato 1.4", () => {
+    // Pydantic rechaza el verbo `impact`/`trace` desconocido: 422 con un único error en `consulta`.
+    const verboDesconocido = new ErrorApi(422, {
+      detalle: "entrada fuera de contrato",
+      errores: [{ ruta: "consulta", mensaje: "Input tag 'impact' found using 'verbo' does not match any of the expected tags" }],
+    });
+    expect(esSinContrato14(verboDesconocido)).toBe(true);
+    // Servidor 1.4: un 422 por un campo concreto no es falta de contrato.
+    const campoInvalido = new ErrorApi(422, {
+      detalle: "entrada fuera de contrato",
+      errores: [{ ruta: "consulta.trace.criterio", mensaje: "String should match pattern '^CA-[0-9]{2,3}$'" }],
+    });
+    expect(esSinContrato14(campoInvalido)).toBe(false);
+    // Servidor 1.4 sin grafo: la tool `graph.query` no está registrada (404 no-encontrado).
+    const sinGrafo = new ErrorApi(404, { codigo: "no-encontrado", detalle: "tool graph.query no disponible" });
+    expect(esSinContrato14(sinGrafo)).toBe(false);
+    expect(esSinContrato14(new ErrorApi(403, { codigo: "fuera-de-alcance", detalle: "sin rol" }))).toBe(false);
+    expect(esSinContrato14(new Error("red"))).toBe(false);
   });
 
   it("la ruta de vuelta es relativa a la SPA", () => {

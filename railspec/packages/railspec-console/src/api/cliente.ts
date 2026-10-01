@@ -145,11 +145,15 @@ export function invocarTool<S, E = unknown>(nombre: string, entrada: E, senal?: 
 }
 
 /**
- * ¿El servidor aún no habla el contrato 1.4? (verbos `impact`/`trace` de graph.query):
- * responde 422 (entrada fuera de contrato) o 404.
+ * ¿El servidor aún no habla el contrato 1.4? (verbos `impact`/`trace` de graph.query).
+ * Un servidor anterior rechaza el verbo desconocido con 422 y un único error en la
+ * ruta `consulta` (la unión discriminada por `verbo`). No vale cualquier 422 ni un 404:
+ * un servidor 1.4 responde 422 con rutas más profundas (`consulta.trace.criterio`) y 404
+ * `no-encontrado` si no tiene grafo (la tool `graph.query` no se registra); ninguno de
+ * los dos es falta de contrato y deben verse como error.
  */
 export function esSinContrato14(error: unknown): boolean {
-  return error instanceof ErrorApi && (error.status === 422 || error.status === 404);
+  return error instanceof ErrorApi && error.status === 422 && error.errores.some((e) => e.ruta === "consulta");
 }
 
 /** Texto legible de cualquier error para mostrarlo en la interfaz. */
