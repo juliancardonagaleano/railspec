@@ -39,11 +39,29 @@ def montar_consola(app: Any, ctx: Any) -> None:
 
     @app.get(RUTA_SPA + "/{ruta:path}", include_in_schema=False)
     async def _spa(ruta: str):
-        archivo = (raiz / ruta).resolve()
-        if ruta and archivo.is_file() and archivo.is_relative_to(raiz):
+        archivo = _archivo_de_la_spa(raiz, ruta)
+        if archivo is not None:
             cache = "public, max-age=31536000, immutable" if ruta.startswith("assets/") else "no-cache"
             return FileResponse(archivo, headers={"Cache-Control": cache})
         return FileResponse(indice, headers={"Cache-Control": "no-cache"})
+
+
+def _archivo_de_la_spa(raiz: Path, ruta: str) -> Path | None:
+    """El archivo estático de ``ruta`` dentro de ``raiz``; None si no existe o sale de la carpeta.
+
+    Una ruta con byte nulo (``/consola/%00``) o ilegible para el sistema de archivos no es un
+    archivo: cae en ``index.html`` como cualquier ruta del cliente, no en un 500.
+    """
+
+    if not ruta:
+        return None
+    try:
+        archivo = (raiz / ruta).resolve()
+        if archivo.is_file() and archivo.is_relative_to(raiz):
+            return archivo
+    except (ValueError, OSError):
+        pass
+    return None
 
 
 __all__ = ["ConfigConsola", "ConfigGithubApp", "montar_consola"]

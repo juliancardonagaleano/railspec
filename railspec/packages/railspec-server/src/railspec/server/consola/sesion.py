@@ -72,7 +72,7 @@ class Firmador:
         self._reloj = reloj or (lambda: datetime.now(UTC))
 
     def _firma(self, texto: str) -> str:
-        return _b64(hmac.new(self._clave, texto.encode(), hashlib.sha256).digest())
+        return _b64(hmac.new(self._clave, texto.encode("utf-8", "replace"), hashlib.sha256).digest())
 
     def firmar(self, datos: dict[str, Any]) -> str:
         carga = _b64(json.dumps(datos, separators=(",", ":"), sort_keys=True).encode())
@@ -82,13 +82,16 @@ class Firmador:
         partes = token.split(".")
         if len(partes) != 3 or partes[0] != PREFIJO:
             raise TokenInvalido("token de consola mal formado")
-        if not hmac.compare_digest(self._firma(f"{partes[0]}.{partes[1]}"), partes[2]):
+        # Bytes, no texto: compare_digest lanza TypeError con un ``str`` no ASCII.
+        esperada = self._firma(f"{partes[0]}.{partes[1]}").encode()
+        if not hmac.compare_digest(esperada, partes[2].encode("utf-8", "replace")):
             raise TokenInvalido("firma de token de consola inválida")
         try:
             datos = json.loads(_desb64(partes[1]))
-        except ValueError as exc:
+            caduca = float(datos.get("exp", 0)) if isinstance(datos, dict) else 0.0
+        except (ValueError, TypeError) as exc:
             raise TokenInvalido("carga de token de consola ilegible") from exc
-        if not isinstance(datos, dict) or float(datos.get("exp", 0)) <= self._reloj().timestamp():
+        if caduca <= self._reloj().timestamp():
             raise TokenInvalido("token de consola expirado")
         return datos
 
