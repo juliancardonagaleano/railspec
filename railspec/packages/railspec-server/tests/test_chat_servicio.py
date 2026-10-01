@@ -524,3 +524,34 @@ def test_unit_start_rechaza_insumo_de_otro_workspace_o_inexistente():
             assert r.status_code == 404 and r.json()["codigo"] == "no-encontrado"
 
     correr(caso)
+
+
+def test_proveedores_con_catalogo_se_refrescan_por_organizacion():
+    """Compatibilidad con la selección por catálogo: ``refrescar(org)`` y ``elegir(..., org=)``."""
+
+    from railspec.server.chat.servicio import ConfigChat, ServicioChat
+
+    llamadas = []
+
+    class ConCatalogo(Proveedores):
+        async def refrescar(self, org):
+            llamadas.append(("refrescar", org))
+
+        def elegir(self, rol, requisito, nivel, *, org=None, zona=None):
+            llamadas.append(("elegir", org))
+            return super().elegir(rol, requisito, nivel)
+
+    proveedor = ProveedorGuionado(Guion(), region="eastus2")
+    servicio = ServicioChat(
+        almacen=None,
+        chat=None,
+        registro=None,
+        autorizador=None,
+        proveedores=ConCatalogo({Proveedor.foundry: proveedor}),
+        config=ConfigChat(zona_datos=frozenset({"eastus2"})),
+    )
+    elegido, modelo, _ = asyncio.run(
+        servicio._elegir(ORG, NivelCodigo.restringido, {"modelos": None, "azure": True})
+    )
+    assert elegido is proveedor and modelo == "claude-sonnet-5-5"
+    assert llamadas == [("refrescar", ORG), ("elegir", ORG)]

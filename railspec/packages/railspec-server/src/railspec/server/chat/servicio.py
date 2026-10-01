@@ -22,7 +22,9 @@ de lo enviado, igual que en el motor.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
+import inspect
 import json
 import logging
 import time
@@ -297,12 +299,23 @@ class ServicioChat:
 
     # --- modelo ----------------------------------------------------------------------------------
 
-    async def _elegir(self, nivel: NivelCodigo, restricciones: dict[str, Any]) -> tuple[Any, str]:
+    async def _elegir(
+        self, org: str, nivel: NivelCodigo, restricciones: dict[str, Any]
+    ) -> tuple[Any, str, dict[str, Any]]:
+        """Proveedor, modelo y campos extra de ``PeticionModelo`` (despliegue y región si existen).
+
+        Compatible con ``Proveedores`` con o sin catálogo: si tiene ``refrescar`` se
+        llama antes de elegir, y ``org`` solo se pasa si la firma lo acepta.
+        """
+
         refrescar = getattr(self.proveedores, "refrescar", None)
         if refrescar is not None:
-            await refrescar()
+            await (refrescar(org) if "org" in inspect.signature(refrescar).parameters else refrescar())
+        extra_elegir = {"org": org} if "org" in inspect.signature(self.proveedores.elegir).parameters else {}
         try:
-            eleccion = self.proveedores.elegir("chat", RequisitoRol(modelo=self.config.modelos), nivel)
+            eleccion = self.proveedores.elegir(
+                "chat", RequisitoRol(modelo=self.config.modelos), nivel, **extra_elegir
+            )
         except PerfilInsatisfacible as exc:
             raise ErrorChat(CodigoError.perfil_insatisfacible.value, str(exc), 422) from exc
         if restricciones["modelos"] is not None and eleccion.modelo not in restricciones["modelos"]:
@@ -325,7 +338,11 @@ class ServicioChat:
                     f"la región {region} no está en la zona de datos configurada para el chat",
                     422,
                 )
-        return eleccion.proveedor, eleccion.modelo
+        campos = {f.name for f in dataclasses.fields(PeticionModelo)}
+        extra = {
+            c: getattr(eleccion, c) for c in ("despliegue", "region") if c in campos and hasattr(eleccion, c)
+        }
+        return eleccion.proveedor, eleccion.modelo, extra
 
     def _registrar_llamada(self, conv: Conversacion, respuesta: Any, sha_enviado: str, paso: int) -> None:
         ahora = self.reloj()
@@ -471,7 +488,7 @@ class ServicioChat:
             raise ErrorChat("pregunta-invalida", "la pregunta debe tener entre 1 y 8000 caracteres", 422)
         vinculos = self._vinculos(conv)
         nivel, politica, restricciones = politica_efectiva(vinculos)
-        proveedor, modelo = await self._elegir(nivel, restricciones)
+        proveedor, modelo, extra = await self._elegir(conv.alcance.org, nivel, restricciones)
         previos = self.chat.mensajes(id_)
         m_usuario = MensajeChat(
             id=self.nuevo_id(),
@@ -487,7 +504,7 @@ class ServicioChat:
         async def flujo() -> AsyncIterator[Evento]:
             yield Evento("pregunta", _dump(m_usuario))
             async for evento in self._bucle(
-                conv, meta, actor, previos, pregunta, proveedor, modelo, politica
+                conv, meta, actor, previos, pregunta, proveedor, modelo, politica, extra
             ):
                 yield evento
 
@@ -503,6 +520,7 @@ class ServicioChat:
         proveedor: Any,
         modelo: str,
         politica: gate_salida.PoliticaGate,
+        extra: dict[str, Any] | None = None,
     ) -> AsyncIterator[Evento]:
         prompt_sistema = sistema(self.tools)
         huellas = self.chat.huellas(conv.id)
@@ -535,6 +553,7 @@ class ServicioChat:
                 max_tokens=self.config.max_tokens,
                 etiqueta="chat.agente",
                 metadatos={"conversacion": str(conv.id)},
+                **(extra or {}),
             )
             try:
                 respuesta = await proveedor.completar(peticion)
