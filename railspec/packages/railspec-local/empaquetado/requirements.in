@@ -5,6 +5,7 @@
 # railspec/packages/railspec-local/empaquetado/bloquear.sh.
 pydantic>=2.7,<3
 mcp>=2.2,<3
+pyyaml>=6
 setuptools==80.9.0
 pyinstaller==6.22.3
 # PyInstaller la pide solo en macOS. pip-compile descarta los requisitos cuyo

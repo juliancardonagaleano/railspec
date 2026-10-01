@@ -422,11 +422,15 @@ class Gate(Nodo):
                 tope=tope,
                 nivel=nivel,
                 hallazgos_previos=previos,
+                org=self.alcance.org,
+                zona=self.n.zona(estado),
             )
             panel = await evaluar_panel(entrada, self.n.proveedores, datos.siguiente_hallazgo)
-            if panel.llamadas:
+            if panel.llamadas or panel.fallidas:
                 self.n.escribir(
-                    self.alcance, lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas), anunciar=False
+                    self.alcance,
+                    lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas, fallidas=panel.fallidas),
+                    anunciar=False,
                 )
             if panel.error:
                 await self.escalar(
@@ -522,15 +526,17 @@ class Gate(Nodo):
         self.cerrar_gate(fase, resultado)
         await ctx.send_message(GateEscalado(fase=fase, motivo=motivo[:1500]), target_id="decision")
 
-    def impacto_grafo(self, estado) -> str:
-        """Impacto aguas arriba de la superposición de la unidad (railspec-graph), si hay grafo.
+    def impacto_grafo(self, estado, extraido=None) -> str:
+        """Comparación base contra snapshot y trazas ``CA-NN`` de la unidad (railspec-graph), si hay grafo.
 
-        ``impacto_superposicion`` no es parte de ``GraphStore``: se usa si el
-        almacén de grafo lo ofrece. Un fallo del grafo no bloquea el gate.
+        ``impacto`` y ``trazas`` no son parte de ``GraphStore``: se usan si el
+        almacén de grafo los ofrece (``impacto_superposicion`` es la forma
+        anterior). El grafo informa a los críticos, no decide: un fallo suyo
+        no bloquea el gate y ningún hallazgo determinista sale de aquí.
         """
 
-        impacto = getattr(self.n.grafo, "impacto_superposicion", None)
-        if impacto is None:
+        g = self.n.grafo
+        if g is None:
             return ""
         from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace
         from railspec.contracts.tools import ConsultaResolve, GraphQueryEntrada
@@ -546,23 +552,40 @@ class Gate(Nodo):
             consulta=ConsultaResolve(nombre="*"),
         )
         try:
-            tocados, alcanzados = impacto(consulta, visibles)
+            if hasattr(g, "impacto"):
+                i = g.impacto(consulta, visibles)
+                tocados, alcanzados, riesgo, procesos = i.tocados, i.afectados, i.riesgo, i.procesos
+            elif hasattr(g, "impacto_superposicion"):
+                tocados, alcanzados = g.impacto_superposicion(consulta, visibles)
+                riesgo, procesos = (alcanzados[0].riesgo if alcanzados else "bajo"), []
+            else:
+                return ""
+            trazas = [t for v in visibles for t in g.trazas(v, a.unidad)] if hasattr(g, "trazas") else None
         except Exception as exc:  # el grafo informa, no decide
             log.warning("impacto de grafo no disponible para %s: %s", a.unidad, exc)
             return ""
-        if not tocados:
-            return ""
-        riesgo = alcanzados[0].riesgo if alcanzados else "bajo"
-        lineas = [
-            f"Impacto en el grafo (riesgo {riesgo}): {len(tocados)} símbolos tocados, "
-            f"{len(alcanzados)} afectados aguas arriba."
-        ]
-        for r in alcanzados[:100]:
-            ref = r.ref
-            nombre = getattr(ref, "nombre", None) or getattr(ref, "ruta", None) or ref.tipo
-            rel = r.relacion.value if r.relacion else "?"
-            lineas.append(f"- {nombre} ({rel}, distancia {r.distancia})")
-        return "\n".join(lineas)
+        partes = []
+        if tocados:
+            lineas = [
+                f"Impacto en el grafo (riesgo {riesgo}): {len(tocados)} símbolos tocados, "
+                f"{len(alcanzados)} afectados aguas arriba, {len(procesos)} procesos tocados."
+            ]
+            for r in alcanzados[:100]:
+                ref = r.ref
+                nombre = getattr(ref, "nombre", None) or getattr(ref, "ruta", None) or ref.tipo
+                rel = r.relacion.value if r.relacion else "?"
+                lineas.append(f"- {nombre} ({rel}, distancia {r.distancia})")
+            partes.append("\n".join(lineas))
+        if trazas is not None and extraido is not None and extraido.criterios:
+            por_criterio: dict[str, int] = {}
+            for t in trazas:
+                por_criterio[t.criterio] = por_criterio.get(t.criterio, 0) + 1
+            lineas = ["Trazas CA-NN (símbolos cambiados por las tareas de cada criterio):"]
+            for c in extraido.criterios:
+                n = por_criterio.get(c.id, 0)
+                lineas.append(f"- {c.id}: {n} símbolos" if n else f"- {c.id}: sin símbolos enlazados")
+            partes.append("\n".join(lineas))
+        return "\n\n".join(partes)
 
     def material_codigo(self, datos: DatosUnidad, nivel: NivelCodigo, estado) -> tuple[str, list[Hallazgo]]:
         """Resumen del cambio para los críticos; en ``restringido`` no hay texto de código."""
@@ -621,7 +644,7 @@ class Gate(Nodo):
         ]
         if simbolos:
             partes.append("Símbolos tocados:\n" + "\n".join(f"- {s}" for s in simbolos[:400]))
-        impacto = self.impacto_grafo(estado)
+        impacto = self.impacto_grafo(estado, datos.extraido)
         if impacto:
             partes.append(impacto)
         if diffs:

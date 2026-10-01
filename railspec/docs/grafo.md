@@ -18,7 +18,7 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 | `almacen` | `AlmacenGrafo` (`GraphStore`) y `AlmacenVectores` (`VectorStore`), con superposiciones por unidad. |
 | `analitica` | Clusters (Louvain con semilla fija), procesos desde puntos de entrada y nivel de riesgo. |
 | `rag` | `RecuperadorContexto`: k-NN por repositorio visible y expansión por el grafo; devuelve referencias. |
-| `ingesta` | `ingerir_snapshot`: aplica el delta de un snapshot con la política del vínculo. |
+| `ingesta` | `ingerir_snapshot`: aplica el delta de un snapshot con la política del vínculo y enlaza los `CA-NN` de las tareas completadas. |
 | `indexado` | `IndexadorCanonico`: `graph.index`, el canónico por lotes desde CI (contrato 1.1). |
 
 ## Espacios de nombres
@@ -44,10 +44,52 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
   su delta siempre es base..árbol de trabajo. Sus borrados son lápidas que
   ocultan símbolos y aristas del canónico.
 - Una consulta con `unidad` ve canónico más superposición; sin ella, solo
-  canónico. `descartar_superposicion` la borra al integrarse la unidad.
-- `impacto_superposicion` da los símbolos que la unidad toca y lo que
-  afectan aguas arriba con su riesgo: la comparación base contra snapshot
-  que usa el gate de código.
+  canónico. El servidor llama `descartar_superposicion` en `unit.integrate`:
+  desde ahí el código de la unidad llega al canónico con el reindexado de CI.
+- El servidor ingiere cada snapshot de `unit.report` con
+  `AlmacenGrafo.ingerir` (es decir, `ingerir_snapshot`): las exclusiones del
+  vínculo se vuelven a aplicar en el servidor. Un fallo del grafo se registra
+  y no tumba el reporte, que ya está guardado.
+
+## Comparación base contra snapshot (impacto)
+
+`AlmacenGrafo.impacto(consulta, visibles, profundidad=3)` devuelve un
+`Impacto`:
+
+- `tocados`: lo que la superposición cambia (símbolos con upsert y lápidas);
+  `refs_tocados` los resuelve, un borrado contra el canónico.
+- `afectados`: aguas arriba de los tocados por las relaciones de dependencia,
+  sin los propios tocados, con distancia y relación de llegada.
+- `procesos`: procesos que pasan por tocados o afectados.
+- `riesgo`: la regla de abajo sobre afectados y procesos, así que un cambio
+  sin nada aguas arriba que toca muchos procesos ya no sale `bajo`.
+
+El gate de código lo pone en el material de los críticos (riesgo, cuentas y
+hasta 100 afectados). Informa, no decide: no genera hallazgos deterministas,
+porque un hallazgo determinista se salta el panel y un riesgo alto no tiene
+"arreglo" que el implementador pueda aplicar. `impacto_superposicion` queda
+como forma anterior `(tocados, afectados)`.
+
+La comparación es contra el canónico vigente, no contra el commit base de la
+unidad: si el canónico avanzó, el impacto se mide sobre el código de hoy.
+
+## Trazabilidad CA-NN
+
+Cada `unit.report` de una orden `implementar` con snapshot enlaza los
+criterios de las tareas que completa con los símbolos que **ese** snapshot
+cambió respecto del anterior de la misma unidad (sha256 distinto, símbolo
+nuevo o lápida nueva). Como el delta del snapshot es siempre base..árbol de
+trabajo, lo que un grupo anterior ya había cambiado no se atribuye al nuevo.
+
+- Las trazas `(unidad, criterio, símbolo)` viven en un grafo aparte por
+  repositorio, `railspec:<org>:<workspace>:<repositorio>:t`, que sobrevive a
+  reindexados y al descarte de la superposición; se borra con el
+  repositorio. Se acumulan: un reporte posterior no borra las anteriores.
+- Las exclusiones del vínculo se aplican antes de enlazar.
+- El gate de código lista por criterio cuántos símbolos tiene enlazados, o
+  "sin símbolos enlazados", para el crítico de cumplimiento.
+- Un símbolo trazado que ya no existe (borrado, o de una superposición
+  descartada que nunca llegó al canónico) no aparece al consultar.
 
 ## Consultas (`graph.query`)
 
@@ -57,6 +99,19 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 | `search` | Subcadena del nombre, filtrable por tipo; con `semantica`, también k-NN con el `vector_b64` que calcula el proxy (1.1) o, si falta, con un `CodificadorConsulta` del servidor. |
 | `traverse` | BFS por relaciones con distancia y relación de llegada; aguas arriba lleva riesgo. |
 | `related` | Clusters y procesos del símbolo, sus vecinos directos y sus compañeros de cluster. |
+| `impact` (1.4) | Exige `unidad`. Tocados con `distancia` 0 y afectados aguas arriba con `distancia` ≥ 1 y `relacion`, todos con el `riesgo` de `Impacto`. `profundidad` 1 a 5 (3). |
+| `trace` (1.4) | Con `criterio` (exige `unidad`): `RefSimbolo` de los símbolos enlazados, por ruta y nombre. Con `simbolo`: `RefCriterio` de cada unidad y criterio que lo tocó (filtrado por `unidad` si viene). |
+
+Ejemplos para la consola (navegador del grafo y trazabilidad):
+
+```json
+{"alcance": {"org": "acme", "workspace": "certificados"}, "unidad": "0001-emitir-pdf",
+ "consulta": {"verbo": "impact", "profundidad": 3}}
+{"alcance": {"org": "acme", "workspace": "certificados"}, "unidad": "0001-emitir-pdf",
+ "consulta": {"verbo": "trace", "criterio": "CA-01"}}
+{"alcance": {"org": "acme", "workspace": "certificados"},
+ "consulta": {"verbo": "trace", "simbolo": "<sha256 del símbolo>"}}
+```
 
 Riesgo aguas arriba, por símbolos afectados (a) y procesos tocados (p):
 `critico` si a ≥ 50 o p ≥ 10; `alto` si a ≥ 20 o p ≥ 5; `medio` si a ≥ 5 o
@@ -114,10 +169,9 @@ RAILSPEC_FALKORDB_URL=redis://localhost:6379 python -m pytest railspec/packages/
 Con `RAILSPEC_FALKORDB_URL` cada prueba corre también contra FalkorDB real,
 en una organización propia que se borra al terminar.
 
-## Pendiente fuera de este paquete
+## Pendiente
 
-- **Enlace con CA-NN.** Vincular símbolos tocados con criterios del spec
-  depende de datos del motor DAG; queda para cuando exista.
-- **Cableado en el servidor.** `railspec-server` expone `graph.query` y
-  `graph.index` con estas clases y calcula los repositorios visibles del
-  actor; es del hilo del motor.
+- La superposición se descarta en `unit.integrate`, antes de que el
+  reindexado de CI traiga el commit integrado: en ese intervalo el canónico
+  aún no tiene el código de la unidad. Cerrarlo exige saber el commit de
+  integración (hoy `unit.integrate` solo trae `pr_url`).

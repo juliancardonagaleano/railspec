@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict
 
 #: Versión del contrato. Mayor cambia solo con rupturas; menor añade campos
 #: opcionales. Ver ``railspec/docs/contratos.md`` § Versionado.
-VERSION_CONTRATO = "1.3"
+VERSION_CONTRATO = "1.4"
 VERSION_MAYOR = 1
 
-VersionContrato = Literal["1.0", "1.1", "1.2", "1.3"]
+VersionContrato = Literal["1.0", "1.1", "1.2", "1.3", "1.4"]
 
 
 class Contrato(BaseModel):

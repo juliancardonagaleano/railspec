@@ -2,10 +2,16 @@
 
 Cada arnés recibe lo mismo, en su formato:
 
-1. Comando de arranque ``/railspec`` (llama ``unit_start``).
+1. Comando de arranque ``/railspec`` (llama ``unit_start``); en Codex y Copilot,
+   que no tienen comandos del proyecto, es la skill ``railspec``.
 2. Skill ``railspec-bucle`` (``unit_advance`` → ejecutar → ``unit_report``).
 3. Reglas de conducta, en un bloque delimitado del archivo de instrucciones
    del arnés (``CLAUDE.md`` o ``AGENTS.md``) que se reemplaza sin tocar el resto.
+
+Segunda ola: Codex (``adaptadores/codex``) y GitHub Copilot CLI
+(``adaptadores/copilot``). Varios arneses comparten piezas idénticas (el bloque
+de ``AGENTS.md``; la entrada de ``.mcp.json`` en Claude Code y Copilot):
+desinstalar uno no quita lo que otro instalado sigue usando.
 
 Además, el proxy queda registrado como servidor MCP por stdio en la
 configuración del arnés, y los permisos del arnés se ajustan para que el bucle
@@ -23,6 +29,7 @@ bloque entre marcadores.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -110,6 +117,8 @@ class Adaptador:
     ruta_comando: str
     ruta_skill: str
     archivo_reglas: str
+    #: Arneses de la segunda ola: construyen sus piezas en su propio módulo.
+    fabrica: Callable[[Path, Path | None], list[Pieza]] | None = None
 
     def archivo_mcp(self, raiz: Path) -> str:
         if self.arnes != Arnes.opencode:
@@ -121,6 +130,8 @@ class Adaptador:
         return "opencode.jsonc"
 
     def piezas(self, raiz: Path, dir_worktrees: Path | None) -> list[Pieza]:
+        if self.fabrica is not None:
+            return self.fabrica(raiz, dir_worktrees)
         comunes: list[Pieza] = [
             ArchivoPropio(self.ruta_comando, _comando(self.arnes)),
             ArchivoPropio(self.ruta_skill, plantilla("skill-bucle.md")),
@@ -134,11 +145,7 @@ class Adaptador:
         compartido = ".claude/settings.json"
         local = ".claude/settings.local.json"
         piezas: list[Pieza] = [
-            EntradaJson(
-                ".mcp.json",
-                ("mcpServers", NOMBRE_SERVIDOR),
-                {"type": "stdio", "command": COMANDO_PROXY[0], "args": COMANDO_PROXY[1:]},
-            ),
+            _entrada_mcp_json(),
             ElementosLista(
                 compartido, ("permissions", "allow"), tuple(f"mcp__railspec__{t}" for t in TOOLS_AUTOMATICAS)
             ),
@@ -190,6 +197,43 @@ class Adaptador:
         return piezas
 
 
+def _entrada_mcp_json() -> EntradaJson:
+    """``.mcp.json`` del proyecto: el mismo para Claude Code y Copilot."""
+
+    return EntradaJson(
+        ".mcp.json",
+        ("mcpServers", NOMBRE_SERVIDOR),
+        {"type": "stdio", "command": COMANDO_PROXY[0], "args": COMANDO_PROXY[1:]},
+    )
+
+
+def _piezas_codex(raiz: Path, dir_worktrees: Path | None) -> list[Pieza]:
+    from . import codex
+
+    return codex.piezas(
+        plantilla("comando.md"),
+        plantilla("skill-bucle.md"),
+        plantilla("reglas.md"),
+        NOMBRE_SERVIDOR,
+        COMANDO_PROXY,
+        TOOLS_AUTOMATICAS,
+        TOOLS_HUMANAS,
+    )
+
+
+def _piezas_copilot(raiz: Path, dir_worktrees: Path | None) -> list[Pieza]:
+    from . import copilot
+
+    return copilot.piezas(
+        plantilla("comando.md"),
+        plantilla("skill-bucle.md"),
+        plantilla("reglas.md"),
+        _entrada_mcp_json(),
+        NOMBRE_SERVIDOR,
+        TOOLS_AUTOMATICAS,
+    )
+
+
 ADAPTADORES: dict[Arnes, Adaptador] = {
     Arnes.claude_code: Adaptador(
         arnes=Arnes.claude_code,
@@ -203,13 +247,27 @@ ADAPTADORES: dict[Arnes, Adaptador] = {
         ruta_skill=".opencode/skills/railspec-bucle/SKILL.md",
         archivo_reglas="AGENTS.md",
     ),
+    Arnes.codex: Adaptador(
+        arnes=Arnes.codex,
+        ruta_comando=".agents/skills/railspec/SKILL.md",
+        ruta_skill=".agents/skills/railspec-bucle/SKILL.md",
+        archivo_reglas="AGENTS.md",
+        fabrica=_piezas_codex,
+    ),
+    Arnes.copilot: Adaptador(
+        arnes=Arnes.copilot,
+        ruta_comando=".github/skills/railspec/SKILL.md",
+        ruta_skill=".github/skills/railspec-bucle/SKILL.md",
+        archivo_reglas="AGENTS.md",
+        fabrica=_piezas_copilot,
+    ),
 }
 
 
 def _adaptador(arnes: Arnes) -> Adaptador:
     if arnes not in ADAPTADORES:
         raise ErrorRailspec(
-            f"No hay adaptador para {arnes.value} todavía (primera ola: claude-code, opencode)."
+            f"No hay adaptador para {arnes.value}; disponibles: {', '.join(a.value for a in ADAPTADORES)}."
         )
     return ADAPTADORES[arnes]
 
@@ -236,18 +294,34 @@ def verificar(raiz: Path, arnes: Arnes, dir_worktrees: Path | None = None) -> li
     return _unicos([p.archivo for p in piezas if not p.instalada(raiz)])
 
 
-def desinstalar(raiz: Path, arnes: Arnes, dir_worktrees: Path | None = None) -> list[str]:
-    """Quita lo que el adaptador instaló y nada más; devuelve las rutas que cambiaron."""
+def desinstalar(
+    raiz: Path, arnes: Arnes, dir_worktrees: Path | None = None, quedan: list[Arnes] | None = None
+) -> list[str]:
+    """Quita lo que el adaptador instaló y nada más; devuelve las rutas que cambiaron.
 
+    Las piezas idénticas a las de un arnés que se queda (``quedan``; por
+    defecto, los demás instalados) se conservan.
+    """
+
+    if quedan is None:
+        quedan = [a for a in instalados(raiz) if a != arnes]
+    ajenas = [p for a in quedan if a != arnes for p in _adaptador(a).piezas(raiz, dir_worktrees)]
     piezas = _adaptador(arnes).piezas(raiz, dir_worktrees)
-    return _unicos([p.archivo for p in piezas if p.desinstalar(raiz)])
+    return _unicos([p.archivo for p in piezas if p not in ajenas and p.desinstalar(raiz)])
+
+
+def _propias(arnes: Arnes, raiz: Path) -> list[Pieza]:
+    """Piezas que solo pone este arnés: las compartidas no dicen cuál está instalado."""
+
+    ajenas = [p for a, adaptador in ADAPTADORES.items() if a != arnes for p in adaptador.piezas(raiz, None)]
+    return [
+        p
+        for p in ADAPTADORES[arnes].piezas(raiz, None)
+        if not isinstance(p, ArchivoLegado) and p not in ajenas
+    ]
 
 
 def instalados(raiz: Path) -> list[Arnes]:
-    """Arneses con alguna pieza de Railspec presente en el repositorio."""
+    """Arneses con alguna pieza propia de Railspec presente en el repositorio."""
 
-    return [
-        arnes
-        for arnes, adaptador in ADAPTADORES.items()
-        if any(p.presente(raiz) for p in adaptador.piezas(raiz, None) if not isinstance(p, ArchivoLegado))
-    ]
+    return [arnes for arnes in ADAPTADORES if any(p.presente(raiz) for p in _propias(arnes, raiz))]
