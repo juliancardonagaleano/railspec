@@ -144,7 +144,12 @@ class UnitStartSalida(Mensaje):
 
 
 class UnitImportEntrada(Mensaje):
-    """Crea una unidad desde un paquete ``railspec.unidad/v1`` (ver ``portabilidad``)."""
+    """Crea una unidad desde un paquete ``railspec.unidad/v1`` (ver ``portabilidad``).
+
+    Solo humanos: la unidad nace con ese humano como dueño y, si estaba
+    cerrada, él rehabilita el gate de código. Un agente recibe
+    ``fuera-de-alcance``, igual que en ``unit.start``.
+    """
 
     alcance: AlcanceWorkspace
     repositorios: list[RepositorioInicio] = Field(
@@ -795,7 +800,7 @@ TOOLS: dict[str, ToolDef] = {
             efecto=_E,
             rol_minimo=Rol.desarrollador,
             superficies=frozenset({_M, _H}),
-            tipos_actor=frozenset({TipoActor.humano, TipoActor.agente}),
+            tipos_actor=frozenset({TipoActor.humano}),
             entrada=UnitImportEntrada,
             salida=UnitImportSalida,
         ),

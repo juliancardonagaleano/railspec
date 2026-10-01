@@ -57,7 +57,7 @@ HTTP de la consola (R1).
 | `unit.approve` | escritura | sí | sí | no |
 | `unit.integrate` | escritura | sí | sí | no |
 | `unit.set_mode` | escritura | sí (solo humano) | sí (solo humano) | no |
-| `unit.import` | escritura | sí | sí | no |
+| `unit.import` | escritura | sí (solo humano) | sí (solo humano) | no |
 | `unit.export` | lectura | sí | sí | no |
 | `unit.status` | lectura | sí | sí | sí |
 | `unit.list` | lectura | sí | sí | sí |
@@ -132,8 +132,10 @@ su prueba negativa.
   paquete `railspec.unidad/v1`. Los artefactos presentes forman un prefijo
   (spec, plan, tasks) y `fase_retomar` es la primera fase sin artefacto, o
   `aprobacion`, `implement` o `done` si están los tres. Quedan aprobados por
-  importación a nombre del humano del token, con auditoría, y el gate de la
-  fase siguiente corre normal. Una unidad cerrada entra con el gate de código
+  importación a nombre del humano del token y se auditan con el evento
+  `importacion` (origen y número de artefactos); el gate de la fase
+  siguiente corre normal. Solo un humano importa; un agente recibe
+  `fuera-de-alcance`. Una unidad cerrada entra con el gate de código
   escalado con causa `importado` y rehabilitado por ese humano.
   `supervisado` y `desatendido` no se importan. Es idempotente por
   workspace, repositorio primario y origen, y responde `ya_existia`.
@@ -173,7 +175,8 @@ su prueba negativa.
   tools `sync.pull` y `sync.push`, el código de error
   `secuencia-con-hueco` y el alias MCP de cada tool (`mcp_name`); `1.4`
   añade los verbos `impact` y `trace` de `graph.query`, `RefCriterio` en sus
-  resultados, las tools `unit.import` y `unit.export`, el paquete
+  resultados, las tools `unit.import` (solo humanos) y `unit.export`, el evento de
+  auditoría `importacion`, el paquete
   `railspec.unidad/v1` y la causa de escalado `importado`.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).

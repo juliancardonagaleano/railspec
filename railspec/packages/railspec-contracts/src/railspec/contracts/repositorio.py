@@ -32,10 +32,12 @@ from .comun import (
     RolRepositorio,
     Sha256,
     Slug,
+    TipoActor,
     UnidadId,
     Veredicto,
     ids_unicos,
 )
+from .portabilidad import OrigenPaquete
 
 
 class Auditoria(Contrato):
@@ -311,6 +313,7 @@ class EventoAuditoria(StrEnum):
     cambio_configuracion = "cambio-configuracion"
     desvinculo_repositorio = "desvinculo-repositorio"
     bloqueo_gate_salida = "bloqueo-gate-salida"
+    importacion = "importacion"  # desde 1.4: unit.import
 
 
 class RegistroAuditoria(Mensaje):
@@ -328,9 +331,28 @@ class RegistroAuditoria(Mensaje):
     region: str | None = Field(default=None, max_length=40)
     sha256_enviado: Sha256 | None = Field(default=None, description="Hash de lo enviado; nunca el texto.")
     detalle: dict[str, str | int | bool] = Field(default_factory=dict)
+    origen_importacion: OrigenPaquete | None = Field(
+        default=None, description="Desde 1.4: evento importacion."
+    )
+    artefactos_importados: int | None = Field(
+        default=None, ge=0, le=3, description="Desde 1.4: artefactos aprobados por importación."
+    )
 
     @model_validator(mode="after")
     def _llamada(self) -> RegistroAuditoria:
+        importacion = self.evento == EventoAuditoria.importacion
+        if importacion:
+            faltan = [
+                c
+                for c in ("unidad", "origen_importacion", "artefactos_importados")
+                if getattr(self, c) is None
+            ]
+            if faltan:
+                raise ValueError(f"importacion necesita {', '.join(faltan)}")
+            if self.actor.tipo != TipoActor.humano:
+                raise ValueError("importacion exige un actor humano")
+        elif self.origen_importacion is not None or self.artefactos_importados is not None:
+            raise ValueError("origen_importacion y artefactos_importados solo van con importacion")
         if self.evento in (EventoAuditoria.llamada_modelo, EventoAuditoria.lectura_codigo):
             faltan = [
                 c for c in ("repositorio", "nivel_codigo", "sha256_enviado") if getattr(self, c) is None

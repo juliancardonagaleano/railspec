@@ -706,7 +706,7 @@ def test_unit_import_y_export() -> None:
     importar, exportar = TOOLS["unit.import"], TOOLS["unit.export"]
     assert importar.efecto == Efecto.escritura and exportar.efecto == Efecto.lectura
     assert importar.superficies == exportar.superficies == {Superficie.mcp, Superficie.http}
-    assert importar.tipos_actor == {TipoActor.humano, TipoActor.agente}
+    assert importar.tipos_actor == {TipoActor.humano}
     assert exportar.rol_minimo.value == "lector"
 
 
@@ -726,3 +726,20 @@ def test_causa_importado_se_rehabilita() -> None:
         }
     )
     assert gate.superado
+
+
+def test_auditoria_de_importacion() -> None:
+    base = {
+        "id": str(f.uid(70)),
+        "alcance": f.ALCANCE_WS.model_dump(),
+        "evento": "importacion",
+        "actor": f.JULIAN.model_dump(),
+        "en": "2026-10-01T00:00:00Z",
+        "unidad": "0001-emitir-pdf",
+        "origen_importacion": {"tipo": "sdd-kit", "id_original": "0042-firmar-pdf"},
+        "artefactos_importados": 2,
+    }
+    RegistroAuditoria.model_validate(base)
+    _rechaza(RegistroAuditoria, {**base, "artefactos_importados": None}, "importacion necesita")
+    _rechaza(RegistroAuditoria, {**base, "actor": f.SERVIDOR.model_dump()}, "actor humano")
+    _rechaza(RegistroAuditoria, {**base, "evento": "integracion"}, "solo van con importacion")
