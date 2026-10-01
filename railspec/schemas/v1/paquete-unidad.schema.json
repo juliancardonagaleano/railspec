@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "Artefacto": {
+      "enum": [
+        "spec",
+        "plan",
+        "tasks"
+      ],
+      "title": "Artefacto",
+      "type": "string"
+    },
+    "ArtefactoRedactado": {
+      "additionalProperties": false,
+      "properties": {
+        "contenido": {
+          "maxLength": 200000,
+          "minLength": 1,
+          "title": "Contenido",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 en hexadecimal.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/Artefacto"
+        }
+      },
+      "required": [
+        "tipo",
+        "contenido",
+        "sha256"
+      ],
+      "title": "ArtefactoRedactado",
+      "type": "object"
+    },
+    "ArtefactosPaquete": {
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtefactoRedactado"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "spec": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtefactoRedactado"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tasks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtefactoRedactado"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ArtefactosPaquete",
+      "type": "object"
+    },
+    "Fase": {
+      "enum": [
+        "research",
+        "spec",
+        "plan",
+        "tasks",
+        "aprobacion",
+        "implement",
+        "done"
+      ],
+      "title": "Fase",
+      "type": "string"
+    },
+    "GateImportado": {
+      "additionalProperties": false,
+      "description": "Resultado de gate del origen; informativo, no se re-evalúa.",
+      "properties": {
+        "cerrado_en": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cerrado En"
+        },
+        "gate": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Gate",
+          "type": "string"
+        },
+        "iteraciones": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iteraciones"
+        },
+        "resultado": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Resultado",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gate",
+        "resultado"
+      ],
+      "title": "GateImportado",
+      "type": "object"
+    },
+    "Modo": {
+      "enum": [
+        "interactivo",
+        "semi-autonomo",
+        "supervisado",
+        "desatendido"
+      ],
+      "title": "Modo",
+      "type": "string"
+    },
+    "OrigenPaquete": {
+      "additionalProperties": false,
+      "properties": {
+        "id_original": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id Original",
+          "type": "string"
+        },
+        "repositorio": {
+          "anyOf": [
+            {
+              "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repositorio"
+        },
+        "tipo": {
+          "enum": [
+            "sdd-kit",
+            "railspec"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tipo",
+        "id_original"
+      ],
+      "title": "OrigenPaquete",
+      "type": "object"
+    },
+    "Perfil": {
+      "enum": [
+        "ligero",
+        "estandar",
+        "profundo"
+      ],
+      "title": "Perfil",
+      "type": "string"
+    },
+    "Riesgo": {
+      "enum": [
+        "bajo",
+        "medio",
+        "alto"
+      ],
+      "title": "Riesgo",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/paquete-unidad.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artefactos": {
+      "$ref": "#/$defs/ArtefactosPaquete"
+    },
+    "comando_validacion": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comando Validacion"
+    },
+    "depende_de_original": {
+      "description": "Ids de origen; informativo.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Depende De Original",
+      "type": "array"
+    },
+    "fase_retomar": {
+      "$ref": "#/$defs/Fase",
+      "description": "La primera fase cuyo artefacto falta; done si la unidad estaba cerrada."
+    },
+    "formato": {
+      "const": "railspec.unidad/v1",
+      "default": "railspec.unidad/v1",
+      "title": "Formato",
+      "type": "string"
+    },
+    "governance_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Governance Refs",
+      "type": "array"
+    },
+    "historial_gates": {
+      "items": {
+        "$ref": "#/$defs/GateImportado"
+      },
+      "title": "Historial Gates",
+      "type": "array"
+    },
+    "modo": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Modo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "origen": {
+      "$ref": "#/$defs/OrigenPaquete"
+    },
+    "pedido": {
+      "maxLength": 20000,
+      "minLength": 1,
+      "title": "Pedido",
+      "type": "string"
+    },
+    "perfil": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Perfil"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "riesgo": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Riesgo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "titulo": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Titulo",
+      "type": "string"
+    },
+    "version_contrato": {
+      "default": "1.4",
+      "enum": [
+        "1.0",
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4"
+      ],
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "origen",
+    "titulo",
+    "pedido",
+    "fase_retomar"
+  ],
+  "title": "PaqueteUnidad",
+  "type": "object"
+}

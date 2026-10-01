@@ -48,6 +48,7 @@ from railspec.contracts.orden import (
     ReporteRequerido,
     Tarea,
 )
+from railspec.contracts.portabilidad import ArtefactosPaquete, OrigenPaquete, PaqueteUnidad
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.snapshot import DeltaIndice, Embedding, MotorIndice, Simbolo, TipoSimbolo, id_simbolo
 from railspec.contracts.tools import (
@@ -67,6 +68,10 @@ from railspec.contracts.tools import (
     UnitAdvanceEntrada,
     UnitAdvanceSalida,
     UnitApproveEntrada,
+    UnitExportEntrada,
+    UnitExportSalida,
+    UnitImportEntrada,
+    UnitImportSalida,
     UnitReportSalida,
     UnitSetModeEntrada,
     UnitStartEntrada,
@@ -149,6 +154,7 @@ class ServidorDoble:
         self.perder_respuesta_push = False
         self.reenvio_idempotente = True
         self._n = 100
+        self.importadas: dict[tuple[str, str], Any] = {}
 
     def _id(self) -> UUID:
         self._n += 1
@@ -206,6 +212,49 @@ class ServidorDoble:
             actualizado_por=SERVIDOR,
         )
         return UnitStartSalida(estado=self.estado, version_contrato_negociada=VERSION_CONTRATO)
+
+    def _unit_import(self, args: dict[str, Any]) -> UnitImportSalida:
+        entrada = UnitImportEntrada.model_validate(args)
+        paquete = entrada.paquete
+        clave = (paquete.origen.tipo, paquete.origen.id_original)
+        if clave in self.importadas:
+            return UnitImportSalida(
+                estado=self.estado, ya_existia=True, version_contrato_negociada=VERSION_CONTRATO
+            )
+        self._unit_start(
+            UnitStartEntrada(
+                alcance=entrada.alcance,
+                repositorios=entrada.repositorios,
+                titulo=paquete.titulo,
+                pedido=paquete.pedido,
+                arnes=entrada.arnes,
+                version_contrato_cliente=entrada.version_contrato_cliente,
+            ).model_dump(mode="json")
+        )
+        self._actualizar(
+            fase=paquete.fase_retomar,
+            modo=paquete.modo or Modo.interactivo,
+            riesgo=paquete.riesgo or Riesgo.medio,
+            perfil=paquete.perfil or Perfil.estandar,
+        )
+        self.importadas[clave] = paquete
+        return UnitImportSalida(
+            estado=self.estado, ya_existia=False, version_contrato_negociada=VERSION_CONTRATO
+        )
+
+    def _unit_export(self, args: dict[str, Any]) -> UnitExportSalida:
+        UnitExportEntrada.model_validate(args)
+        assert self.estado is not None
+        artefactos = next(iter(self.importadas.values())).artefactos if self.importadas else None
+        return UnitExportSalida(
+            paquete=PaqueteUnidad(
+                origen=OrigenPaquete(tipo="railspec", id_original=self.estado.unidad.unidad),
+                titulo=self.estado.titulo,
+                pedido=self.estado.pedido or self.estado.titulo,
+                artefactos=artefactos or ArtefactosPaquete(),
+                fase_retomar=self.estado.fase if artefactos else Fase.spec,
+            )
+        )
 
     def _unit_advance(self, args: dict[str, Any]) -> UnitAdvanceSalida:
         UnitAdvanceEntrada.model_validate(args)

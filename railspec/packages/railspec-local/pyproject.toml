@@ -11,6 +11,8 @@ dependencies = [
   "railspec-contracts==0.1.0",
   # SDK de MCP: servidor stdio hacia el arnés y cliente Streamable HTTP hacia el motor.
   "mcp>=2.2,<3",
+  # Lee `_estado.yaml` de las unidades del kit SDD al importarlas.
+  "pyyaml>=6",
 ]
 
 [project.scripts]
