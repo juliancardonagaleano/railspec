@@ -124,6 +124,24 @@ def test_render_oidc_exige_repositorios_y_una_audiencia_no_adivinable():
     assert mapa["RAILSPEC_OIDC_REPOSITORIOS"] == "acme/api,acme/web"
 
 
+def test_deployment_apaga_el_modo_desarrollo_por_encima_del_secret():
+    """M4: ``env`` gana a ``envFrom``: una clave sobrante en el Secret no activa los tokens de desarrollo."""
+
+    yaml = pytest.importorskip("yaml")
+    documentos = [d for d in yaml.safe_load_all(renderizar.renderizar(MINIMO)) if d]
+    contenedor = next(d for d in documentos if d["kind"] == "Deployment")["spec"]["template"]["spec"][
+        "containers"
+    ][0]
+    assert {"secretRef": {"name": "railspec-server"}} in contenedor["envFrom"]
+    fijas = {e["name"]: e.get("value") for e in contenedor["env"]}
+    assert fijas["RAILSPEC_PERMITIR_DESARROLLO"] == "" and fijas["RAILSPEC_TOKENS_DESARROLLO"] == ""
+    # Ni el ConfigMap ni las variables del renderizador pueden encenderlo.
+    assert "RAILSPEC_PERMITIR_DESARROLLO" not in renderizar.VARIABLES
+    assert "RAILSPEC_TOKENS_DESARROLLO" not in renderizar.VARIABLES
+    mapa = next(d for d in documentos if d["kind"] == "ConfigMap")["data"]
+    assert "RAILSPEC_PERMITIR_DESARROLLO" not in mapa and "RAILSPEC_TOKENS_DESARROLLO" not in mapa
+
+
 def test_render_rechaza_variable_desconocida(tmp_path):
     (tmp_path / "x.yaml").write_text("a: ${RAILSPEC_NO_EXISTE}\n")
     with pytest.raises(renderizar.ErrorRender, match="desconocida"):

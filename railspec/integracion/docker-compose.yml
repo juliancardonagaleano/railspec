@@ -34,6 +34,8 @@ services:
       RAILSPEC_MONGO_DB: ${RAILSPEC_E2E_MONGO_DB:-railspec_e2e}
       RAILSPEC_FALKORDB_URL: redis://falkordb:6379
       RAILSPEC_TOKENS_DESARROLLO: ${RAILSPEC_E2E_TOKEN:-token-e2e}=juliancardonagaleano:83125327
+      # Tokens de desarrollo junto a Mongo: el servidor lo rechaza sin esta bandera (solo para pruebas).
+      RAILSPEC_PERMITIR_DESARROLLO: "1"
       RAILSPEC_PUERTO: "8080"
     ports: ["${RAILSPEC_E2E_PUERTO:-8080}:8080"]
     depends_on:

@@ -49,13 +49,22 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
 
    | Clave | Obligatoria | Uso |
    | --- | --- | --- |
-   | `RAILSPEC_MONGO_URI` | sí | Estado y checkpoints. Sin ella el contenedor no arranca: la imagen no trae el Mongo simulado de desarrollo. |
+   | `RAILSPEC_MONGO_URI` | sí | Estado y checkpoints. Sin ella el contenedor no arranca (ni con la imagen, que no trae el Mongo simulado, ni en memoria sin `RAILSPEC_PERMITIR_DESARROLLO=1`). |
    | `RAILSPEC_FALKORDB_URL` | no | Grafo central; sin él no hay `graph.query` ni impacto en el gate de código. |
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
    | `RAILSPEC_CONSOLA_SECRETO` | sí, con más de una réplica | Clave de las sesiones de la consola web; sin ella cada réplica inventa una y las sesiones se pierden al cambiar de réplica. |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | para iniciar sesión en la consola | GitHub App de Railspec (ver `consola.md`). |
+
+**Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y
+`RAILSPEC_PERMITIR_DESARROLLO` no son variables del despliegue: el Deployment
+las fija vacías en `env`, que gana a `envFrom`, para que una clave sobrante
+en este Secret no pueda activar los tokens de desarrollo (identidad de
+GitHub sustituida y acceso por `POST /consola/api/auth/desarrollo`) ni el
+modo en memoria. Aun sin esa guarda, el servidor se niega a arrancar con
+tokens de desarrollo si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo
+`RAILSPEC_PERMITIR_DESARROLLO=1`.
 
 ## Variables de los manifiestos
 

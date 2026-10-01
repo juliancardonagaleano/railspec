@@ -135,15 +135,20 @@ def test_oidc_sin_lista_de_repositorios_no_arranca():
         VerificadorOidcActions("aud", claves=ClavesLocales())
     with pytest.raises(ValueError, match="RAILSPEC_OIDC_REPOSITORIOS"):
         VerificadorOidcActions("aud", repositorios=frozenset({" ", ""}), claves=ClavesLocales())
-    config = Configuracion(oidc_audiencia="aud-larga-no-adivinable")
+    config = Configuracion(oidc_audiencia="aud-larga-no-adivinable", permitir_desarrollo=True)
     with pytest.raises(ValueError, match="RAILSPEC_OIDC_REPOSITORIOS"):
         ensamblar(config)
     with pytest.raises(ValueError, match="adivinable"):
-        ensamblar(Configuracion(oidc_audiencia="Railspec", oidc_repositorios=frozenset({"acme/a"})))
+        ensamblar(
+            Configuracion(
+                oidc_audiencia="Railspec", oidc_repositorios=frozenset({"acme/a"}), permitir_desarrollo=True
+            )
+        )
     # Con la lista, el servidor arranca y exige además el repositorio del token.
     ok = Configuracion(
         oidc_audiencia="aud-larga-no-adivinable",
         oidc_repositorios=frozenset({"acme/certificados-api"}),
+        permitir_desarrollo=True,
     )
     ensamblar(ok)
 
@@ -179,7 +184,12 @@ def lote(i: int, n: int, *simbolos: Simbolo, commit=COMMIT_1, anterior=None, ram
 @contextlib.asynccontextmanager
 async def servidor(*configuracion):
     motor_grafo = MotorMemoria()
-    config = Configuracion.desde_entorno({"RAILSPEC_TOKENS_DESARROLLO": "tk-julian=juliancardonagaleano:1"})
+    config = Configuracion.desde_entorno(
+        {
+            "RAILSPEC_TOKENS_DESARROLLO": "tk-julian=juliancardonagaleano:1",
+            "RAILSPEC_PERMITIR_DESARROLLO": "1",
+        }
+    )
     permitidos = frozenset({REPO_GH, "acme/otro"})
     motor, app = ensamblar(
         config, motor_grafo=motor_grafo, verificador_oidc=verificador(repositorios=permitidos)

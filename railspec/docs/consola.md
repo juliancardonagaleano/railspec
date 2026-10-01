@@ -52,13 +52,17 @@ Las que Julian debe suministrar:
 | `RAILSPEC_GITHUB_APP_CLIENT_ID` | Secret | Client ID de la GitHub App. Sin ella no hay botón "Entrar con GitHub". |
 | `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Secret | Client secret de la App. |
 | `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`). Sin ella cada réplica genera una efímera: las sesiones se pierden al reiniciar o cambiar de réplica. |
-| `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas. El de Julian es `83125327`. |
+| `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas (p. ej. `1234567`; el id numérico de tu usuario sale de `GET https://api.github.com/users/<login>`). |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
 | `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
-con token de desarrollo, solo para entornos sin GitHub App.
+con token de desarrollo y **sustituye por completo** la identidad de GitHub.
+Es solo para máquinas de desarrollo: el servidor se niega a arrancar con ella
+si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo `RAILSPEC_PERMITIR_DESARROLLO=1`
+(que deja un WARNING), y el Deployment de `railspec/deploy/` la fuerza vacía.
+`GET /auth/config` solo anuncia `desarrollo: true` con el modo permitido.
 
 ## Primer arranque
 
@@ -177,9 +181,12 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 ## Desarrollo
 
 ```
-# API con Mongo simulado y token de desarrollo
-RAILSPEC_TOKENS_DESARROLLO=tk-dev=juliancardonagaleano:83125327 \
-RAILSPEC_CONSOLA_ADMINS=83125327 railspec-server
+# API con Mongo simulado y token de desarrollo. SOLO LOCAL, con datos ficticios: el
+# login y los ids son inventados y la bandera exige que lo pidas explícitamente.
+# Nunca en el Secret ni en el ConfigMap de un clúster.
+RAILSPEC_PERMITIR_DESARROLLO=1 \
+RAILSPEC_TOKENS_DESARROLLO=tk-dev=usuario-demo:1000001 \
+RAILSPEC_CONSOLA_ADMINS=1000001 railspec-server
 
 # SPA con recarga en caliente (proxy de /consola/api a localhost:8080)
 npm --prefix railspec/packages/railspec-console ci

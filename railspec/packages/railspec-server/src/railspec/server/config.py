@@ -2,19 +2,28 @@
 
 Convención fijada en ``railspec/docs/contratos.md`` § Variables de entorno: los
 valores llegan de Kubernetes Secrets. Nada aquí lee archivos ni tiene valores
-por defecto secretos; sin Mongo configurado el servidor arranca con almacenes
-en memoria (solo desarrollo y pruebas) y lo dice en ``modo_memoria``.
+por defecto secretos. Sin Mongo configurado el servidor sería un entorno de
+desarrollo con almacenes en memoria (``modo_memoria``): solo arranca con
+``RAILSPEC_PERMITIR_DESARROLLO=1``, igual que los tokens de desarrollo junto a
+Mongo o a la GitHub App (``validar_arranque``).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from .consola.config import ConfigConsola
 
+log = logging.getLogger("railspec.server")
+
 _VERDADEROS = {"1", "true", "si", "sí", "yes", "on"}
+
+
+class ErrorConfiguracion(ValueError):
+    """La configuración es insegura o incoherente: el servidor no arranca."""
 
 
 def _bandera(valor: str | None) -> bool:
@@ -63,6 +72,10 @@ class Configuracion:
     #: Tokens de desarrollo ``token=login:github_id`` separados por coma. Solo
     #: para entornos sin GitHub App; en producción la identidad es GitHub.
     tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
+    #: ``RAILSPEC_PERMITIR_DESARROLLO=1``: el servidor puede arrancar sin Mongo (todo en memoria y
+    #: cualquier persona autenticada es ``desarrollador`` en cualquier org) y con tokens de
+    #: desarrollo junto a Mongo o a la GitHub App. Nunca en producción.
+    permitir_desarrollo: bool = False
     #: OIDC de GitHub Actions (actor de servicio de ``graph.index``). Sin audiencia = desactivado.
     #: Debe ser un valor largo y no adivinable (cualquier repositorio puede pedir un token con la
     #: audiencia que quiera); no hay valor por defecto a propósito.
@@ -119,6 +132,7 @@ class Configuracion:
             cache_nodos_s=float(env.get("RAILSPEC_CACHE_NODOS_S") or 86400),
             secretos_dir=env.get("RAILSPEC_SECRETOS_DIR") or "/var/run/secrets/railspec",
             tokens_desarrollo=_tokens(env.get("RAILSPEC_TOKENS_DESARROLLO", "")),
+            permitir_desarrollo=_bandera(env.get("RAILSPEC_PERMITIR_DESARROLLO")),
             oidc_audiencia=env.get("RAILSPEC_OIDC_AUDIENCIA", "").strip() or None,
             oidc_emisor=env.get("RAILSPEC_OIDC_EMISOR") or "https://token.actions.githubusercontent.com",
             oidc_repositorios=frozenset(
@@ -132,6 +146,44 @@ class Configuracion:
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
             consola=ConfigConsola.desde_entorno(env),
+        )
+
+
+def validar_arranque(config: Configuracion) -> None:
+    """Rechaza (``ErrorConfiguracion``) las combinaciones de desarrollo con datos o identidad reales.
+
+    - Sin ``RAILSPEC_MONGO_URI`` el estado vive en memoria y ``AutorizadorRoles(abierto=True)`` da
+      ``desarrollador`` en toda organización a cualquier persona autenticada.
+    - ``RAILSPEC_TOKENS_DESARROLLO`` sustituye por completo la identidad de GitHub y habilita
+      ``POST /consola/api/auth/desarrollo``; junto a Mongo o a la GitHub App suele ser una clave
+      sobrante del Secret (entra por ``envFrom``), no una decisión.
+
+    Ambas se levantan solo con ``RAILSPEC_PERMITIR_DESARROLLO=1``, que además deja un WARNING.
+    """
+
+    if config.permitir_desarrollo:
+        motivos = []
+        if config.modo_memoria:
+            motivos.append("estado en memoria (sin RAILSPEC_MONGO_URI)")
+        if config.tokens_desarrollo:
+            motivos.append("tokens de desarrollo activos: no hay inicio de sesión con GitHub")
+        log.warning(
+            "RAILSPEC_PERMITIR_DESARROLLO=1: modo desarrollo permitido (%s). Solo para máquinas "
+            "de desarrollo y pruebas, nunca en producción.",
+            "; ".join(motivos) or "sin efectos hoy",
+        )
+        return
+    if config.modo_memoria:
+        raise ErrorConfiguracion(
+            "sin RAILSPEC_MONGO_URI el servidor arranca en memoria y trata a toda persona autenticada "
+            "como desarrollador de cualquier organización: define RAILSPEC_MONGO_URI o, solo en "
+            "desarrollo, RAILSPEC_PERMITIR_DESARROLLO=1"
+        )
+    if config.tokens_desarrollo and (config.mongo_uri or config.consola.github_app is not None):
+        raise ErrorConfiguracion(
+            "RAILSPEC_TOKENS_DESARROLLO sustituye la identidad de GitHub y habilita el acceso por token "
+            "de desarrollo, pero hay Mongo o GitHub App configurados: quita la variable (¿clave "
+            "sobrante en el Secret?) o, solo en desarrollo, define RAILSPEC_PERMITIR_DESARROLLO=1"
         )
 
 

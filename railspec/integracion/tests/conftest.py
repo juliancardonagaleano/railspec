@@ -113,6 +113,7 @@ def entorno(tmp_path_factory) -> Entorno:
         "RAILSPEC_MONGO_DB": base_datos,
         "RAILSPEC_FALKORDB_URL": FALKORDB_URL,
         "RAILSPEC_TOKENS_DESARROLLO": f"{TOKEN}={LOGIN}:{GITHUB_ID}",
+        "RAILSPEC_PERMITIR_DESARROLLO": "1",
         "RAILSPEC_HOST": "127.0.0.1",
         "RAILSPEC_PUERTO": str(puerto),
     }

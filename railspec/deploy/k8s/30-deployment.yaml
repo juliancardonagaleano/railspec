@@ -57,6 +57,14 @@ spec:
             # RAILSPEC_CONSOLA_SECRETO, RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET (consola).
             - secretRef:
                 name: ${RAILSPEC_SECRETO}
+          # Modo desarrollo apagado por construcción: ``env`` gana a ``envFrom``, así que una clave
+          # sobrante en el Secret (RAILSPEC_TOKENS_DESARROLLO, RAILSPEC_PERMITIR_DESARROLLO) no
+          # puede activar los tokens de desarrollo ni el modo en memoria en AKS. No quitar.
+          env:
+            - name: RAILSPEC_PERMITIR_DESARROLLO
+              value: ""
+            - name: RAILSPEC_TOKENS_DESARROLLO
+              value: ""
           # /livez: el proceso atiende. /healthz: además Mongo y FalkorDB responden
           # (503 si no). Una caída de la base saca la réplica del Service sin reiniciarla.
           startupProbe:
