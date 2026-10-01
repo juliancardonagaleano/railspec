@@ -88,6 +88,20 @@ class Arranque(BaseModel):
     pedido: str
 
 
+class Importacion(BaseModel):
+    """Entrada de una unidad importada (``unit.import``, contrato 1.4).
+
+    ``artefactos`` son los aprobados por importación (prefijo spec, plan, tasks)
+    y ``fase`` la de retoma. Una unidad cerrada trae la rehabilitación humana
+    con la que entra su gate de código, escalado con causa ``importado``.
+    """
+
+    pedido: str
+    artefactos: dict[str, str] = Field(default_factory=dict)
+    fase: Fase
+    rehabilitacion: Rehabilitacion | None = None
+
+
 class IniciarRedaccion(BaseModel):
     artefacto: Artefacto
     nota: str | None = None
@@ -302,6 +316,61 @@ class Triaje(Nodo):
     async def arrancar(self, msg: Arranque, ctx: WorkflowContext[IniciarRedaccion]) -> None:
         self.guardar(ctx, DatosUnidad(pedido=msg.pedido))
         await ctx.send_message(IniciarRedaccion(artefacto=Artefacto.spec), target_id="redaccion")
+
+    @handler
+    async def importar(
+        self,
+        msg: Importacion,
+        ctx: WorkflowContext[
+            IniciarRedaccion | RefinarArtefacto | GateSuperado | IniciarImplementacion | Cerrar
+        ],
+    ) -> None:
+        """Siembra los artefactos importados y retoma en su fase.
+
+        Cada artefacto pasa la capa determinista en orden, para extraer lo que
+        las fases siguientes necesitan. El primero que no encaja en la
+        plantilla (lo normal con el kit SDD) vuelve a refinar con esos
+        hallazgos: la unidad adapta el texto antes de seguir. Una unidad cerrada
+        no se reabre: entra cerrada, con el gate de código escalado y rehabilitado.
+        """
+
+        datos = DatosUnidad(pedido=msg.pedido)
+        for artefacto in GATE_DE_ARTEFACTO:
+            texto = msg.artefactos.get(artefacto.value)
+            if texto is None:
+                break
+            datos.artefactos[artefacto.value] = texto
+            v = validar(artefacto, texto, datos.extraido)
+            datos.extraido = v.extraido
+            if not v.valida and msg.fase != Fase.done:
+                hallazgos = hallazgos_estructura(GATE_DE_ARTEFACTO[artefacto], v, datos.siguiente_hallazgo)
+                datos.siguiente_hallazgo += len(hallazgos)
+                self.guardar(ctx, datos)
+                await ctx.send_message(
+                    RefinarArtefacto(artefacto=artefacto, hallazgos=hallazgos), target_id="redaccion"
+                )
+                return
+        self.guardar(ctx, datos)
+        if msg.fase == Fase.done:
+            assert msg.rehabilitacion is not None, "una unidad cerrada importada trae su rehabilitación"
+            resultado = ResultadoGate(
+                veredicto=Veredicto.escalado,
+                causa=CausaEscalado.importado,
+                iteraciones=0,
+                gobernanza_consultada=GobernanzaConsultada.no,
+                rehabilitado=msg.rehabilitacion,
+                cerrado_en=self.n.reloj(),
+            )
+            self.n.escribir(self.alcance, lambda e: {"gates": {**e.gates, GateFase.codigo: resultado}})
+            await ctx.send_message(Cerrar(), target_id="cierre")
+        elif msg.fase == Fase.aprobacion:
+            # Como si el gate de tasks acabara de pasar: el modo decide si hay paquete de aprobación.
+            await ctx.send_message(GateSuperado(fase=GateFase.tasks), target_id="decision")
+        elif msg.fase == Fase.implement:
+            await ctx.send_message(IniciarImplementacion(), target_id="implementacion")
+        else:
+            siguiente = {Fase.plan: Artefacto.plan, Fase.tasks: Artefacto.tasks}.get(msg.fase, Artefacto.spec)
+            await ctx.send_message(IniciarRedaccion(artefacto=siguiente), target_id="redaccion")
 
 
 class Redaccion(ConParadas):
@@ -902,7 +971,8 @@ def construir(nucleo: Nucleo, alcance: AlcanceUnidad, almacen_checkpoints: Any) 
         name=nombre_workflow(alcance), start_executor=t, checkpoint_storage=almacen_checkpoints
     )
     for origen, destinos in (
-        (t, (r,)),
+        # Desde triaje, además de redactar el spec, una unidad importada retoma donde estaba.
+        (t, (r, d, i, c)),
         (r, (g, c)),
         (g, (r, i, d)),
         (d, (r, i, a, c)),

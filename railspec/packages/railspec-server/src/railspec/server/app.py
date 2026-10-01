@@ -64,7 +64,9 @@ def ensamblar(
             config.oidc_audiencia, config.oidc_emisor, config.oidc_repositorios
         )
     identidad = IdentidadCompuesta(humana, verificador_oidc)
-    extra = {}
+    from .portabilidad import manejadores as manejadores_portabilidad
+
+    extra = manejadores_portabilidad(motor)
     if grafo is not None:
         from railspec.graph import IndexadorCanonico
 

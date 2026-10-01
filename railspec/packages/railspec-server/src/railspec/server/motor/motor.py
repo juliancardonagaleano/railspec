@@ -225,14 +225,24 @@ class Motor:
 
     # --- runner del DAG ------------------------------------------------------------------
 
-    async def procesar(self, alcance: AlcanceUnidad, pedido: str | None = None) -> bool:
-        """Entrega las entradas pendientes al DAG hasta que no quede ninguna."""
+    async def procesar(
+        self,
+        alcance: AlcanceUnidad,
+        pedido: str | None = None,
+        arranque: dag.Arranque | dag.Importacion | None = None,
+    ) -> bool:
+        """Entrega las entradas pendientes al DAG hasta que no quede ninguna.
+
+        ``pedido`` arranca una unidad nueva; ``arranque``, una importada (``unit.import``).
+        """
 
         if not self.n.almacen.tomar_turno(alcance, self.dueno, self.n.reloj(), self.ttl_turno_s):
             return False
         try:
-            if pedido is not None:
-                await dag.construir(self.n, alcance, self.checkpoints).run(dag.Arranque(pedido=pedido))
+            if arranque is None and pedido is not None:
+                arranque = dag.Arranque(pedido=pedido)
+            if arranque is not None:
+                await dag.construir(self.n, alcance, self.checkpoints).run(arranque)
             while entradas := self.n.almacen.entradas_pendientes(alcance):
                 cp = await self.checkpoints.get_latest(workflow_name=nombre_workflow(alcance))
                 pendientes = set(cp.pending_request_info_events) if cp else set()
