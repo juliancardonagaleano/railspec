@@ -51,6 +51,9 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
   siguiente gate.
+- `unit.report` reconoce el reenvío de un reporte ya aceptado (misma orden y
+  secuencia) y responde `secuencia-duplicada` en vez de `orden-no-vigente`, para
+  que el proxy lo dé por entregado.
 - Sincronización (contrato 1.3): `sync.pull` pagina los eventos remoto→local;
   `sync.push` recibe la cola local→remoto del proxy, idempotente por id y sin
   huecos (`secuencia-con-hueco`). Esa dirección la numera solo el proxy: el

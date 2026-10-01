@@ -251,8 +251,13 @@ def test_rechazos_de_reporte():
             await motor.report(reporte(orden).model_copy(update={"secuencia": 99}), JULIAN)
         assert exc.value.codigo == CodigoError.orden_no_vigente
         await motor.report(reporte(orden), JULIAN)
+        # Reenvío del mismo reporte (el proxy perdió la respuesta): se reconoce como ya aceptado.
         with pytest.raises(ErrorNegocio) as exc:
             await motor.report(reporte(orden), JULIAN)
+        assert exc.value.codigo == CodigoError.secuencia_duplicada
+        # Una orden que nunca se reportó y ya no está vigente sigue siendo orden-no-vigente.
+        with pytest.raises(ErrorNegocio) as exc:
+            await motor.report(reporte(orden).model_copy(update={"secuencia": orden.secuencia + 50}), JULIAN)
         assert exc.value.codigo == CodigoError.orden_no_vigente
 
         av = await hasta(motor, alcance, es_orden("implementar"))
