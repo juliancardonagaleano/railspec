@@ -8,9 +8,16 @@ checkpoints, integración, trazabilidad CA-NN), el grafo de código y la
 auditoría. El chat de contexto (fase 8) vive aparte y se enchufa en la ruta
 que la consola le reserva.
 
-Nunca muestra código: de una orden solo salen sus metadatos (nunca
-instrucciones, plantilla ni contexto), de un snapshot solo rutas y símbolos,
-y del grafo solo nombres, rutas y relaciones.
+Nunca muestra código, y lo garantiza la API, no solo la SPA: de una orden solo
+salen sus metadatos (nunca instrucciones, plantilla, contexto ni comando de
+validación), de un hallazgo no salen `evidencia` ni `propuesta` (texto libre de
+los críticos), del estado tampoco `comando_validacion`, de un snapshot solo
+rutas y símbolos (la capa de datos ni carga `diff` ni `fragmentos`), y del
+grafo solo nombres, rutas y relaciones. Todo es lista blanca (`vistas.py`):
+un campo nuevo del contrato no sale hasta que se agregue allí. Lo que sí sale
+es texto escrito por personas o por el arnés (`pedido`, `titulo`, comentarios,
+motivos, la `pregunta` de un checkpoint) y los títulos de hallazgos. `/v1` y
+MCP no pasan por estos filtros: el arnés necesita la orden completa.
 
 ## Piezas
 
@@ -36,12 +43,17 @@ GitHub Apps):
 - **Callback URL**: `https://<dominio>/consola/api/auth/github/callback`.
 - **Request user authorization (OAuth) during installation**: no hace falta.
 - **Permisos**: Organization → Members: *Read-only* (equipos del usuario para
-  roles por equipo). Sin ese permiso la consola funciona, pero solo resuelve
-  roles asignados a personas.
+  roles por equipo). Sin ese permiso la consola y el arnés funcionan, pero solo
+  resuelven roles asignados a personas.
 - Instalarla en la organización de GitHub cuyos equipos se usen en roles.
 
-El token de usuario de GitHub solo se usa dentro del callback (leer el usuario
-y sus equipos) y se descarta.
+En el inicio de sesión, el token de usuario de GitHub solo se usa dentro del
+callback (leer el usuario y sus equipos); no se guarda y al terminar se revoca
+en GitHub. Cuando alguien presenta su propio token de GitHub (el del arnés por
+MCP, o un script) el servidor comprueba con las credenciales de la App que lo
+emitió ella, y lo usa para identificarlo y leer sus equipos (`GET /user/teams`,
+el mismo permiso de arriba, o el alcance `read:org` en un token OAuth); guarda
+el resultado cinco minutos bajo el hash del token y nunca el token.
 
 ## Variables de entorno
 
@@ -51,14 +63,24 @@ Las que Julian debe suministrar:
 | --- | --- | --- |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID` | Secret | Client ID de la GitHub App. Sin ella no hay botón "Entrar con GitHub". |
 | `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Secret | Client secret de la App. |
-| `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`). Sin ella cada réplica genera una efímera: las sesiones se pierden al reiniciar o cambiar de réplica. |
-| `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas. El de Julian es `83125327`. |
+| `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`), **mínimo 32 caracteres**. Obligatoria con URL pública https o con GitHub App: sin ella, o con una más corta, el servidor no arranca (el `state` de OAuth que entrega `/auth/github/inicio` es texto conocido más su MAC: una clave débil se rompe sin conexión y permite forjar sesiones). Solo en desarrollo (URL http local, sin GitHub App) se puede omitir: clave efímera con aviso, que no sobrevive a un reinicio ni se comparte entre réplicas. |
+| `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas (p. ej. `1234567`; el id numérico de tu usuario sale de `GET https://api.github.com/users/<login>`). |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
-| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión (8 por defecto). |
+| `RAILSPEC_CONSOLA_AUTH_LIMITE` | opcional | Peticiones por minuto y por IP en `/consola/api/auth/*` (60 por defecto; 0 lo desactiva). 429 con `Retry-After` al pasarse. |
+| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión en horas (4 por defecto, de 1 a 24). Es también la ventana en que quedan congelados los equipos de GitHub de la cookie. |
+| `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | opcional | Flujos de eventos en vivo abiertos a la vez por persona y por réplica (5 por defecto); al exceder, 429. |
+| `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | opcional | Ídem en total por réplica (200 por defecto). |
+| `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | opcional | Cada cuántos segundos un flujo vuelve a comprobar el rol `lector` y se cierra si lo perdió (30 por defecto). |
+| `RAILSPEC_PROVEEDORES_HOSTS` | ConfigMap (`renderizar.py`) | Hosts permitidos para los proveedores de contexto que configura una organización (`host`, `*.dominio`, coma); se suma el de `RAILSPEC_PCE_URL`. Vacía: ninguno ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
+| `RAILSPEC_VINCULOS_OWNERS` | ConfigMap (`renderizar.py`) | Owners de GitHub (coma) que puede vincular una organización que **no** tiene `github_org`. Vacía (por defecto): esas organizaciones no pueden vincular repositorios. Una organización con `github_org` solo vincula repositorios de ese owner, con o sin esta variable. |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
-con token de desarrollo, solo para entornos sin GitHub App.
+con token de desarrollo y **sustituye por completo** la identidad de GitHub.
+Es solo para máquinas de desarrollo: el servidor se niega a arrancar con ella
+si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo `RAILSPEC_PERMITIR_DESARROLLO=1`
+(que deja un WARNING), y el Deployment de `railspec/deploy/` la fuerza vacía.
+`GET /auth/config` solo anuncia `desarrollo: true` con el modo permitido.
 
 ## Primer arranque
 
@@ -69,26 +91,108 @@ con token de desarrollo, solo para entornos sin GitHub App.
    `desarrollador` o `lector` por workspace) a personas, por login, o a
    equipos de GitHub, por su id numérico (`GET /orgs/{org}/teams/{slug}` en
    la API de GitHub lo da).
-5. Vincular repositorios al workspace (nivel `restringido` por defecto).
+5. Vincular repositorios al workspace (nivel `restringido` por defecto). La URL
+   es `https://github.com/<owner>/<repo>` y el owner, el `github_org` de la
+   organización (ver «Vínculos de repositorio»); antes, la plataforma tiene que
+   fijar ese `github_org` al crear o editar la organización.
 
 ## Sesión, tokens y anti-CSRF
 
 - **Cookie** `railspec_sesion`: HttpOnly, SameSite=Lax, `Path=/consola`,
-  `Secure` con URL https. Formato `rsc1.<carga>.<firma HMAC-SHA256>`, sin
-  estado en el servidor; lleva login, `github_id`, equipos de GitHub y
-  expiración.
+  `Secure` con URL https. Con https se llama `__Secure-railspec_sesion` (el
+  navegador la rechaza si no es `Secure`; `__Host-` exigiría `Path=/`).
+  Formato `rsc1.<carga>.<firma HMAC-SHA256>`; lleva login, `github_id`,
+  equipos de GitHub, el id de la sesión y la expiración. La carga trae el tipo
+  (`t`: `sesion`, `api` u `oauth`) y la audiencia (`aud`), y cada tipo se firma
+  con su propia subclave (HKDF-SHA256 del secreto): el `state` de OAuth, que es
+  público, no sirve de cookie ni de token `api`, y el servidor siempre abre un
+  token exigiendo el tipo que espera.
 - **Anti-CSRF**: con cookie, toda petición que no sea GET exige la cabecera
   `X-Railspec-Consola: 1` (un formulario de otro sitio no puede ponerla).
 - **Token para `/v1/*`**: `POST /consola/api/auth/token` devuelve
-  `{"token": "rsc1…", "expira_en": ISO}`, válido una hora como
-  `Authorization: Bearer` en `/v1/tools` y en cualquier ruta que resuelva el
-  actor con la identidad del servidor (`identidad.actor_desde_token(token,
-  "consola")`): Actor humano con `github_id`, login y canal `consola`. Es el
-  que usa el chat. Un token de sesión (cookie) no vale como Bearer.
-- **Bearer en la consola**: `/consola/api` también acepta
-  `Authorization: Bearer` (token de GitHub, de desarrollo o `rsc1`) para
-  scripts; sin cookie no hace falta la cabecera anti-CSRF.
-- Cerrar sesión borra la cookie; un token ya emitido vale hasta su expiración.
+  `{"token": "rsc1…", "expira_en": ISO}`, válido una hora (nunca más que la
+  sesión que lo pide) como `Authorization: Bearer` en `/v1/tools` y en las
+  rutas que resuelven el actor con la identidad del servidor
+  (`identidad.actor_desde_token(token, "consola")`): Actor humano con
+  `github_id`, login y canal `consola`. Es el que usa el chat. Solo se emite con
+  la **cookie de sesión** y la cabecera anti-CSRF: un `Bearer` (token `api`, de
+  GitHub o de desarrollo) recibe 401, de modo que una fuga del token `api` no
+  da acceso indefinido (no se renueva solo ni sobrevive a la sesión). Lleva
+  `aud: "v1"` y vale únicamente con canal `consola` (`/v1/tools`, `/v1/chat`);
+  no es credencial del arnés (`/mcp`) ni de la API de la consola. Un token de
+  sesión (cookie) no vale como Bearer.
+- **Bearer en la consola (scripts)**: `/consola/api` acepta
+  `Authorization: Bearer` con un **token de GitHub o de desarrollo**, no con
+  `rsc1`; sin cookie no hace falta la cabecera anti-CSRF. El token de GitHub
+  tiene que ser de la GitHub App de Railspec: se comprueba con las credenciales
+  de la App (`POST /applications/{client_id}/token`), así que uno personal (PAT)
+  o de otra OAuth app se rechaza con 401, y si GitHub no responde, con 503
+  (falla cerrado). Sin GitHub App configurada se rechaza todo token de GitHub,
+  salvo con `RAILSPEC_PERMITIR_DESARROLLO=1`. Con token de GitHub los equipos
+  cuentan igual que en la sesión (se releen al vencer la caché de cinco
+  minutos); los tokens de desarrollo no tienen equipos. Un script que ya tiene
+  un token de GitHub lo usa directamente (en `/v1` y en `/consola/api`): no
+  necesita `POST /auth/token`. El token `rsc1` `api` no vale en `/consola/api`
+  (ni en lecturas ni en escrituras): la SPA usa la cookie y solo manda el token
+  al chat.
+- **Cerrar sesión** (`POST /auth/salir`, con la cabecera anti-CSRF como toda
+  escritura) borra la cookie y además **revoca** la sesión: cookie y tokens `api`
+  llevan el id de su sesión (`sid`) y el servidor lo guarda en la colección
+  `sesiones_revocadas` de Mongo (índice TTL: el registro desaparece cuando la
+  sesión habría expirado), que consulta cada réplica al validar. Una cookie
+  copiada o un token `api` pedido antes del cierre dejan de valer en el acto.
+  Solo se cierra esa sesión (no las demás de la misma persona).
+- **Tras el callback de OAuth** el token de usuario de GitHub se revoca
+  (`DELETE /applications/{client_id}/token`, mejor esfuerzo: si GitHub no
+  responde, el inicio de sesión sigue).
+- **Vida de la sesión**: 4 horas por defecto (`RAILSPEC_CONSOLA_SESION_HORAS`,
+  de 1 a 24). Es también cuánto quedan congelados los equipos de GitHub de la
+  cookie (ver límites).
+
+### Límites conocidos
+
+- **Equipos de GitHub congelados.** Los equipos se leen una vez, al iniciar
+  sesión, y viajan en la cookie y en los tokens `api` que salen de ella. Quitar
+  a alguien de un equipo en GitHub no le quita el rol heredado de ese equipo
+  hasta que la sesión expire (como mucho `RAILSPEC_CONSOLA_SESION_HORAS`) o se
+  cierre. No se pueden refrescar sin guardar el token de GitHub del usuario, y
+  la consola decide no guardarlo. Quitar una *asignación* de rol en Railspec sí
+  surte efecto de inmediato: los roles se leen de la base en cada petición.
+- **Administradores de plataforma.** `RAILSPEC_CONSOLA_ADMINS` es configuración
+  del ConfigMap: añadir o quitar a alguien exige cambiar el ConfigMap y
+  reiniciar las réplicas (no hay edición desde la consola). Tras el reinicio la
+  baja es inmediata, porque la cookie no lleva el permiso: se compara con la
+  configuración en cada petición.
+- **Revocación solo de lo que emite la consola.** Cierra la cookie y los
+  tokens `api` de la sesión. Los tokens de GitHub o de desarrollo que un script
+  mande como `Bearer` se invalidan donde nacen (GitHub, `RAILSPEC_TOKENS_DESARROLLO`).
+  No hay (todavía) una operación de "cerrar todas las sesiones de una persona".
+- **Cambio de formato.** Las cookies y los tokens `rsc1` emitidos por versiones
+  anteriores dejan de valer al desplegar esta (subclaves por tipo): hay que
+  volver a iniciar sesión una vez.
+
+## Cabeceras de seguridad y límite de peticiones
+
+El servidor las pone él mismo (`consola/seguridad.py`, middleware ASGI), sin
+depender del ingress, en toda respuesta bajo `/consola`: la SPA, sus estáticos,
+las redirecciones y la API, incluidos los 401 y 404.
+
+| Cabecera | Valor |
+| --- | --- |
+| `Content-Security-Policy` (SPA) | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. Revisada contra el build de Vite: `index.html` solo trae un `<script type="module" src>` y un `<link>` del propio origen, sin scripts ni estilos en línea; `'unsafe-inline'` va solo en estilos (React y las librerías de gráficos fijan estilos en los elementos). Sin `eval`: no añadir librerías que lo necesiten. |
+| `Content-Security-Policy` (API) | `default-src 'none'; frame-ancestors 'none'` |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `Strict-Transport-Security` | `max-age=31536000`, solo con `RAILSPEC_CONSOLA_URL` https |
+| `Cache-Control: no-store` | En `/consola/api/auth/*` (sesión y token); lo que ya fija cada ruta se conserva |
+
+**Límite en `/consola/api/auth/*`**: ventana deslizante de un minuto por IP, en
+memoria y por réplica (con N réplicas el tope efectivo es N veces el
+configurado). La IP es la que resuelve uvicorn a partir de
+`FORWARDED_ALLOW_IPS`; con el `*` del ConfigMap un cliente puede falsear
+`X-Forwarded-For` y evadir el límite (ver el riesgo en `despliegue.md`).
+
 
 ## Autorización
 
@@ -101,15 +205,65 @@ oculta lo que el rol no permite, pero decide el servidor.
 | --- | --- |
 | Ver unidades, estadísticas, auditoría, grafo, configuración | `lector` |
 | Aprobar checkpoints, integrar, cambiar modo, arrancar unidades (tools) | el `rol_minimo` de la tool (`desarrollador`) |
-| Editar workspace, vínculos, roles del workspace, configuración del workspace | `workspace-admin` |
+| Editar workspace, vínculos, roles del workspace, configuración del workspace (**salvo relajar la política**, abajo) | `workspace-admin` |
+| Fijar la `url` y la `credencial_ref` de un proveedor de contexto (y crearlo) | `org-admin`; el `workspace-admin` edita el resto del proveedor |
+| Relajar la política de código: bajar `nivel_codigo`, habilitar `chat_contexto_codigo.permitido`, subir los presupuestos de fuga o `huella_tokens_n`, ampliar `modelos_permitidos`, `hosting` o `fragmentos_en_respuesta`, crear un vínculo menos restrictivo que el por defecto, o quitar o cambiar `zona_datos_azure`; siempre con motivo | `org-admin` |
 | Crear workspaces, roles `org-admin`, configuración de la organización | `org-admin` |
-| Crear organizaciones | administrador de la plataforma |
+| Crear organizaciones; fijar o cambiar su `github_org` | administrador de la plataforma |
 
 Las tools llamadas desde la consola (`POST /consola/api/tools/{nombre}`) pasan
-por el mismo registro que MCP y `/v1/tools`, con un autorizador que además
-resuelve equipos. Por MCP y `/v1/tools` los roles de equipo todavía no se
-resuelven (el token de GitHub del arnés no trae equipos); hasta entonces, a
-quien use el arnés hay que asignarle el rol como persona.
+por el mismo registro que MCP y `/v1/tools`, y los roles de equipo valen igual
+por las tres vías: la identidad del token devuelve un actor con los equipos de
+GitHub de la persona y el autorizador los suma a las asignaciones personales
+(la misma consulta que usa la consola).
+
+| Token | Equipos |
+| --- | --- |
+| `rsc1` de `POST /consola/api/auth/token` (SPA y chat) | Los del login, firmados en el token. |
+| Token de GitHub (el del arnés por MCP, scripts) | `GET /user/teams` con ese mismo token, cacheado cinco minutos. Sin permiso o sin respuesta de GitHub, ninguno: el token sigue valiendo y cuentan las asignaciones personales. |
+| Token de desarrollo | Ninguno: asignar el rol como persona. |
+| OIDC de Actions | No aplica: el alcance lo fija la tool. |
+
+Los equipos no se guardan en el estado ni en la auditoría. Un token `rsc1`
+vencido o con la carga alterada no es actor (401), y un rol de equipo vale solo
+en la organización y el workspace en que se asignó. Un cambio de membresía se
+nota al renovar el token de GitHub (cinco minutos) o al volver a iniciar
+sesión (el `rsc1` conserva los equipos del login).
+
+## Vínculos de repositorio
+
+- **URL**: exactamente `https://github.com/<owner>/<repo>` (con `.git` o `/` finales
+  opcionales). Se rechazan otros hosts, credenciales en la URL, puerto, consulta,
+  fragmento, segmentos de más y los nombres `.` y `..`. `ClonesGit` usa
+  `<owner>/<repo>` como ruta bajo `RAILSPEC_CHAT_CLONES` y además comprueba que la
+  ruta resuelta no salga de esa carpeta (tampoco por enlaces simbólicos: los clones
+  deben ser directorios reales dentro de ella).
+- **Owner**: tiene que ser el `github_org` de la organización (sin distinguir
+  mayúsculas). Falla cerrado: si la organización no tiene `github_org`, solo vale un
+  owner de `RAILSPEC_VINCULOS_OWNERS`; sin ninguno de los dos, el vínculo se rechaza
+  (422) con el motivo. Un `org-admin` no puede cambiar `github_org` (403): lo fija la
+  plataforma, porque los clones son compartidos por owner/repo y quien eligiera su
+  owner a gusto podría apuntar al clon de otro tenant.
+- **Política (`nivel_codigo`, `chat_contexto_codigo`) y zona de datos**: endurecer sigue
+  siendo del `workspace-admin` (bajar `huella_tokens_n` o los presupuestos de fuga,
+  apagar el chat, acotar los modelos, fijar una zona donde no había). Relajar cualquiera
+  de esos campos exige `org-admin` (o la plataforma, que actúa como tal) y un `motivo` no
+  vacío; si no, 403 o 422. Un vínculo nuevo se compara con la política por defecto de
+  `restringido`: crearlo en `interno` o `abierto` (o con una política más laxa) también
+  es relajar; si no, bastaría desvincular y volver a crear para esquivar el cambio de
+  nivel. De `zona_datos_azure`, quitarla o cambiarla a otra cuenta como ampliarla (no se
+  puede probar que otra zona sea más estricta). El motivo viaja en `motivo` del cuerpo
+  (`PUT …/repositorios/{repo}` y `PUT …/workspaces/{ws}`). La SPA solo pide motivo al
+  cambiar el nivel; el resto de relajaciones desde la SPA devuelve el error del servidor.
+- **Auditoría del diff**: cada `PUT` de vínculo deja el campo, el valor anterior y el nuevo
+  como `cambio_<campo>: "antes -> después"` (`cambio_chat_huella_tokens_n: "12 -> 24"`),
+  `relaja` con los campos que relajan y el `motivo`. El cambio de nivel sigue siendo el
+  evento `cambio-nivel` (`de`, `a`, `motivo`) con el diff del resto de la política; los
+  demás van en `cambio-configuracion`. Igual para `zona_datos_azure` al editar un
+  workspace (`cambio_zona_datos_azure`).
+- **Límite**: los vínculos guardados antes de esta regla no se revalidan contra
+  `github_org` al leer código (solo se descartan los de forma inválida). Conviene
+  revisar `GET …/repositorios` de cada organización al desplegar.
 
 ## Aprobaciones e integración (R7)
 
@@ -123,7 +277,8 @@ el cierre y no lo condiciona. El estado registra el canal `consola`.
 
 Toda escritura de administración y configuración queda en `auditoria` con su
 actor: `cambio-configuracion`, `cambio-nivel` (con nivel anterior, nuevo y
-motivo obligatorio) y `desvinculo-repositorio` (motivo obligatorio; borra
+motivo obligatorio; los cambios de política llevan su diff, ver «Vínculos de
+repositorio») y `desvinculo-repositorio` (motivo obligatorio; borra
 vínculo y grafo del repositorio). Los cambios a nivel organización se
 auditan en el workspace reservado `org` (`org`, `administracion` y
 `configuracion` no se pueden usar como nombre de workspace); se ven en `/consola/api/orgs/{org}/workspaces/org/auditoria`
@@ -143,25 +298,37 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET /auth/github/inicio?volver=` | Redirige a GitHub; `volver` es una ruta interna de la SPA. |
 | `GET /auth/github/callback` | Lo llama GitHub; pone la cookie y vuelve a la SPA. |
 | `POST /auth/desarrollo` `{token}` | Sesión con token de desarrollo. |
-| `POST /auth/salir` | Borra la cookie. |
-| `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`. |
+| `POST /auth/salir` | Borra la cookie y revoca la sesión y sus tokens `api`; exige `X-Railspec-Consola: 1`. |
+| `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`; exige la cookie de sesión y `X-Railspec-Consola: 1`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
-| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola` (`unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`). |
+| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar. |
-| `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. |
+| `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. La URL es `https://github.com/<owner>/<repo>` del `github_org` de la organización (422 si no). |
 | `GET /orgs/{org}/catalogo`, `POST …/catalogo/sincronizar` | Catálogo de modelos. Sincronizar responde 501 hasta que el servidor sepa leer el catálogo de cada proveedor. |
 | `GET/PUT /orgs/{org}/perfiles[/{nombre}]?workspace=` | Perfiles; validados contra el catálogo (422 si un modelo no está o no admite el effort, las salidas estructuradas o el contexto pedidos; aviso si no hay catálogo de ese proveedor). |
 | `GET/PUT /orgs/{org}/presupuestos?workspace=` | Presupuestos. |
-| `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<secreto>/<clave>`. |
+| `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<org>--<nombre>/<clave>` (namespace de la organización). La `url` debe ser de un host permitido por la plataforma. Solo `org-admin` fija `url` y `credencial_ref`; los demás roles reciben `credencial_configurada` en vez de `credencial_ref`. |
 | `GET /orgs/{org}/workspaces/{ws}/resumen` | Unidades por fase y estado, integradas, checkpoints pendientes, convergencia de gates, gasto del mes contra presupuesto, commit del grafo por repositorio. |
 | `GET /orgs/{org}/workspaces/{ws}/auditoria?evento=&repositorio=&unidad=&desde=&hasta=&cursor=&limite=` | Auditoría, más reciente primero. |
-| `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado y resumen de la orden vigente. |
+| `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado (sin evidencia ni propuesta de los hallazgos) y resumen de la orden vigente. |
 | `GET …/unidades/{u}/linea-de-tiempo` | Eventos de sincronización y resumen de órdenes con su reporte (archivos tocados, tareas completadas). |
 | `GET …/unidades/{u}/trazabilidad` | CA-NN → tareas → archivos → símbolos → hallazgos (de órdenes, reportes y snapshots). |
-| `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir. |
+| `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir (un valor inválido se ignora y empieza desde el principio). Tope por persona y global (429 con `Retry-After`), consulta en un executor propio y revalida el rol `lector` cada `RAILSPEC_CONSOLA_SSE_REVALIDAR_S`: si se revoca, el flujo se corta en ese plazo (no hasta los 300 s). Los topes son por réplica. |
 | `GET /orgs/{org}/workspaces/{ws}/grafo/repositorios` | Repositorios vinculados con nivel, rol y commit canónico del grafo. |
+
+Crear perfiles, presupuestos y proveedores de contexto es atómico: el documento
+nace con un `_id` determinista (`<org>/<workspace o *>/<nombre>` para perfiles,
+`<org>/<workspace o *>` para presupuestos y
+`<org>/<workspace o *>/<rol>/<nombre>` para proveedores de contexto, el mismo
+que escribe el motor) y hay un índice único por clave natural, así que dos
+`PUT` simultáneos que crean lo mismo dejan un solo documento y el perdedor
+recibe 409. Los documentos anteriores (`_id` ObjectId, creados por la consola
+antes de esto) no se migran: se leen y editan por su clave natural y conservan
+su `_id`. Si ya hubiera duplicados de aquella carrera, el servidor arranca igual,
+avisa en el log (`hay documentos duplicados`) y no crea el índice hasta que se
+borren a mano.
 
 ## Chat de contexto (fase 8)
 
@@ -177,9 +344,12 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 ## Desarrollo
 
 ```
-# API con Mongo simulado y token de desarrollo
-RAILSPEC_TOKENS_DESARROLLO=tk-dev=juliancardonagaleano:83125327 \
-RAILSPEC_CONSOLA_ADMINS=83125327 railspec-server
+# API con Mongo simulado y token de desarrollo. SOLO LOCAL, con datos ficticios: el
+# login y los ids son inventados y la bandera exige que lo pidas explícitamente.
+# Nunca en el Secret ni en el ConfigMap de un clúster.
+RAILSPEC_PERMITIR_DESARROLLO=1 \
+RAILSPEC_TOKENS_DESARROLLO=tk-dev=usuario-demo:1000001 \
+RAILSPEC_CONSOLA_ADMINS=1000001 railspec-server
 
 # SPA con recarga en caliente (proxy de /consola/api a localhost:8080)
 npm --prefix railspec/packages/railspec-console ci
@@ -198,7 +368,6 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
 ## Pendiente
 
 - Sincronizar el catálogo de modelos por API de cada proveedor (hoy 501).
-- Roles por equipo en MCP y `/v1/tools` (hoy solo en la consola).
 - Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el
   repositorio; hoy la consola edita las `exclusiones` del vínculo).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).

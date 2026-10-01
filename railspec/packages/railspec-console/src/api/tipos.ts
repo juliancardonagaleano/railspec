@@ -175,6 +175,10 @@ export interface Cita {
   linea_fin?: number | null;
 }
 
+/**
+ * Hallazgo como lo sirve la consola: sin `evidencia` ni `propuesta` (texto libre de los críticos que
+ * puede citar código); la API los quita y la consola nunca muestra código.
+ */
 export interface Hallazgo {
   id: string;
   gate: GateFase;
@@ -182,8 +186,6 @@ export interface Hallazgo {
   severidad: Severidad;
   titulo: string;
   cita: Cita;
-  evidencia: string;
-  propuesta?: string | null;
   criterio?: string | null;
   refutado?: boolean;
 }
@@ -322,7 +324,8 @@ export interface SimboloTraza {
 
 export interface CriterioTraza {
   id: string;
-  texto: string;
+  /** `null` cuando el criterio CA-NN solo aparece en tareas y ninguna orden lo redacta. */
+  texto: string | null;
   tareas: TareaTraza[];
   archivos: { repositorio: string; ruta: string; estado: string }[];
   simbolos: SimboloTraza[];
@@ -674,7 +677,9 @@ export interface ProveedorContexto {
   rol: RolContexto;
   nombre: string;
   url: string;
+  /** Solo la reciben org-admin y plataforma; el resto ve `credencial_configurada`. */
   credencial_ref?: string | null;
+  credencial_configurada?: boolean;
   politica_fallo: "estricta" | "blanda";
   fases?: Fase[];
   presupuesto_tokens?: number | null;

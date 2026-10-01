@@ -45,11 +45,28 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_CACHE_NODOS_S": ("86400", "Caché de nodos de modelo por hash de entradas (s); 0 la apaga."),
     "RAILSPEC_PCE_URL": ("", "URL MCP de la gobernanza (PCE)."),
     "RAILSPEC_CONTEXTO_CACHE_S": ("900", "Caché de consultas a proveedores de contexto, en segundos."),
+    "RAILSPEC_PROVEEDORES_HOSTS": (
+        "",
+        "Hosts permitidos (coma, *.dominio) para proveedores de contexto de las organizaciones.",
+    ),
+    "RAILSPEC_VINCULOS_OWNERS": (
+        "",
+        "Owners de GitHub (coma) que vincula una organización sin github_org; vacío = ninguno.",
+    ),
     "RAILSPEC_ANTHROPIC_HABILITADO": ("false", "Anthropic directo (solo nivel abierto)."),
     "RAILSPEC_AZURE_CLIENT_ID": ("", "Client id de la identidad administrada para Workload Identity."),
-    "RAILSPEC_OIDC_AUDIENCIA": ("railspec", "Audiencia del token OIDC de CI; la del workflow de reindexado."),
+    # El defecto es vacío a propósito: audiencia vacía = OIDC de CI desactivado. Nunca poner aquí un
+    # valor por defecto: ``valores`` usa ``valor or defecto`` y vaciarla no podría desactivarlo.
+    "RAILSPEC_OIDC_AUDIENCIA": (
+        "",
+        "Audiencia del token OIDC de CI (valor largo y aleatorio, no adivinable); la del workflow de "
+        "reindexado. Vacía = OIDC desactivado.",
+    ),
     "RAILSPEC_OIDC_EMISOR": ("https://token.actions.githubusercontent.com", "Emisor OIDC de CI."),
-    "RAILSPEC_OIDC_REPOSITORIOS": ("", "owner/repo separados por comas que pueden llamar graph.index."),
+    "RAILSPEC_OIDC_REPOSITORIOS": (
+        "",
+        "owner/repo separados por comas que pueden llamar graph.index. Obligatoria con audiencia.",
+    ),
     "RAILSPEC_CONSOLA_ADMINS": ("", "github_id que administran la plataforma en la consola (coma)."),
 }
 _MARCA = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -78,13 +95,46 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     for nombre in ("RAILSPEC_CATALOGO_TTL_S", "RAILSPEC_CACHE_NODOS_S", "RAILSPEC_CONTEXTO_CACHE_S"):
         if not re.fullmatch(r"\d+(\.\d+)?", salida[nombre]):
             raise ErrorRender(f"{nombre} debe ser un número de segundos")
+    for nombre in ("RAILSPEC_VINCULOS_OWNERS",):
+        if not re.fullmatch(r"[A-Za-z0-9,\s-]*", salida[nombre]):
+            raise ErrorRender(f"{nombre} solo admite owners de GitHub separados por comas")
+    if not re.fullmatch(r"[A-Za-z0-9.*,\s-]*", salida["RAILSPEC_PROVEEDORES_HOSTS"]):
+        raise ErrorRender(
+            "RAILSPEC_PROVEEDORES_HOSTS solo admite hosts (nombre o *.dominio) separados por comas"
+        )
     if re.search(r"[\"\\]", salida["RAILSPEC_FOUNDRY_DESPLIEGUES"]):
         raise ErrorRender(
             "RAILSPEC_FOUNDRY_DESPLIEGUES va entre comillas en el ConfigMap: "
             "usar la forma despliegue=modelo[:SKU], no JSON"
         )
+    _validar_oidc(salida)
     salida["RAILSPEC_WORKLOAD_IDENTITY"] = "true" if salida["RAILSPEC_AZURE_CLIENT_ID"] else "false"
     return salida
+
+
+def _validar_oidc(salida: Mapping[str, str]) -> None:
+    """El mismo rechazo que hace el servidor al arrancar, pero antes de aplicar nada al clúster."""
+
+    audiencia = salida["RAILSPEC_OIDC_AUDIENCIA"]
+    repositorios = salida["RAILSPEC_OIDC_REPOSITORIOS"]
+    for nombre, valor in (
+        ("RAILSPEC_OIDC_AUDIENCIA", audiencia),
+        ("RAILSPEC_OIDC_REPOSITORIOS", repositorios),
+    ):
+        if re.search(r"[\s\"\\$]", valor.replace(",", "")):
+            raise ErrorRender(f"{nombre} tiene caracteres no válidos")
+    if not audiencia:
+        return
+    if audiencia.lower() == "railspec":
+        raise ErrorRender(
+            "RAILSPEC_OIDC_AUDIENCIA=railspec es adivinable: usa un valor largo y aleatorio "
+            "(p. ej. openssl rand -hex 24) y el mismo en la variable del repositorio del workflow"
+        )
+    if not any(r.strip() for r in repositorios.split(",")):
+        raise ErrorRender(
+            "RAILSPEC_OIDC_AUDIENCIA exige RAILSPEC_OIDC_REPOSITORIOS (owner/repo separados por comas): "
+            "sin la lista, cualquier repositorio de GitHub podría presentar un token"
+        )
 
 
 def renderizar(entorno: Mapping[str, str], directorio: Path = DIRECTORIO) -> str:

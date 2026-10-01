@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -34,7 +35,6 @@ from railspec.contracts.repositorio import (
     PresupuestoConfig,
     ProveedorContexto,
     RegistroAuditoria,
-    SujetoUsuario,
     TelemetriaNodo,
     VinculoRepositorio,
     Workspace,
@@ -49,8 +49,33 @@ from railspec.contracts.tools import (
 
 from .interfaces import ADAPTADOR_ORDEN, EntradaPendiente, TipoEntrada
 
+log = logging.getLogger("railspec.estado")
+
 #: Retención por defecto de snapshots cuando el vínculo no fija otra (días).
 RETENCION_SNAPSHOTS_DIAS = 30
+
+
+def clave_perfil(org: str, workspace: str | None, nombre: str) -> str:
+    """``_id`` de un perfil: único por (organización, workspace o ``*``, nombre)."""
+
+    return f"{org}/{workspace or '*'}/{nombre}"
+
+
+def clave_presupuesto(org: str, workspace: str | None) -> str:
+    return f"{org}/{workspace or '*'}"
+
+
+def clave_proveedor_contexto(org: str, workspace: str | None, rol: str, nombre: str) -> str:
+    return f"{org}/{workspace or '*'}/{rol}/{nombre}"
+
+
+#: Clave natural de la configuración por entidad (lo que identifica un documento aunque su ``_id`` sea
+#: antiguo): índice único para que ni un escritor anterior al ``_id`` determinista pueda duplicarla.
+CLAVES_NATURALES = {
+    "perfiles": ("org", "workspace", "nombre"),
+    "presupuestos": ("org", "workspace"),
+    "proveedores_contexto": ("org", "workspace", "rol", "nombre"),
+}
 
 
 def _doc(modelo: Any) -> dict[str, Any]:
@@ -61,6 +86,21 @@ def _limpio(doc: dict[str, Any] | None) -> dict[str, Any] | None:
     if doc is None:
         return None
     return {k: v for k, v in doc.items() if not k.startswith("_")}
+
+
+def filtro_sujetos(github_id: int, equipos: frozenset[int] = frozenset()) -> list[dict[str, Any]]:
+    """Alternativas de ``$or`` que casan las asignaciones de una persona y de sus equipos.
+
+    Única definición de "a quién le toca una asignación" (R3): la usan el
+    autorizador de ``/v1`` y MCP y la consola. Los equipos se casan por
+    ``equipo_id`` (único en GitHub); la organización y el workspace los filtra
+    quien llama.
+    """
+
+    sujetos: list[dict[str, Any]] = [{"sujeto.tipo": "usuario", "sujeto.github_id": github_id}]
+    if equipos:
+        sujetos.append({"sujeto.tipo": "equipo", "sujeto.equipo_id": {"$in": sorted(equipos)}})
+    return sujetos
 
 
 def _filtro_ws(org: str, workspace: str, prefijo: str) -> dict[str, Any]:
@@ -98,6 +138,17 @@ class AlmacenMongo:
         db.entradas.create_index([("_clave", ASCENDING), ("_recibida", ASCENDING)])
         db.catalogo.create_index([("org", ASCENDING), ("proveedor", ASCENDING)])
         db.cache_nodos.create_index("_expira", expireAfterSeconds=0)
+        for coleccion, campos in CLAVES_NATURALES.items():
+            try:
+                db[coleccion].create_index([(c, ASCENDING) for c in campos], unique=True)
+            except DuplicateKeyError:
+                # Ya hay duplicados (creados por la carrera de antes del ``_id`` determinista): no se
+                # tumba el arranque; el ``_id`` determinista ya impide nuevos. Hay que resolverlos a mano.
+                log.warning(
+                    "%s: hay documentos duplicados por %s; sin índice único hasta que se resuelvan",
+                    coleccion,
+                    "/".join(campos),
+                )
 
     # --- StateStore: estado ----------------------------------------------------------
 
@@ -390,8 +441,12 @@ class AlmacenMongo:
         )
         return VinculoRepositorio.model_validate(_limpio(doc)) if doc else None
 
-    def asignaciones(self, org: str, github_id: int) -> list[AsignacionRol]:
-        cursor = self.db.roles.find({"org": org, "sujeto.tipo": "usuario", "sujeto.github_id": github_id})
+    def asignaciones(
+        self, org: str, github_id: int, equipos: frozenset[int] = frozenset()
+    ) -> list[AsignacionRol]:
+        """Asignaciones de la organización a la persona y a los ``equipos`` (ids) que se le conocen."""
+
+        cursor = self.db.roles.find({"org": org, "$or": filtro_sujetos(github_id, equipos)})
         return [AsignacionRol.model_validate(_limpio(d)) for d in cursor]
 
     def workspace(self, alcance: AlcanceWorkspace) -> Workspace | None:
@@ -452,12 +507,18 @@ class AlmacenMongo:
 
         for e in entidades:
             if isinstance(e, PerfilConfig):
-                self.db.perfiles.replace_one(
-                    {"org": e.org, "workspace": e.workspace, "nombre": e.nombre.value}, _doc(e), upsert=True
+                self._guardar_por_clave_natural(
+                    "perfiles",
+                    {"org": e.org, "workspace": e.workspace, "nombre": e.nombre.value},
+                    clave_perfil(e.org, e.workspace, e.nombre.value),
+                    _doc(e),
                 )
             elif isinstance(e, PresupuestoConfig):
-                self.db.presupuestos.replace_one(
-                    {"org": e.org, "workspace": e.workspace}, _doc(e), upsert=True
+                self._guardar_por_clave_natural(
+                    "presupuestos",
+                    {"org": e.org, "workspace": e.workspace},
+                    clave_presupuesto(e.org, e.workspace),
+                    _doc(e),
                 )
             elif isinstance(e, VinculoRepositorio):
                 a = e.alcance
@@ -474,16 +535,33 @@ class AlmacenMongo:
                     upsert=True,
                 )
             elif isinstance(e, ProveedorContexto):
-                clave = f"{e.org}/{e.workspace or '*'}/{e.rol.value}/{e.nombre}"
-                self.db.proveedores_contexto.replace_one(
-                    {"_id": clave}, {"_id": clave, **_doc(e)}, upsert=True
+                self._guardar_por_clave_natural(
+                    "proveedores_contexto",
+                    {"org": e.org, "workspace": e.workspace, "rol": e.rol.value, "nombre": e.nombre},
+                    clave_proveedor_contexto(e.org, e.workspace, e.rol.value, e.nombre),
+                    _doc(e),
                 )
             elif isinstance(e, AsignacionRol):
-                if not isinstance(e.sujeto, SujetoUsuario):
-                    raise ValueError("las asignaciones a equipos necesitan resolver membresía (pendiente)")
                 self.db.roles.replace_one({"_id": str(e.id)}, {"_id": str(e.id), **_doc(e)}, upsert=True)
             else:
                 raise TypeError(f"no es configuración: {type(e).__name__}")
+
+    def _guardar_por_clave_natural(
+        self, coleccion: str, filtro: dict[str, Any], clave: str, doc: dict[str, Any]
+    ) -> None:
+        """Upsert por clave natural con ``_id`` determinista.
+
+        Si ya hay un documento con esa clave natural se reescribe conservando su ``_id`` (puede ser
+        un ObjectId de antes del ``_id`` determinista); si no, se crea con ``clave``, el mismo
+        ``_id`` con que crea la consola, así que no existen dos documentos para la misma entidad.
+        """
+
+        col = self.db[coleccion]
+        existente = col.find_one(filtro, {"_id": 1})
+        if existente is not None:
+            col.replace_one({"_id": existente["_id"]}, doc)
+        else:
+            col.replace_one({"_id": clave}, {"_id": clave, **doc}, upsert=True)
 
 
 def _filtro_unidad_doc(alcance: AlcanceUnidad) -> dict[str, Any]:

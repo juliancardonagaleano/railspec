@@ -65,6 +65,8 @@ def token_oidc(clave=CLAVE, **reclamos) -> str:
 
 
 def verificador(**extra) -> VerificadorOidcActions:
+    # La lista de repositorios es obligatoria (A1): por defecto, solo el del vínculo de las pruebas.
+    extra.setdefault("repositorios", frozenset({REPO_GH}))
     return VerificadorOidcActions("railspec", claves=ClavesLocales(), **extra)
 
 
@@ -113,12 +115,42 @@ def test_identidad_compuesta_reparte_por_emisor():
 
 
 def test_configuracion_oidc_desde_entorno():
+    # A1: sin audiencia explícita no hay OIDC (antes valía "railspec", una audiencia adivinable).
     c = Configuracion.desde_entorno({})
-    assert c.oidc_audiencia == "railspec" and c.oidc_emisor == EMISOR_ACTIONS and not c.oidc_repositorios
+    assert c.oidc_audiencia is None and c.oidc_emisor == EMISOR_ACTIONS and not c.oidc_repositorios
     c = Configuracion.desde_entorno(
         {"RAILSPEC_OIDC_AUDIENCIA": "", "RAILSPEC_OIDC_REPOSITORIOS": "acme/a, acme/b"}
     )
     assert c.oidc_audiencia is None and c.oidc_repositorios == {"acme/a", "acme/b"}
+    c = Configuracion.desde_entorno(
+        {"RAILSPEC_OIDC_AUDIENCIA": " aud-larga-no-adivinable ", "RAILSPEC_OIDC_REPOSITORIOS": "acme/a"}
+    )
+    assert c.oidc_audiencia == "aud-larga-no-adivinable" and c.oidc_repositorios == {"acme/a"}
+
+
+def test_oidc_sin_lista_de_repositorios_no_arranca():
+    """A1: antes, con la lista vacía cualquier repositorio del mundo con ``id-token: write`` valía."""
+
+    with pytest.raises(ValueError, match="RAILSPEC_OIDC_REPOSITORIOS"):
+        VerificadorOidcActions("aud", claves=ClavesLocales())
+    with pytest.raises(ValueError, match="RAILSPEC_OIDC_REPOSITORIOS"):
+        VerificadorOidcActions("aud", repositorios=frozenset({" ", ""}), claves=ClavesLocales())
+    config = Configuracion(oidc_audiencia="aud-larga-no-adivinable", permitir_desarrollo=True)
+    with pytest.raises(ValueError, match="RAILSPEC_OIDC_REPOSITORIOS"):
+        ensamblar(config)
+    with pytest.raises(ValueError, match="adivinable"):
+        ensamblar(
+            Configuracion(
+                oidc_audiencia="Railspec", oidc_repositorios=frozenset({"acme/a"}), permitir_desarrollo=True
+            )
+        )
+    # Con la lista, el servidor arranca y exige además el repositorio del token.
+    ok = Configuracion(
+        oidc_audiencia="aud-larga-no-adivinable",
+        oidc_repositorios=frozenset({"acme/certificados-api"}),
+        permitir_desarrollo=True,
+    )
+    ensamblar(ok)
 
 
 # --- graph.index por HTTP ------------------------------------------------------------
@@ -152,8 +184,16 @@ def lote(i: int, n: int, *simbolos: Simbolo, commit=COMMIT_1, anterior=None, ram
 @contextlib.asynccontextmanager
 async def servidor(*configuracion):
     motor_grafo = MotorMemoria()
-    config = Configuracion.desde_entorno({"RAILSPEC_TOKENS_DESARROLLO": "tk-julian=juliancardonagaleano:1"})
-    motor, app = ensamblar(config, motor_grafo=motor_grafo, verificador_oidc=verificador())
+    config = Configuracion.desde_entorno(
+        {
+            "RAILSPEC_TOKENS_DESARROLLO": "tk-julian=juliancardonagaleano:1",
+            "RAILSPEC_PERMITIR_DESARROLLO": "1",
+        }
+    )
+    permitidos = frozenset({REPO_GH, "acme/otro"})
+    motor, app = ensamblar(
+        config, motor_grafo=motor_grafo, verificador_oidc=verificador(repositorios=permitidos)
+    )
     motor.n.almacen.guardar_configuracion([vinculo(NivelCodigo.restringido), *configuracion])
     async with app.router.lifespan_context(app):
         transporte = httpx.ASGITransport(app=app)
@@ -244,6 +284,36 @@ def test_graph_index_rechazos():
             cuerpo["alcance"]["repositorio"] = "sin-vinculo"
             r = await c.post("/v1/tools/graph.index", json=cuerpo, headers=_oidc())
             assert r.status_code == 404
+
+    asyncio.run(caso())
+
+
+def test_oidc_de_un_repo_ajeno_no_lee_nada():
+    """A1, extremo a extremo: un workflow de un repo cualquiera con audience válida.
+
+    Verificado antes del arreglo: 200 en unit.list y unit.status de cualquier tenant."""
+
+    async def caso():
+        async with servidor() as (c, _):
+            ajeno = _oidc(token_oidc(repository="atacante/repo"))
+            propio = _oidc()
+            unidad = {"org": ORG, "workspace": WS, "unidad": "0001-emitir-pdf"}
+            alcance = {"org": ORG, "workspace": WS}
+            for cabeceras in (ajeno, propio):
+                for ruta, cuerpo in (
+                    ("unit.list", {"alcance": alcance}),
+                    ("unit.status", {"unidad": unidad}),
+                    ("unit.export", {"unidad": unidad}),
+                    ("graph.query", {"alcance": alcance, "consulta": {"verbo": "resolve", "nombre": "x"}}),
+                ):
+                    r = await c.post(f"/v1/tools/{ruta}", json=cuerpo, headers=cabeceras)
+                    # Fuera de la allowlist, 401 (el verificador); dentro de ella, 403 (sin rol):
+                    # el OIDC de CI solo sirve para graph.index.
+                    assert r.status_code == (401 if cabeceras is ajeno else 403), (
+                        ruta,
+                        r.status_code,
+                        r.text,
+                    )
 
     asyncio.run(caso())
 

@@ -673,7 +673,10 @@ class ToolDef(BaseModel):
     efecto: Efecto
     rol_minimo: Rol
     superficies: frozenset[Superficie]
-    tipos_actor: frozenset[TipoActor] = frozenset(TipoActor)
+    #: Quién puede llamar la tool. Por defecto, personas y agentes: el actor de servicio (OIDC de
+    #: GitHub Actions, de cualquier repositorio del mundo) solo entra donde la tool lo declara, y
+    #: eso hoy es únicamente ``graph.index`` (ver ``_reglas``).
+    tipos_actor: frozenset[TipoActor] = frozenset({TipoActor.humano, TipoActor.agente})
     entrada: type[BaseModel]
     salida: type[BaseModel]
 
@@ -687,6 +690,8 @@ class ToolDef(BaseModel):
             self.tipos_actor != {TipoActor.servicio} or self.superficies != {Superficie.http}
         ):
             raise ValueError("graph.index es solo HTTP y solo para identidades de servicio")
+        if TipoActor.servicio in self.tipos_actor and self.nombre != "graph.index":
+            raise ValueError(f"{self.nombre}: solo graph.index admite identidades de servicio")
         return self
 
     @property
@@ -861,7 +866,7 @@ TOOLS: dict[str, ToolDef] = {
         ),
         ToolDef(
             nombre="graph.query",
-            descripcion="Consulta el grafo de código (resolve, search, traverse, related).",
+            descripcion="Consulta el grafo de código (resolve, search, traverse, related, impact, trace).",
             efecto=_L,
             rol_minimo=Rol.lector,
             superficies=frozenset({_M, _H, _C}),

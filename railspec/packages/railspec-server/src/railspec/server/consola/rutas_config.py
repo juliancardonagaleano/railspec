@@ -5,6 +5,12 @@ Cada entidad existe a nivel organización (``workspace`` nulo, la edita un
 usa la del workspace si existe y si no la de la organización. Leer la
 configuración basta con ser ``lector`` del workspace (o de algún workspace,
 para la de la organización).
+
+Los proveedores de contexto reciben la consulta del gate y una credencial, así
+que su ``url`` y su ``credencial_ref`` los fija solo un ``org-admin`` (o la
+plataforma), contra la allowlist de hosts de la plataforma y el namespace de
+secretos de la organización; el ``workspace-admin`` edita el resto. Ver
+``railspec/docs/proveedores.md``.
 """
 
 from __future__ import annotations
@@ -26,8 +32,10 @@ from railspec.contracts.repositorio import (
     TopeGate,
 )
 
+from ..contexto.destinos import DestinoNoPermitido, PoliticaDestinos
+from ..contexto.secretos import ReferenciaInvalida, validar_referencia
 from .api import Entrada
-from .contexto import ContextoConsola
+from .contexto import ContextoConsola, alcanza
 
 router = APIRouter()
 
@@ -40,7 +48,7 @@ def _json(modelo: Any) -> dict[str, Any]:
     return modelo.model_dump(mode="json")
 
 
-async def _lectura(request: Request, org: str, workspace: str | None) -> ContextoConsola:
+async def _lectura_permisos(request: Request, org: str, workspace: str | None):
     ctx = _ctx(request)
     permisos = ctx.permisos(await ctx.sesion(request))
     if workspace is not None:
@@ -49,10 +57,14 @@ async def _lectura(request: Request, org: str, workspace: str | None) -> Context
         org, permisos.sesion.github_id, permisos.sesion.equipos
     ):
         raise HTTPException(403, f"sin rol en {org}")
-    return ctx
+    return ctx, permisos
 
 
-async def _escritura(request: Request, org: str, workspace: str | None):
+async def _lectura(request: Request, org: str, workspace: str | None) -> ContextoConsola:
+    return (await _lectura_permisos(request, org, workspace))[0]
+
+
+async def _escritura_permisos(request: Request, org: str, workspace: str | None):
     ctx = _ctx(request)
     sesion = await ctx.sesion(request)
     permisos = ctx.permisos(sesion)
@@ -60,7 +72,12 @@ async def _escritura(request: Request, org: str, workspace: str | None):
         permisos.exigir(org, None, Rol.org_admin)
     else:
         permisos.exigir(org, workspace, Rol.workspace_admin)
-    return ctx, sesion.actor()
+    return ctx, sesion.actor(), permisos
+
+
+async def _escritura(request: Request, org: str, workspace: str | None):
+    ctx, actor, _ = await _escritura_permisos(request, org, workspace)
+    return ctx, actor
 
 
 # --- catálogo ------------------------------------------------------------------------------------
@@ -191,7 +208,9 @@ async def guardar_presupuesto(
 
 
 class ProveedorContextoEntrada(Entrada):
-    url: str
+    url: str = Field(max_length=512)
+    #: ``secret://<org>--<nombre>/<clave>``. ``None`` borra la referencia si quien edita es org-admin; para
+    #: un workspace-admin (que no la ve) significa "la que ya hay".
     credencial_ref: str | None = None
     politica_fallo: str
     fases: list[Fase] = Field(default_factory=list)
@@ -199,12 +218,36 @@ class ProveedorContextoEntrada(Entrada):
     version: int | None = None
 
 
+def _vista_proveedor(p: ProveedorContexto, ve_credencial: bool) -> dict[str, Any]:
+    """La referencia solo la ven quienes pueden fijarla (org-admin y plataforma); los demás, si hay una."""
+
+    d = _json(p)
+    d["credencial_configurada"] = p.credencial_ref is not None
+    if not ve_credencial:
+        d.pop("credencial_ref", None)
+    return d
+
+
+def _es_org_admin(permisos: Any, org: str) -> bool:
+    return alcanza(permisos.rol(org, None), Rol.org_admin)
+
+
+def _validar_destino(org: str, url: str, credencial_ref: str | None) -> None:
+    try:
+        PoliticaDestinos.desde_entorno().validar_url(url)
+        if credencial_ref is not None:
+            validar_referencia(credencial_ref, org)
+    except (DestinoNoPermitido, ReferenciaInvalida) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/orgs/{org}/proveedores-contexto")
 async def proveedores_contexto(
     org: str, request: Request, workspace: str | None = None
 ) -> list[dict[str, Any]]:
-    ctx = await _lectura(request, org, workspace)
-    return [_json(p) for p in ctx.datos.proveedores_contexto(org, workspace)]
+    ctx, permisos = await _lectura_permisos(request, org, workspace)
+    ve_credencial = _es_org_admin(permisos, org)
+    return [_vista_proveedor(p, ve_credencial) for p in ctx.datos.proveedores_contexto(org, workspace)]
 
 
 @router.put("/orgs/{org}/proveedores-contexto/{rol}/{nombre}")
@@ -216,14 +259,27 @@ async def guardar_proveedor_contexto(
     request: Request,
     workspace: str | None = None,
 ) -> dict[str, Any]:
-    ctx, actor = await _escritura(request, org, workspace)
+    ctx, actor, permisos = await _escritura_permisos(request, org, workspace)
     previo = ctx.datos.proveedor_contexto(org, workspace, rol.value, nombre)
+    es_org_admin = _es_org_admin(permisos, org)
+    if es_org_admin:
+        url, credencial_ref = entrada.url, entrada.credencial_ref
+        _validar_destino(org, url, credencial_ref)
+    else:
+        # El workspace-admin edita política, fases y presupuesto, no a dónde va la consulta ni con qué clave.
+        if previo is None:
+            raise HTTPException(403, "crear un proveedor de contexto (url y credencial) exige org-admin")
+        if entrada.url != previo.url or entrada.credencial_ref not in (None, previo.credencial_ref):
+            raise HTTPException(403, "cambiar la url o la credencial_ref de un proveedor exige org-admin")
+        url, credencial_ref = previo.url, previo.credencial_ref
     p = ProveedorContexto(
         org=org,
         workspace=workspace,
         rol=rol,
         nombre=nombre,
-        **entrada.model_dump(exclude={"version"}),
+        url=url,
+        credencial_ref=credencial_ref,
+        **entrada.model_dump(exclude={"version", "url", "credencial_ref"}),
         version=(entrada.version or 0) + 1,
         auditoria=ctx.auditoria_entidad(actor, previo.auditoria if previo else None),
     )
@@ -234,10 +290,20 @@ async def guardar_proveedor_contexto(
         workspace,
         EventoAuditoria.cambio_configuracion,
         entidad="proveedor-contexto",
+        accion="crear" if previo is None else "editar",
         rol=rol.value,
         nombre=nombre,
+        url=p.url,
+        credencial_ref=p.credencial_ref,
+        politica_fallo=p.politica_fallo,
+        url_previa=previo.url if previo is not None and previo.url != p.url else None,
+        credencial_ref_previa=(
+            previo.credencial_ref
+            if previo is not None and previo.credencial_ref != p.credencial_ref
+            else None
+        ),
     )
-    return _json(p)
+    return _vista_proveedor(p, es_org_admin)
 
 
 @router.delete("/orgs/{org}/proveedores-contexto/{rol}/{nombre}")
@@ -245,6 +311,7 @@ async def borrar_proveedor_contexto(
     org: str, rol: RolContexto, nombre: str, request: Request, workspace: str | None = None
 ) -> Response:
     ctx, actor = await _escritura(request, org, workspace)
+    previo = ctx.datos.proveedor_contexto(org, workspace, rol.value, nombre)
     if not ctx.datos.borrar_proveedor_contexto(org, workspace, rol.value, nombre):
         raise HTTPException(404, "no existe ese proveedor de contexto")
     ctx.auditar(
@@ -256,5 +323,7 @@ async def borrar_proveedor_contexto(
         accion="borrar",
         rol=rol.value,
         nombre=nombre,
+        url=previo.url if previo else None,
+        credencial_ref=previo.credencial_ref if previo else None,
     )
     return Response(status_code=204)

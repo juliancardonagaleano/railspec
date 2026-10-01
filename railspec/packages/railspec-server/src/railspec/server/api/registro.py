@@ -25,6 +25,7 @@ from railspec.contracts.repositorio import Rol
 from railspec.contracts.tools import TOOLS, CodigoError, ErrorTool, Superficie, ToolDef, resolver_tool
 
 from ..motor.motor import ErrorNegocio, Motor
+from .identidad import ActorConEquipos
 
 log = logging.getLogger("railspec.api")
 
@@ -44,6 +45,10 @@ class Autorizador(Protocol):
 class AutorizadorRoles:
     """Rol efectivo desde ``AsignacionRol``: el mayor entre el de la organización y el del workspace.
 
+    Cuenta las asignaciones de la persona y, si la identidad resolvió sus
+    equipos de GitHub (``ActorConEquipos``), las de esos equipos. Un ``Actor``
+    común (token de desarrollo) solo tiene las personales.
+
     ``abierto=True`` (solo desarrollo, sin Mongo) da ``desarrollador`` a toda
     persona autenticada sin asignaciones.
     """
@@ -54,14 +59,19 @@ class AutorizadorRoles:
 
     def rol(self, actor: Actor, org: str, workspace: str | None) -> Rol | None:
         if actor.tipo == TipoActor.servicio:
-            # Identidad OIDC de CI: su alcance lo fija la propia tool (p. ej. graph.index).
-            return Rol.desarrollador
+            # Sin rol por organización: cualquier workflow de GitHub Actions del mundo puede
+            # obtener un OIDC válido. Solo las tools que lo declaran (graph.index) lo admiten,
+            # y ``Registro.invocar`` resuelve ese caso sin pasar por aquí.
+            return None
         github_id = actor.github_id if actor.tipo == TipoActor.humano else actor.en_nombre_de
         if github_id is None:
             return None
+        equipos: frozenset[int] = frozenset()
+        if isinstance(actor, ActorConEquipos) and actor.tipo == TipoActor.humano:
+            equipos = actor.equipos
         roles = [
             a.rol
-            for a in self._almacen.asignaciones(org, github_id)
+            for a in self._almacen.asignaciones(org, github_id, equipos)
             if a.workspace is None or a.workspace == workspace
         ]
         if not roles:
@@ -166,7 +176,13 @@ class Registro:
             org, workspace = _ambito(entrada)
         except ErrorEntrada as exc:
             return Resultado(False, {"detalle": str(exc)}, 422)
-        rol = self._autorizador.rol(actor, org, workspace)
+        if actor.tipo == TipoActor.servicio:
+            # Identidad OIDC de CI: sin roles por organización. Solo una tool que declare
+            # explícitamente ``tipos_actor == {servicio}`` (graph.index) la admite, con su rol
+            # mínimo; su manejador comprueba el vínculo del repositorio y su rama por defecto.
+            rol = tool.rol_minimo if tool.tipos_actor == {TipoActor.servicio} else None
+        else:
+            rol = self._autorizador.rol(actor, org, workspace)
         if rol is None or _JERARQUIA.index(rol) < _JERARQUIA.index(tool.rol_minimo):
             return _error(
                 CodigoError.fuera_de_alcance,

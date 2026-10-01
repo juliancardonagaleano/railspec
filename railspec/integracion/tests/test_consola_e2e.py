@@ -74,7 +74,7 @@ def test_la_consola_ve_la_unidad_sin_codigo(consola):
     assert repos[0]["repositorio"] == REPO and repos[0]["nivel_codigo"] == "restringido"
 
 
-def test_tools_y_token_de_consola(consola):
+def test_tools_y_token_de_consola(consola, entorno):
     ciclo, c = consola
     lista = _sin_codigo(
         c.post("/consola/api/tools/unit.list", json={"alcance": {"org": ORG, "workspace": WS}})
@@ -92,8 +92,14 @@ def test_tools_y_token_de_consola(consola):
         resultados = _sin_codigo(r)["resultados"]
         assert any(x["ref"].get("nombre") == "src.firma.firmar" for x in resultados)
 
-    # El token rsc1 de la consola vale como Bearer en /v1 (lo usará el chat).
-    token = _sin_codigo(c.post("/consola/api/auth/token"))["token"]
+    # El token rsc1 de la consola vale como Bearer en /v1 (lo usará el chat), pero solo se emite
+    # con la cookie de sesión y la cabecera anti-CSRF: un Bearer no basta para acuñarlo.
+    csrf = {"X-Railspec-Consola": "1"}
+    assert c.post("/consola/api/auth/token", headers=csrf).status_code == 401
+    with httpx.Client(base_url=c.base_url, timeout=30) as navegador:
+        r = navegador.post("/consola/api/auth/desarrollo", json={"token": entorno.token})
+        assert r.status_code == 204, r.text
+        token = _sin_codigo(navegador.post("/consola/api/auth/token", headers=csrf))["token"]
     r = httpx.post(
         f"{c.base_url}/v1/tools/unit.status",
         json={"unidad": {"org": ORG, "workspace": WS, "unidad": ciclo.unidad}},

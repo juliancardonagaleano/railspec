@@ -1,16 +1,29 @@
 """Sesiones de la consola y tokens ``rsc1`` (R2: el actor siempre sale del token).
 
-Un único formato firmado con HMAC-SHA256, sin estado en el servidor:
-``rsc1.<carga en base64url>.<firma en base64url>``. La carga lleva el tipo:
+Un único formato firmado con HMAC-SHA256:
+``rsc1.<carga en base64url>.<firma en base64url>``. La carga lleva el tipo
+(``t``) y la audiencia (``aud``):
 
-- ``sesion``: vive en la cookie HttpOnly ``railspec_sesion`` y solo vale para
-  ``/consola/api``. Lleva los equipos de GitHub leídos al iniciar sesión, que
-  la consola usa para resolver roles asignados a equipos (R3).
-- ``api``: lo pide la SPA con ``POST /consola/api/auth/token`` y vale como
-  ``Authorization: Bearer`` en ``/v1/*`` (tools y chat), canal ``consola``.
-  Vida corta; la SPA lo renueva.
+- ``sesion`` (aud ``consola``): vive en la cookie HttpOnly ``railspec_sesion``
+  y solo vale para ``/consola/api``. Lleva los equipos de GitHub leídos al
+  iniciar sesión, que la consola usa para resolver roles asignados a equipos (R3).
+- ``api`` (aud ``v1``): lo pide la SPA con ``POST /consola/api/auth/token`` (con
+  la cookie) y vale como ``Authorization: Bearer`` en ``/v1/*`` (tools y chat),
+  canal ``consola``. Vida corta; la SPA lo renueva. No vale en ``/consola/api``.
+  Conserva los equipos del login: el actor que sale de él los lleva
+  (``ActorConEquipos``) y los roles por equipo valen en ``/v1/*`` igual que en
+  ``/consola/api``.
+- ``oauth`` (aud ``oauth``): el ``state`` firmado del flujo de GitHub.
 
-Cerrar sesión borra la cookie; un token ya emitido vale hasta que expira.
+Cada tipo se firma con su propia subclave (HKDF-SHA256 del secreto): ``abrir``
+exige el tipo esperado y un token de un tipo no se abre como otro aunque se
+reescriba su claim.
+
+Cookie y tokens ``api`` llevan el id de su sesión (``sid``). Cerrar sesión lo
+guarda en la colección de revocados (``revocados.py``, compartida por todas las
+réplicas) y desde entonces la cookie y todos los tokens ``api`` de esa sesión
+dejan de valer. Sin esa colección (pruebas, ``Firmador`` suelto) no hay
+revocación: el cierre solo borra la cookie.
 """
 
 from __future__ import annotations
@@ -27,13 +40,16 @@ from typing import Any
 
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, TipoActor
 
-from ..api.identidad import TokenInvalido
+from ..api.identidad import TokenInvalido, con_equipos
+from .config import validar_secreto
 
 log = logging.getLogger("railspec.consola")
 
 PREFIJO = "rsc1"
 COOKIE = "railspec_sesion"
 COOKIE_ESTADO = "railspec_oauth"
+#: Tipo de token → audiencia (claim ``aud``) en la que vale.
+AUDIENCIAS = {"sesion": "consola", "api": "v1", "oauth": "oauth"}
 
 
 def _b64(datos: bytes) -> str:
@@ -51,64 +67,125 @@ class Sesion:
     expira: datetime
     equipos: frozenset[int] = field(default_factory=frozenset)
     tipo: str = "sesion"
+    #: Id de la sesión del navegador de la que sale (cookie y tokens api); vacío si no hay
+    #: sesión propia (Bearer de GitHub o de desarrollo).
+    sid: str = ""
 
     def actor(self, canal: Canal = Canal.consola) -> Actor:
         return Actor(tipo=TipoActor.humano, canal=canal, github_id=self.github_id, login=self.login)
 
 
 class Firmador:
-    def __init__(self, secreto: str | None, reloj: Any = None) -> None:
+    def __init__(self, secreto: str | None, reloj: Any = None, revocados: Any = None) -> None:
+        #: Colección de sesiones revocadas (``RevocadosMongo``); la asigna ``montar_consola``.
+        self.revocados = revocados
+        # Un secreto explícito débil nunca se acepta; la ausencia (clave efímera) la
+        # veta ``montar_consola`` cuando hay https o GitHub App.
+        validar_secreto(secreto, exigido=False)
+        self.efimero = not secreto
         if not secreto:
             log.warning(
                 "sin RAILSPEC_CONSOLA_SECRETO: clave de sesión efímera (no apta para varias réplicas)"
             )
             secreto = secrets.token_urlsafe(32)
-        self._clave = hashlib.sha256(("railspec-consola:" + secreto).encode()).digest()
+        # HKDF (RFC 5869) con SHA-256: una subclave por tipo de token. Extract con sal fija
+        # y Expand de un bloque (32 bytes) con el tipo como ``info``.
+        prk = hmac.new(b"railspec-consola/rsc1", secreto.encode(), hashlib.sha256).digest()
+        self._claves = {
+            tipo: hmac.new(prk, f"railspec-consola/rsc1/{tipo}".encode() + b"\x01", hashlib.sha256).digest()
+            for tipo in AUDIENCIAS
+        }
         self._reloj = reloj or (lambda: datetime.now(UTC))
 
-    def _firma(self, texto: str) -> str:
-        return _b64(hmac.new(self._clave, texto.encode(), hashlib.sha256).digest())
+    def _firma(self, tipo: str, texto: str) -> str:
+        return _b64(hmac.new(self._claves[tipo], texto.encode("utf-8", "replace"), hashlib.sha256).digest())
 
-    def firmar(self, datos: dict[str, Any]) -> str:
-        carga = _b64(json.dumps(datos, separators=(",", ":"), sort_keys=True).encode())
-        return f"{PREFIJO}.{carga}.{self._firma(f'{PREFIJO}.{carga}')}"
+    def firmar(self, tipo: str, datos: dict[str, Any]) -> str:
+        """Firma ``datos`` como token de ``tipo`` (pone ``t`` y ``aud``)."""
 
-    def abrir(self, token: str) -> dict[str, Any]:
+        if tipo not in AUDIENCIAS:
+            raise ValueError(f"tipo de token de consola desconocido: {tipo!r}")
+        completos = {**datos, "t": tipo, "aud": AUDIENCIAS[tipo]}
+        carga = _b64(json.dumps(completos, separators=(",", ":"), sort_keys=True).encode())
+        return f"{PREFIJO}.{carga}.{self._firma(tipo, f'{PREFIJO}.{tipo}.{carga}')}"
+
+    def abrir(self, token: str, tipo: str) -> dict[str, Any]:
+        """Verifica firma (con la subclave de ``tipo``), tipo, audiencia y vigencia."""
+
+        if tipo not in AUDIENCIAS:
+            raise ValueError(f"tipo de token de consola desconocido: {tipo!r}")
         partes = token.split(".")
         if len(partes) != 3 or partes[0] != PREFIJO:
             raise TokenInvalido("token de consola mal formado")
-        if not hmac.compare_digest(self._firma(f"{partes[0]}.{partes[1]}"), partes[2]):
+        # Bytes, no texto: compare_digest lanza TypeError con un ``str`` no ASCII.
+        esperada = self._firma(tipo, f"{partes[0]}.{tipo}.{partes[1]}").encode()
+        if not hmac.compare_digest(esperada, partes[2].encode("utf-8", "replace")):
             raise TokenInvalido("firma de token de consola inválida")
         try:
             datos = json.loads(_desb64(partes[1]))
-        except ValueError as exc:
+            if not isinstance(datos, dict):
+                raise ValueError("la carga no es un objeto")
+            caduca = float(datos.get("exp", 0))
+        except (ValueError, TypeError) as exc:
             raise TokenInvalido("carga de token de consola ilegible") from exc
-        if not isinstance(datos, dict) or float(datos.get("exp", 0)) <= self._reloj().timestamp():
+        if datos.get("t") != tipo or datos.get("aud") != AUDIENCIAS[tipo]:
+            raise TokenInvalido(f"se esperaba un token de {tipo}")
+        if not caduca > self._reloj().timestamp():
             raise TokenInvalido("token de consola expirado")
         return datos
 
     # --- sesiones -----------------------------------------------------------------
 
-    def emitir(self, login: str, github_id: int, equipos: frozenset[int], vida: timedelta, tipo: str) -> str:
+    def emitir(
+        self,
+        login: str,
+        github_id: int,
+        equipos: frozenset[int],
+        vida: timedelta,
+        tipo: str,
+        sid: str | None = None,
+    ) -> str:
+        """Token ``sesion`` o ``api``. ``sid``: la sesión de la que sale (por defecto, una nueva)."""
+
         exp = self._reloj() + vida
         return self.firmar(
-            {"t": tipo, "l": login, "g": github_id, "e": sorted(equipos), "exp": int(exp.timestamp())}
+            tipo,
+            {
+                "l": login,
+                "g": github_id,
+                "e": sorted(equipos),
+                "exp": int(exp.timestamp()),
+                "sid": sid or secrets.token_urlsafe(16),
+            },
         )
 
     def sesion(self, token: str, tipo: str) -> Sesion:
-        datos = self.abrir(token)
-        if datos.get("t") != tipo:
-            raise TokenInvalido(f"se esperaba un token de {tipo}")
+        datos = self.abrir(token, tipo)
         try:
-            return Sesion(
+            sesion = Sesion(
                 login=str(datos["l"]),
                 github_id=int(datos["g"]),
                 expira=datetime.fromtimestamp(int(datos["exp"]), UTC),
                 equipos=frozenset(int(e) for e in datos.get("e", [])),
                 tipo=tipo,
+                sid=str(datos["sid"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise TokenInvalido("carga de token de consola incompleta") from exc
+        if not sesion.sid:
+            raise TokenInvalido("carga de token de consola incompleta")
+        if self.revocados is not None and self.revocados.revocada(sesion.sid):
+            raise TokenInvalido("sesión cerrada")
+        return sesion
+
+    def revocar(self, sesion: Sesion) -> bool:
+        """Invalida la sesión y los tokens api que salieron de ella. False si no hay dónde guardarlo."""
+
+        if self.revocados is None:
+            log.warning("sin colección de revocados: cerrar sesión solo borra la cookie")
+            return False
+        self.revocados.revocar(sesion.sid, sesion.expira)
+        return True
 
     def ahora(self) -> datetime:
         return self._reloj()
@@ -118,7 +195,11 @@ class IdentidadConConsola:
     """Identidad del servidor que además acepta tokens ``rsc1`` de tipo ``api``.
 
     Envuelve la identidad compuesta (GitHub u OIDC de Actions): todo lo demás
-    se le delega sin cambios.
+    se le delega sin cambios. El token ``api`` es la credencial de ``/v1`` y del
+    chat (canal ``consola``); no vale como credencial del arnés (``/mcp``). El
+    actor de un token ``rsc1`` lleva los equipos firmados en el token
+    (``ActorConEquipos``); un token vencido o con la carga alterada no llega a
+    ser actor.
     """
 
     def __init__(self, base: Any, firmador: Firmador) -> None:
@@ -128,7 +209,12 @@ class IdentidadConConsola:
 
     def actor_desde_token(self, token: str, canal: str) -> Actor:
         if token.startswith(PREFIJO + "."):
-            return self.firmador.sesion(token, "api").actor(Canal(canal))
+            if canal != Canal.consola:
+                raise TokenInvalido("los tokens de la consola solo valen en el canal consola")
+            sesion = self.firmador.sesion(token, "api")
+            # Los equipos viajan firmados en el token (leídos en el login): el autorizador de /v1 los
+            # usa para los roles por equipo, igual que la consola.
+            return con_equipos(sesion.actor(Canal(canal)), sesion.equipos)
         return self.base.actor_desde_token(token, canal)
 
     def workspaces_visibles(self, actor: Actor, org: str) -> list[AlcanceWorkspace]:

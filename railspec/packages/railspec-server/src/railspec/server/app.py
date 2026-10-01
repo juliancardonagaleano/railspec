@@ -7,7 +7,7 @@ from typing import Any
 
 from railspec.contracts.comun import Proveedor
 
-from .config import Configuracion
+from .config import Configuracion, validar_arranque
 from .estado import CheckpointsMongo, almacen_desde_uri, almacen_en_memoria
 from .motor import Motor, Nucleo
 from .motor.gobernanza import ProveedorGobernanza
@@ -46,6 +46,8 @@ def ensamblar(
     from .consola.github import ClienteGithub
     from .consola.sesion import Firmador, IdentidadConConsola
 
+    # Antes de abrir ninguna base: la configuración insegura no arranca (M4, B11).
+    validar_arranque(config)
     if config.modo_memoria:
         log.warning("sin RAILSPEC_MONGO_URI: estado en memoria, solo para desarrollo")
         almacen = almacen_en_memoria()
@@ -67,8 +69,25 @@ def ensamblar(
         grafo = AlmacenGrafo(acceso)
     nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=grafo)
     motor = Motor(nucleo, CheckpointsMongo(almacen.db))
-    humana = IdentidadDesarrollo(config.tokens_desarrollo) if config.tokens_desarrollo else IdentidadGithub()
+    # ``validar_arranque`` ya impide tokens de desarrollo sin la bandera; se repite aquí para que ni
+    # la identidad ni lo que anuncia /consola/api/auth/config dependan de esa llamada.
+    tokens_desarrollo = dict(config.tokens_desarrollo) if config.permitir_desarrollo else {}
+    # Los tokens de GitHub solo valen si los emitió la GitHub App de Railspec (``config.consola.github_app``);
+    # sin App se rechazan, salvo en modo desarrollo explícito.
+    humana = (
+        IdentidadDesarrollo(tokens_desarrollo)
+        if tokens_desarrollo
+        else IdentidadGithub(
+            cliente_github, app=config.consola.github_app, permitir_sin_app=config.permitir_desarrollo
+        )
+    )
     if verificador_oidc is None and config.oidc_audiencia:
+        if config.oidc_audiencia.lower() == "railspec":
+            raise ValueError(
+                "RAILSPEC_OIDC_AUDIENCIA=railspec es adivinable (era el valor de los ejemplos): "
+                "usa un valor largo y aleatorio, el mismo que la variable del workflow de reindexado"
+            )
+        # Lanza ValueError si falta RAILSPEC_OIDC_REPOSITORIOS: el servidor no arranca.
         verificador_oidc = VerificadorOidcActions(
             config.oidc_audiencia, config.oidc_emisor, config.oidc_repositorios
         )
@@ -120,8 +139,8 @@ def ensamblar(
         registro=registro,
         identidad=identidad,
         github=ClienteGithub(config.consola.github_app, cliente_github),
-        logins_desarrollo={login: gid for login, gid in config.tokens_desarrollo.values()},
-        tokens_desarrollo=dict(config.tokens_desarrollo),
+        logins_desarrollo={login: gid for login, gid in tokens_desarrollo.values()},
+        tokens_desarrollo=tokens_desarrollo,
         grafo=grafo,
         acceso_grafo=acceso,
         abierto=config.modo_memoria,

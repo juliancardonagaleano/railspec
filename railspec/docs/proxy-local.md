@@ -15,7 +15,7 @@ pip install codebase-memory-mcp       # opcional: indexado local (delta de símb
 railspec instalar --org acme --workspace certificados --repositorio certificados-api \
   --arnes claude-code --arnes opencode   # también: --arnes codex, --arnes copilot
 export RAILSPEC_URL=https://railspec.example/mcp   # endpoint MCP del servidor
-export RAILSPEC_TOKEN=...                          # token OAuth de GitHub del desarrollador
+export RAILSPEC_TOKEN=...                          # token de usuario de la GitHub App de Railspec (o un rsc1 de la consola)
 ```
 
 `railspec instalar` escribe `.railspec/config.json` (versionable, sin

@@ -10,7 +10,13 @@ from apoyo_motor import JULIAN, ORG, WS
 from railspec.contracts.comun import AlcanceUnidad, Fase, GateFase, GobernanzaConsultada
 from railspec.contracts.orden import ItemGobernanza
 from railspec.contracts.repositorio import Auditoria, ProveedorContexto, RolContexto
-from railspec.server.contexto import ClientePce, ContextoConectable, FuenteContexto, ResolutorSecretos
+from railspec.server.contexto import (
+    ClientePce,
+    ContextoConectable,
+    FuenteContexto,
+    PoliticaDestinos,
+    ResolutorSecretos,
+)
 from railspec.server.contexto.secretos import SecretoNoDisponible
 from railspec.server.estado import almacen_en_memoria
 
@@ -40,7 +46,7 @@ class ClienteDoble:
         return [r(tipo) if callable(r) else r for tipo, _ in consultas]
 
 
-def contexto(fuentes, clientes, almacen=None, entorno=None, tmp=None):
+def contexto(fuentes, clientes, almacen=None, entorno=None, tmp=None, destinos=None):
     vistos = []
 
     def fabrica(f, clave):
@@ -48,7 +54,11 @@ def contexto(fuentes, clientes, almacen=None, entorno=None, tmp=None):
         return clientes[f.nombre]
 
     c = ContextoConectable(
-        almacen, fuentes, ResolutorSecretos(tmp or "/nonexistent", entorno or {}), fabrica=fabrica
+        almacen,
+        fuentes,
+        ResolutorSecretos(tmp or "/nonexistent", entorno or {}),
+        fabrica=fabrica,
+        destinos=destinos or PoliticaDestinos(),
     )
     c.vistos = vistos
     return c
@@ -146,30 +156,36 @@ def test_configuracion_en_mongo_sustituye_al_entorno_y_resuelve_secretos(tmp_pat
         )
 
     almacen.guardar_configuracion(
-        [proveedor(None, "pce-org", "secret://pce/clave"), proveedor(WS, "pce-org", "secret://pce-ws/clave")]
+        [
+            proveedor(None, "pce-org", f"secret://{ORG}--pce/clave"),
+            proveedor(WS, "pce-org", f"secret://{ORG}--pce-ws/clave"),
+        ]
     )
-    (tmp_path / "pce-ws").mkdir()
-    (tmp_path / "pce-ws" / "clave").write_text("secreto-ws\n")
+    (tmp_path / f"{ORG}--pce-ws").mkdir()
+    (tmp_path / f"{ORG}--pce-ws" / "clave").write_text("secreto-ws\n")
     cliente = ClienteDoble(lambda tipo: [item(tipo)])
-    c = contexto([GOB], {"pce-org": cliente, "pce": ClienteDoble([])}, almacen=almacen, tmp=tmp_path)
+    destinos = PoliticaDestinos(hosts=frozenset({"*.acme.com"}))
+    c = contexto(
+        [GOB], {"pce-org": cliente, "pce": ClienteDoble([])}, almacen=almacen, tmp=tmp_path, destinos=destinos
+    )
     r = correr(c.consultar(UNIDAD, GateFase.spec, "x"))
     assert r.consultada == GobernanzaConsultada.si
     assert c.vistos == [("pce-org", "secreto-ws")]  # el del workspace gana; el del entorno no se usa
     # En otro workspace rige el de la organización, cuyo secreto no existe: gobernanza "no".
     otra = AlcanceUnidad(org=ORG, workspace="reporteria", unidad="0001-x")
     r = correr(c.consultar(otra, GateFase.spec, "x"))
-    assert r.consultada == GobernanzaConsultada.no and "secret://pce/clave" in r.detalle
+    assert r.consultada == GobernanzaConsultada.no and f"secret://{ORG}--pce/clave" in r.detalle
 
 
 def test_resolutor_de_secretos(tmp_path):
-    (tmp_path / "foundry").mkdir()
-    (tmp_path / "foundry" / "api-key").write_text("de-archivo")
-    r = ResolutorSecretos(tmp_path, {"RAILSPEC_SECRETO_PCE_API_KEY": "de-entorno"})
-    assert r.resolver("secret://foundry/api-key") == "de-archivo"
-    assert r.resolver("secret://pce/api-key") == "de-entorno"
-    for ref in ("secret://nada/x", "https://no-es-ref"):
+    (tmp_path / "acme--foundry").mkdir()
+    (tmp_path / "acme--foundry" / "api-key").write_text("de-archivo")
+    r = ResolutorSecretos(tmp_path, {"RAILSPEC_SECRETO_ACME__PCE_API_KEY": "de-entorno"})
+    assert r.resolver("secret://acme--foundry/api-key", "acme") == "de-archivo"
+    assert r.resolver("secret://acme--pce/api-key", "acme") == "de-entorno"
+    for ref in ("secret://acme--nada/x", "https://no-es-ref"):
         with pytest.raises(SecretoNoDisponible):
-            r.resolver(ref)
+            r.resolver(ref, "acme")
 
 
 def test_cliente_pce_cachea_lo_que_respondio():

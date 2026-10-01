@@ -74,7 +74,11 @@ export function PestanaTrazabilidad({ datos, org, ws, unidad }: { datos: Trazabi
             <TableRow key={c.id}>
               <TableCell className="max-w-64">
                 <p className="font-mono text-xs font-semibold">{c.id}</p>
-                <p>{c.texto}</p>
+                {c.texto === null ? (
+                  <p className="text-xs italic text-suave">Sin redacción: solo aparece en tareas.</p>
+                ) : (
+                  <p>{c.texto}</p>
+                )}
               </TableCell>
               <TableCell>
                 <Tareas tareas={c.tareas} />

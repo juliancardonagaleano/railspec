@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hashlib
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -17,19 +19,21 @@ from railspec.contracts.repositorio import (
     Auditoria,
     Capacidades,
     ModeloCatalogo,
+    Organizacion,
     Rol,
     SujetoEquipo,
     SujetoUsuario,
 )
 from railspec.contracts.snapshot import DeltaIndice, ModoDelta, MotorIndice, Simbolo, id_simbolo
 from railspec.server.api import AutorizadorRoles, IdentidadDesarrollo, Registro
-from railspec.server.api.identidad import IdentidadCompuesta, TokenInvalido
+from railspec.server.api.identidad import IdentidadCompuesta, IdentidadGithub, TokenInvalido
 from railspec.server.api.superficies import aplicacion
 from railspec.server.consola import ConfigConsola, ConfigGithubApp, montar_consola
 from railspec.server.consola.almacen import AlmacenConsola
 from railspec.server.consola.contexto import ContextoConsola
 from railspec.server.consola.github import ClienteGithub
 from railspec.server.consola.sesion import COOKIE, Firmador, IdentidadConConsola
+from railspec.server.proveedores import Proveedores
 
 JULIAN_ID, ANA_ID, LUIS_ID = 83125327, 7, 9
 TOKENS = {
@@ -38,6 +42,8 @@ TOKENS = {
     "tk-luis": ("luis", LUIS_ID),
 }
 CSRF = {"X-Railspec-Consola": "1"}
+SECRETO = "secreto-de-pruebas-de-la-consola-0123456789"
+OTRO_SECRETO = "otro-secreto-de-pruebas-de-la-consola-9876"
 AHORA = datetime(2026, 9, 30, 12, tzinfo=UTC)
 
 
@@ -73,7 +79,7 @@ class Montaje:
         self.motor, _ = construir(nivel=nivel)
         self.almacen = self.motor.n.almacen
         self.reloj = lambda: datetime.now(UTC)
-        self.firmador = Firmador("secreto-de-pruebas")
+        self.firmador = Firmador(SECRETO)
         registro = Registro.del_motor(self.motor, AutorizadorRoles(self.almacen))
         identidad = IdentidadConConsola(IdentidadCompuesta(IdentidadDesarrollo(TOKENS), None), self.firmador)
         app_github = ConfigGithubApp("Iv1.cliente", "secreto-app") if github_http else None
@@ -175,7 +181,7 @@ def test_login_desarrollo_cookie_y_csrf():
     correr(caso())
 
 
-def test_token_api_vale_como_bearer_en_v1_y_en_consola():
+def test_token_api_vale_como_bearer_en_v1_y_no_en_consola():
     async def caso():
         m = Montaje()
         asignar(m.almacen, Rol.desarrollador, ANA_ID)
@@ -192,17 +198,18 @@ def test_token_api_vale_como_bearer_en_v1_y_en_consola():
             assert r.status_code == 200, r.text
             assert r.json()["estado"]["dueno"]["login"] == "ana"
             assert r.json()["estado"]["dueno"]["canal"] == "consola"
-            # El Bearer no necesita cabecera anti-CSRF.
-            assert (await c.get("/consola/api/yo", headers=bearer)).json()["login"] == "ana"
+            # El token api es la credencial de /v1 y del chat: en /consola/api no vale (la consola
+            # usa la cookie; los scripts, un token de GitHub). Ver test_consola_sesion.py.
+            assert (await c.get("/consola/api/yo", headers=bearer)).status_code == 401
         # Un token de sesión (cookie) no vale como Bearer en /v1.
         sesion = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "sesion")
         with pytest.raises(TokenInvalido):
             m.ctx.identidad.actor_desde_token(sesion, "consola")
-        vencido = Firmador("secreto-de-pruebas", reloj=lambda: datetime.now(UTC) + timedelta(hours=2))
+        vencido = Firmador(SECRETO, reloj=lambda: datetime.now(UTC) + timedelta(hours=2))
         with pytest.raises(TokenInvalido, match="expirado"):
             vencido.sesion(token, "api")
         with pytest.raises(TokenInvalido, match="firma"):
-            Firmador("otro-secreto").sesion(token, "api")
+            Firmador(OTRO_SECRETO).sesion(token, "api")
 
     correr(caso())
 
@@ -241,7 +248,7 @@ def test_login_github_app_con_equipos():
                 assert r.status_code == 400
             r = await c.get("/consola/api/auth/github/callback", params={"code": "codigo-1", "state": estado})
             assert r.status_code == 302 and r.headers["location"] == "/consola/"
-            assert COOKIE in c.cookies
+            assert m.ctx.config.nombre_cookie(COOKIE) in c.cookies
             yo = (await c.get("/consola/api/yo")).json()
             assert yo["login"] == "luis"
             # El rol llega por el equipo de GitHub (R3).
@@ -361,6 +368,18 @@ def test_ultimo_org_admin_no_se_quita():
 def test_vinculo_nivel_motivo_y_desvinculo_auditado():
     async def caso():
         m = Montaje(nivel=None)
+        # Los vínculos solo pueden ser del owner de GitHub de la organización (``github_org``).
+        m.ctx.datos.guardar_organizacion(
+            Organizacion(
+                id=ORG,
+                nombre="ACME",
+                github_org="acme",
+                region_datos="eastus2",
+                version=1,
+                auditoria=_auditoria(),
+            ),
+            None,
+        )
         asignar(m.almacen, Rol.workspace_admin, ANA_ID)
         asignar(m.almacen, Rol.desarrollador, LUIS_ID)
         base = f"/consola/api/orgs/{ORG}/workspaces/{WS}/repositorios"
@@ -382,7 +401,11 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
             abierto = cuerpo | {"nivel_codigo": "abierto", "version": 1}
             r = await c.put(f"{base}/{REPO}", json=abierto, headers=CSRF)
             assert r.status_code == 422  # falta motivo
+            # Bajar el nivel es relajar la política: el workspace-admin no puede, ni con motivo.
             r = await c.put(f"{base}/{REPO}", json=abierto | {"motivo": "repo público"}, headers=CSRF)
+            assert r.status_code == 403
+            async with m.cliente("tk-julian") as admin:  # administra la plataforma: actúa como org-admin
+                r = await admin.put(f"{base}/{REPO}", json=abierto | {"motivo": "repo público"}, headers=CSRF)
             assert r.status_code == 200 and r.json()["chat_contexto_codigo"]["hosting"] == "cualquiera"
             # Política incoherente con el nivel: la rechaza el contrato.
             politica = r.json()["chat_contexto_codigo"]
@@ -406,7 +429,23 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
                 "cambio-nivel",
                 "cambio-configuracion",
             ]
-            assert registros[1]["detalle"] == {"de": "restringido", "a": "abierto", "motivo": "repo público"}
+            # El evento lleva de/a/motivo y el diff del resto de la política (la del nivel nuevo por defecto).
+            relaja = (
+                "nivel_codigo,chat_hosting,chat_fragmentos_en_respuesta,chat_huella_tokens_n,"
+                "chat_presupuesto_fuga_conversacion,chat_presupuesto_fuga_usuario_dia"
+            )
+            assert registros[1]["detalle"] == {
+                "de": "restringido",
+                "a": "abierto",
+                "motivo": "repo público",
+                "relaja": relaja,
+                "cambio_chat_hosting": "azure-zona-datos -> cualquiera",
+                "cambio_chat_fragmentos_en_respuesta": "false -> true",
+                "cambio_chat_huella_tokens_n": "12 -> 24",
+                "cambio_chat_presupuesto_fuga_conversacion": "1500 -> 4000",
+                "cambio_chat_presupuesto_fuga_usuario_dia": "6000 -> 20000",
+            }
+            assert registros[1]["actor"]["login"] == "juliancardonagaleano"
             assert registros[0]["actor"]["canal"] == "consola"
             filtrados = (
                 await c.get(
@@ -439,7 +478,10 @@ PERFIL = {
 }
 
 
-def test_perfil_validado_contra_catalogo_y_presupuesto():
+def test_perfil_validado_contra_catalogo_y_presupuesto(monkeypatch):
+    # Los proveedores de contexto solo van a hosts que la plataforma permita (RAILSPEC_PROVEEDORES_HOSTS).
+    monkeypatch.setenv("RAILSPEC_PROVEEDORES_HOSTS", "pce.example")
+
     async def caso():
         m = Montaje()
         async with m.cliente("tk-julian") as c:
@@ -502,7 +544,7 @@ def test_perfil_validado_contra_catalogo_y_presupuesto():
                 json={
                     "url": "https://pce.example",
                     "politica_fallo": "estricta",
-                    "credencial_ref": "secret://pce/api-key",
+                    "credencial_ref": f"secret://{ORG}--pce/api-key",  # el secreto es del namespace de la org
                 },
                 headers=CSRF,
             )
@@ -530,7 +572,8 @@ def test_tools_por_la_consola_con_rol_de_equipo():
         asignar(m.almacen, Rol.desarrollador, equipo=4242)
         sesion_luis = m.firmador.emitir("luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "sesion")
         async with m.cliente() as c:
-            c.cookies.set(COOKIE, sesion_luis, domain="railspec.test", path="/consola")
+            nombre = m.ctx.config.nombre_cookie(COOKIE)
+            c.cookies.set(nombre, sesion_luis, domain="railspec.test", path="/consola")
             r = await c.post(
                 "/consola/api/tools/unit.start", json=entrada_start().model_dump(mode="json"), headers=CSRF
             )
@@ -549,9 +592,216 @@ def test_tools_por_la_consola_con_rol_de_equipo():
             assert r.status_code == 403 and r.json()["codigo"] == "fuera-de-alcance"
             nombres = {t["name"] for t in (await c.get("/consola/api/tools")).json()["tools"]}
             assert "unit.approve" in nombres and "unit.report" not in nombres
-        # Por MCP (sin equipos), el mismo Luis no tiene rol: la resolución por equipos es de la consola.
+        # Un actor sin equipos (token de desarrollo) solo tiene lo asignado a la persona.
         actor = Actor(tipo=TipoActor.humano, canal=Canal.arnes, github_id=LUIS_ID, login="luis")
         assert AutorizadorRoles(m.almacen).rol(actor, ORG, WS) is None
+
+    correr(caso())
+
+
+# --- roles por equipo en /v1/tools, MCP y chat (token rsc1 con equipos firmados) -------------------------
+
+
+def _bearer_rsc1(m: Montaje, github_id: int, login: str, equipos, vida=timedelta(hours=1)) -> dict[str, str]:
+    """Lo que la SPA obtiene de ``POST /consola/api/auth/token``: el token lleva los equipos del login."""
+
+    token = m.firmador.emitir(login, github_id, frozenset(equipos), vida, "api")
+    return {"Authorization": f"Bearer {token}"}
+
+
+LISTAR = {"alcance": {"org": ORG, "workspace": WS}}
+
+
+def test_v1_tools_resuelve_roles_por_equipo_con_el_token_rsc1():
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.desarrollador, equipo=4242)
+        async with m.cliente() as c:
+            luis = _bearer_rsc1(m, LUIS_ID, "luis", {4242, 11})
+            entrada = entrada_start().model_dump(mode="json")
+            r = await c.post("/v1/tools/unit.start", json=entrada, headers=luis)
+            assert r.status_code == 200, r.text
+            assert r.json()["estado"]["dueno"]["login"] == "luis"
+            assert "equipos" not in r.json()["estado"]["dueno"]
+            assert (await c.post("/v1/tools/unit.list", json=LISTAR, headers=luis)).status_code == 200
+            # Los equipos son del token, no del actor persistido: no quedan en ninguna colección.
+            volcado = json.dumps(
+                [d for n in m.almacen.db.list_collection_names() for d in m.almacen.db[n].find()], default=str
+            )
+            assert '"equipos"' not in volcado
+
+            # Sin el equipo no hay rol: ni sin equipos, ni con equipos ajenos, aunque sea la misma persona.
+            for equipos in (set(), {9999}):
+                sin = _bearer_rsc1(m, LUIS_ID, "luis", equipos)
+                r = await c.post("/v1/tools/unit.list", json=LISTAR, headers=sin)
+                assert r.status_code == 403 and r.json()["codigo"] == "fuera-de-alcance", equipos
+            # Otra persona con el mismo equipo sí lo tiene (el rol es del equipo, no de quien lo asignó).
+            ana = _bearer_rsc1(m, ANA_ID, "ana", {4242})
+            assert (await c.post("/v1/tools/unit.list", json=LISTAR, headers=ana)).status_code == 200
+
+    correr(caso())
+
+
+def test_v1_tools_roles_por_equipo_aislados_por_org_y_workspace_y_se_acotan_por_rol():
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.lector, equipo=4242)  # lector en WS
+        asignar(m.almacen, Rol.org_admin, workspace=None, equipo=777)  # org-admin en toda ORG
+        entrada = entrada_start().model_dump(mode="json")
+        async with m.cliente() as c:
+            lector = _bearer_rsc1(m, LUIS_ID, "luis", {4242})
+            assert (await c.post("/v1/tools/unit.list", json=LISTAR, headers=lector)).status_code == 200
+            # El rol del equipo se respeta: un lector no arranca unidades.
+            r = await c.post("/v1/tools/unit.start", json=entrada, headers=lector)
+            assert r.status_code == 403 and "desarrollador" in r.json()["detalle"]
+            # Otro workspace u otra organización: nada, aunque exista rol en el suyo.
+            for alcance in ({"org": ORG, "workspace": "otro"}, {"org": "otra-org", "workspace": WS}):
+                r = await c.post("/v1/tools/unit.list", json={"alcance": alcance}, headers=lector)
+                assert r.status_code == 403, alcance
+            # Un rol de equipo de organización vale en todos sus workspaces, pero no en otra organización.
+            admin = _bearer_rsc1(m, ANA_ID, "ana", {777})
+            for alcance in (LISTAR["alcance"], {"org": ORG, "workspace": "otro"}):
+                r = await c.post("/v1/tools/unit.list", json={"alcance": alcance}, headers=admin)
+                assert r.status_code == 200, alcance
+            otra = {"alcance": {"org": "otra-org", "workspace": WS}}
+            assert (await c.post("/v1/tools/unit.list", json=otra, headers=admin)).status_code == 403
+            # Persona y equipo suman: gana el rol mayor.
+            asignar(m.almacen, Rol.desarrollador, LUIS_ID)
+            r = await c.post("/v1/tools/unit.start", json=entrada, headers=lector)
+            assert r.status_code == 200, r.text
+
+    correr(caso())
+
+
+def test_v1_tools_token_vencido_o_alterado_no_concede_nada():
+    def con(token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}"}
+
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.desarrollador, equipo=4242)
+        entrada = entrada_start().model_dump(mode="json")
+        async with m.cliente() as c:
+            # Vencido: aunque lleve el equipo, no llega a ser actor (401), y no se crea nada.
+            pasado = Firmador(SECRETO, reloj=lambda: datetime.now(UTC) - timedelta(hours=2))
+            vencido = pasado.emitir("luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "api")
+            r = await c.post("/v1/tools/unit.start", json=entrada, headers=con(vencido))
+            assert r.status_code == 401 and "expirado" in r.json()["detalle"]
+            # Equipos agregados a mano a un token de una persona sin ellos: la firma ya no cuadra.
+            valido = _bearer_rsc1(m, LUIS_ID, "luis", set())["Authorization"].removeprefix("Bearer ")
+            prefijo, carga, firma = valido.split(".")
+            datos = json.loads(base64.urlsafe_b64decode(carga + "=" * (-len(carga) % 4)))
+            datos["e"] = [4242]
+            falsa = base64.urlsafe_b64encode(json.dumps(datos, separators=(",", ":")).encode()).decode()
+            r = await c.post(
+                "/v1/tools/unit.start", json=entrada, headers=con(f"{prefijo}.{falsa.rstrip('=')}.{firma}")
+            )
+            assert r.status_code == 401 and "firma" in r.json()["detalle"]
+            # Token de otra instalación (otro secreto) con el equipo: tampoco.
+            ajeno = Firmador(OTRO_SECRETO).emitir(
+                "luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "api"
+            )
+            r = await c.post("/v1/tools/unit.start", json=entrada, headers=con(ajeno))
+            assert r.status_code == 401
+            # La cookie de sesión (lleva equipos) no vale como Bearer.
+            sesion = m.firmador.emitir("luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "sesion")
+            r = await c.post("/v1/tools/unit.start", json=entrada, headers=con(sesion))
+            assert r.status_code == 401
+            # Nada de lo anterior creó unidades.
+            listar = _bearer_rsc1(m, LUIS_ID, "luis", {4242})
+            r = await c.post("/v1/tools/unit.list", json=LISTAR, headers=listar)
+            assert r.status_code == 200 and r.json()["unidades"] == []
+
+    correr(caso())
+
+
+def test_mcp_no_acepta_el_token_rsc1_de_la_consola_aunque_lleve_el_equipo():
+    import httpx2
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async def llamar(m: Montaje, cabecera: dict[str, str]):
+        http = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=m.app), base_url="http://railspec", headers=cabecera
+        )
+        async with http, streamable_http_client("http://railspec/mcp/", http_client=http) as flujos:
+            async with ClientSession(flujos[0], flujos[1]) as sesion:
+                await sesion.initialize()
+                return await sesion.call_tool("unit_start", entrada_start().model_dump(mode="json"))
+
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.desarrollador, equipo=4242)
+        async with m.app.router.lifespan_context(m.app):
+            # El token ``api`` es la credencial de /v1 y del chat (canal consola), no del arnés: por
+            # MCP no abre nada, ni con el equipo que da rol. Los roles por equipo por MCP llegan con
+            # un token de GitHub de la App (ver test_api).
+            for equipos in ({4242}, set()):
+                r = await llamar(m, _bearer_rsc1(m, LUIS_ID, "luis", equipos))
+                assert r.is_error and "canal consola" in r.content[0].text
+
+    correr(caso())
+
+
+def test_chat_resuelve_roles_por_equipo_con_el_token_rsc1():
+    from railspec.server.chat.almacen import AlmacenChat
+    from railspec.server.chat.http import router_chat
+    from railspec.server.chat.servicio import ConfigChat, ServicioChat
+
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.lector, equipo=4242)
+        servicio = ServicioChat(
+            almacen=m.almacen,
+            chat=AlmacenChat(m.almacen.db),
+            registro=m.ctx.registro,
+            autorizador=AutorizadorRoles(m.almacen),
+            proveedores=Proveedores({}),
+            config=ConfigChat(),
+        )
+        m.app.include_router(router_chat(servicio, m.ctx.identidad))
+        cuerpo = {"alcance": {"org": ORG, "workspace": WS}}
+        async with m.cliente() as c:
+            # Con el equipo (lector) se puede abrir una conversación; sin él, 403.
+            con_equipo = _bearer_rsc1(m, LUIS_ID, "luis", {4242})
+            r = await c.post("/v1/chat/conversaciones", json=cuerpo, headers=con_equipo)
+            assert r.status_code == 201, r.text
+            assert r.json()["conversacion"]["autor"]["github_id"] == LUIS_ID
+            sin_equipo = _bearer_rsc1(m, LUIS_ID, "luis", set())
+            r = await c.post("/v1/chat/conversaciones", json=cuerpo, headers=sin_equipo)
+            assert r.status_code == 403 and r.json()["codigo"] == "fuera-de-alcance"
+
+    correr(caso())
+
+
+def test_bearer_de_github_en_la_consola_trae_los_equipos_del_usuario():
+    from apoyo_github import APP, equipos_fijos, github_simulado
+
+    async def caso():
+        m = Montaje(admins=frozenset())
+        asignar(m.almacen, Rol.workspace_admin, equipo=4242)
+        cliente_gh, _ = github_simulado(
+            {"t-luis": ("luis", LUIS_ID, equipos_fijos(4242)), "t-ana": ("ana", ANA_ID, equipos_fijos(1))}
+        )
+        m.ctx.identidad = IdentidadConConsola(
+            IdentidadCompuesta(IdentidadGithub(cliente_gh, app=APP), None), m.firmador
+        )
+        async with m.cliente() as c:
+            yo = (await c.get("/consola/api/yo", headers={"Authorization": "Bearer t-luis"})).json()
+            assert yo["organizaciones"][0]["workspaces"] == [
+                {"workspace": WS, "nombre": WS, "rol": "workspace-admin"}
+            ]
+            yo = (await c.get("/consola/api/yo", headers={"Authorization": "Bearer t-ana"})).json()
+            assert yo["organizaciones"] == []
+            # Los equipos resueltos también valen para las tools por la consola.
+            r = await c.post(
+                "/consola/api/tools/unit.list", json=LISTAR, headers={"Authorization": "Bearer t-luis"}
+            )
+            assert r.status_code == 200, r.text
+            r = await c.post(
+                "/consola/api/tools/unit.list", json=LISTAR, headers={"Authorization": "Bearer t-ana"}
+            )
+            assert r.status_code == 403
 
     correr(caso())
 
@@ -689,7 +939,7 @@ def test_configuracion_desde_entorno():
             "RAILSPEC_GITHUB_APP_CLIENT_SECRET": "s",
             "RAILSPEC_CONSOLA_URL": "https://railspec.acme.com/",
             "RAILSPEC_CONSOLA_ADMINS": "83125327, 7",
-            "RAILSPEC_CONSOLA_SECRETO": "k",
+            "RAILSPEC_CONSOLA_SECRETO": SECRETO,
         }
     )
     assert c.github_app == ConfigGithubApp("Iv1.x", "s") and c.administradores == {83125327, 7}

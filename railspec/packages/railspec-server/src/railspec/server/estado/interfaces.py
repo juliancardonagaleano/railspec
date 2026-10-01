@@ -106,7 +106,10 @@ class AlmacenMotor(Protocol):
 
     def vinculo(self, alcance: AlcanceRepositorio) -> VinculoRepositorio | None: ...
 
-    def asignaciones(self, org: str, github_id: int) -> list[AsignacionRol]: ...
+    def asignaciones(
+        self, org: str, github_id: int, equipos: frozenset[int] = frozenset()
+    ) -> list[AsignacionRol]:
+        """De la persona y de los equipos de GitHub (``equipo_id``) a los que se sabe que pertenece."""
 
     def workspace(self, alcance: AlcanceWorkspace) -> Workspace | None: ...
 

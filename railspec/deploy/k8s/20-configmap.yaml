@@ -21,18 +21,28 @@ data:
   RAILSPEC_CATALOGO_TTL_S: "${RAILSPEC_CATALOGO_TTL_S}"
   RAILSPEC_CACHE_NODOS_S: "${RAILSPEC_CACHE_NODOS_S}"
   RAILSPEC_PCE_URL: "${RAILSPEC_PCE_URL}"
+  # Hosts a los que una organización puede apuntar un proveedor de contexto (se suma el de
+  # RAILSPEC_PCE_URL). Vacío = ninguno (ver railspec/docs/proveedores.md).
+  RAILSPEC_PROVEEDORES_HOSTS: "${RAILSPEC_PROVEEDORES_HOSTS}"
   RAILSPEC_CONTEXTO_CACHE_S: "${RAILSPEC_CONTEXTO_CACHE_S}"
+  # Owners de GitHub que vincula una organización sin github_org (vacío = ninguno).
+  RAILSPEC_VINCULOS_OWNERS: "${RAILSPEC_VINCULOS_OWNERS}"
   RAILSPEC_ANTHROPIC_HABILITADO: "${RAILSPEC_ANTHROPIC_HABILITADO}"
-  # Identidad de servicio de CI para graph.index. Audiencia vacía = OIDC desactivado.
+  # Identidad de servicio de CI para graph.index. Audiencia vacía = OIDC desactivado (el
+  # defecto). Con audiencia, RAILSPEC_OIDC_REPOSITORIOS es obligatoria: el servidor no arranca
+  # sin ella. La audiencia debe ser larga y no adivinable.
   RAILSPEC_OIDC_AUDIENCIA: "${RAILSPEC_OIDC_AUDIENCIA}"
   RAILSPEC_OIDC_EMISOR: "${RAILSPEC_OIDC_EMISOR}"
   RAILSPEC_OIDC_REPOSITORIOS: "${RAILSPEC_OIDC_REPOSITORIOS}"
   # Consola web: base pública de la redirección de OAuth de la GitHub App y
   # administradores de la plataforma. Client id/secret de la App y
-  # RAILSPEC_CONSOLA_SECRETO van en el Secret (ver railspec/docs/consola.md).
+  # RAILSPEC_CONSOLA_SECRETO (obligatoria, mínimo 32 caracteres) van en el Secret (ver
+  # railspec/docs/consola.md).
   RAILSPEC_CONSOLA_URL: "https://${RAILSPEC_DOMINIO}"
   RAILSPEC_CONSOLA_ADMINS: "${RAILSPEC_CONSOLA_ADMINS}"
   RAILSPEC_HOST: "0.0.0.0"
   RAILSPEC_PUERTO: "8080"
   # uvicorn confía en X-Forwarded-* del ingress (esquema https en redirecciones).
+  # "*" confía en cualquier origen: el cliente puede falsear su IP (evade el límite de
+  # /consola/api/auth/*). Sustituir por el CIDR de los pods del ingress; ver despliegue.md.
   FORWARDED_ALLOW_IPS: "*"
