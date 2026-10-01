@@ -173,6 +173,18 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir (un valor inválido se ignora y empieza desde el principio). Tope por persona y global (429 con `Retry-After`), consulta en un executor propio y revalida el rol `lector` cada `RAILSPEC_CONSOLA_SSE_REVALIDAR_S`: si se revoca, el flujo se corta en ese plazo (no hasta los 300 s). Los topes son por réplica. |
 | `GET /orgs/{org}/workspaces/{ws}/grafo/repositorios` | Repositorios vinculados con nivel, rol y commit canónico del grafo. |
 
+Crear perfiles, presupuestos y proveedores de contexto es atómico: el documento
+nace con un `_id` determinista (`<org>/<workspace o *>/<nombre>` para perfiles,
+`<org>/<workspace o *>` para presupuestos y
+`<org>/<workspace o *>/<rol>/<nombre>` para proveedores de contexto, el mismo
+que escribe el motor) y hay un índice único por clave natural, así que dos
+`PUT` simultáneos que crean lo mismo dejan un solo documento y el perdedor
+recibe 409. Los documentos anteriores (`_id` ObjectId, creados por la consola
+antes de esto) no se migran: se leen y editan por su clave natural y conservan
+su `_id`. Si ya hubiera duplicados de aquella carrera, el servidor arranca igual,
+avisa en el log (`hay documentos duplicados`) y no crea el índice hasta que se
+borren a mano.
+
 ## Chat de contexto (fase 8)
 
 - **Servidor**: si existe `railspec.server.chat` con

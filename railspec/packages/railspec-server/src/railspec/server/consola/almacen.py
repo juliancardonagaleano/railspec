@@ -10,7 +10,12 @@ Las colecciones y la forma de sus claves son las de ``COLECCIONES`` en los
 contratos y las que ya escribe ``AlmacenMongo.guardar_configuracion``
 (perfiles y presupuestos por campos, vínculos con ``_id`` ``org/ws/repo``,
 roles con ``_id`` uuid), así que la consola y el motor leen lo mismo.
-Las escrituras usan bloqueo optimista por ``version`` (R4).
+Las escrituras usan bloqueo optimista por ``version`` (R4). Crear es atómico: perfiles,
+presupuestos y proveedores de contexto llevan un ``_id`` determinista (el mismo que escribe
+el motor, ver ``estado.mongo.clave_*``), así que dos creaciones simultáneas de la misma
+clave no pueden coexistir: la segunda choca con ``DuplicateKeyError`` y sale como 409.
+Los documentos anteriores a esa clave (``_id`` ObjectId) se siguen leyendo y editando por su
+clave natural y conservan su ``_id``.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ from typing import Any
 
 from pymongo import ASCENDING, DESCENDING
 from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
 from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad
 from railspec.contracts.repositorio import (
@@ -35,6 +41,8 @@ from railspec.contracts.repositorio import (
     Workspace,
 )
 from railspec.contracts.snapshot import Snapshot
+
+from ..estado.mongo import clave_perfil, clave_presupuesto, clave_proveedor_contexto
 
 #: Workspace reservado para auditar cambios a nivel organización.
 WORKSPACE_ORG = "org"
@@ -65,15 +73,35 @@ class AlmacenConsola:
 
     # --- escritura con bloqueo optimista --------------------------------------------
 
-    def _guardar(self, coleccion: str, filtro: dict[str, Any], entidad: Any, version_esperada: int | None):
-        """``filtro`` identifica la entidad; si trae ``_id`` se usa también como clave del documento."""
+    def _guardar(
+        self,
+        coleccion: str,
+        filtro: dict[str, Any],
+        entidad: Any,
+        version_esperada: int | None,
+        clave: str | None = None,
+    ):
+        """``filtro`` identifica la entidad; si trae ``_id`` se usa también como clave del documento.
+
+        ``clave`` es el ``_id`` determinista de un documento nuevo cuando el filtro es solo la clave
+        natural (perfiles, presupuestos, proveedores de contexto). Editar no lo toca: un documento
+        antiguo con ``_id`` ObjectId se reemplaza sin cambiarlo.
+        """
 
         col = self.db[coleccion]
         if version_esperada is None:
             actual = col.find_one(filtro, {"version": 1})
             if actual is not None:
                 raise ConflictoVersion(0, int(actual.get("version", 0)))
-            col.insert_one(_doc(entidad) | _ids(filtro))
+            doc = _doc(entidad) | _ids(filtro)
+            if clave is not None:
+                doc["_id"] = clave
+            try:
+                col.insert_one(doc)
+            except DuplicateKeyError:
+                # Otra creación se adelantó entre la comprobación y el insert.
+                actual = col.find_one(filtro, {"version": 1})
+                raise ConflictoVersion(0, int(actual.get("version", 0)) if actual else 0) from None
             return entidad
         r = col.replace_one({**filtro, "version": version_esperada}, _doc(entidad) | _ids(filtro))
         if r.matched_count != 1:
@@ -172,7 +200,8 @@ class AlmacenConsola:
 
     def guardar_perfil(self, p: PerfilConfig, version_esperada: int | None) -> PerfilConfig:
         filtro = {"org": p.org, "workspace": p.workspace, "nombre": p.nombre.value}
-        return self._guardar("perfiles", filtro, p, version_esperada)
+        clave = clave_perfil(p.org, p.workspace, p.nombre.value)
+        return self._guardar("perfiles", filtro, p, version_esperada, clave)
 
     def presupuestos(self, org: str, ws: str | None) -> list[PresupuestoConfig]:
         filtro = {"org": org, "workspace": {"$in": [None, ws]} if ws else None}
@@ -182,7 +211,9 @@ class AlmacenConsola:
         return self._uno("presupuestos", {"org": org, "workspace": ws}, PresupuestoConfig)
 
     def guardar_presupuesto(self, p: PresupuestoConfig, version_esperada: int | None) -> PresupuestoConfig:
-        return self._guardar("presupuestos", {"org": p.org, "workspace": p.workspace}, p, version_esperada)
+        filtro = {"org": p.org, "workspace": p.workspace}
+        clave = clave_presupuesto(p.org, p.workspace)
+        return self._guardar("presupuestos", filtro, p, version_esperada, clave)
 
     def proveedores_contexto(self, org: str, ws: str | None) -> list[ProveedorContexto]:
         filtro = {"org": org, "workspace": {"$in": [None, ws]} if ws else None}
@@ -197,7 +228,8 @@ class AlmacenConsola:
         self, p: ProveedorContexto, version_esperada: int | None
     ) -> ProveedorContexto:
         filtro = {"org": p.org, "workspace": p.workspace, "rol": p.rol.value, "nombre": p.nombre}
-        return self._guardar("proveedores_contexto", filtro, p, version_esperada)
+        clave = clave_proveedor_contexto(p.org, p.workspace, p.rol.value, p.nombre)
+        return self._guardar("proveedores_contexto", filtro, p, version_esperada, clave)
 
     def borrar_proveedor_contexto(self, org: str, ws: str | None, rol: str, nombre: str) -> bool:
         filtro = {"org": org, "workspace": ws, "rol": rol, "nombre": nombre}
