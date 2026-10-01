@@ -16,7 +16,7 @@ describe("LectorSse", () => {
   it("parsea eventos completos en un solo trozo", () => {
     const evs = alimentarTodo([FLUJO]);
     expect(evs.map((e) => e.evento)).toEqual(["pregunta", "progreso", "fin"]);
-    expect(JSON.parse(evs[1].datos)).toEqual({ paso: 1, tool: "graph.query", texto: "Consultando graph.query" });
+    expect(JSON.parse(evs[1]!.datos)).toEqual({ paso: 1, tool: "graph.query", texto: "Consultando graph.query" });
   });
 
   it("tolera cortes en cualquier posición", () => {
@@ -47,7 +47,7 @@ describe("LectorSse", () => {
 
   it("conserva sólo un espacio inicial del valor y quita BOM", () => {
     const evs = alimentarTodo(["﻿data:  dos espacios\n\n"]);
-    expect(evs[0].datos).toBe(" dos espacios");
+    expect(evs[0]!.datos).toBe(" dos espacios");
   });
 
   it("registra el último id", () => {
@@ -76,6 +76,6 @@ describe("leerEventos", () => {
     const evs: EventoSse[] = [];
     for await (const ev of leerEventos(new Response(cuerpo))) evs.push(ev);
     expect(evs.map((e) => e.evento)).toEqual(["respuesta", "fin"]);
-    expect(JSON.parse(evs[0].datos)).toEqual({ texto: "señal ñ" });
+    expect(JSON.parse(evs[0]!.datos)).toEqual({ texto: "señal ñ" });
   });
 });
