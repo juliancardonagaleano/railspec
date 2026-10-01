@@ -244,7 +244,7 @@ def test_login_github_app_con_equipos():
                 assert r.status_code == 400
             r = await c.get("/consola/api/auth/github/callback", params={"code": "codigo-1", "state": estado})
             assert r.status_code == 302 and r.headers["location"] == "/consola/"
-            assert COOKIE in c.cookies
+            assert m.ctx.config.nombre_cookie(COOKIE) in c.cookies
             yo = (await c.get("/consola/api/yo")).json()
             assert yo["login"] == "luis"
             # El rol llega por el equipo de GitHub (R3).
@@ -533,7 +533,8 @@ def test_tools_por_la_consola_con_rol_de_equipo():
         asignar(m.almacen, Rol.desarrollador, equipo=4242)
         sesion_luis = m.firmador.emitir("luis", LUIS_ID, frozenset({4242}), timedelta(hours=1), "sesion")
         async with m.cliente() as c:
-            c.cookies.set(COOKIE, sesion_luis, domain="railspec.test", path="/consola")
+            nombre = m.ctx.config.nombre_cookie(COOKIE)
+            c.cookies.set(nombre, sesion_luis, domain="railspec.test", path="/consola")
             r = await c.post(
                 "/consola/api/tools/unit.start", json=entrada_start().model_dump(mode="json"), headers=CSRF
             )

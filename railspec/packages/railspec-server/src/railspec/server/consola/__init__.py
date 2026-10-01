@@ -13,6 +13,7 @@ from typing import Any
 
 from .config import ConfigConsola, ConfigGithubApp, validar_secreto
 from .revocados import RevocadosMongo
+from .seguridad import LimitadorVentana, SeguridadConsola
 
 
 def montar_consola(app: Any, ctx: Any) -> None:
@@ -30,6 +31,15 @@ def montar_consola(app: Any, ctx: Any) -> None:
     if ctx.firmador.revocados is None:
         ctx.firmador.revocados = RevocadosMongo(ctx.datos.db)
     app.mount(RUTA_API, crear_api(ctx))
+    limite = ctx.config.limite_auth_minuto
+    app.state.limitador_auth = LimitadorVentana(limite, 60.0) if limite > 0 else None
+    app.add_middleware(
+        SeguridadConsola,
+        prefijo_spa=RUTA_SPA,
+        prefijo_api=RUTA_API,
+        hsts=ctx.config.cookie_segura,
+        limitador=app.state.limitador_auth,
+    )
     if ctx.config.carpeta_spa is None:
         return
     raiz = Path(ctx.config.carpeta_spa).resolve()

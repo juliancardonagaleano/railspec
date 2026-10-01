@@ -86,7 +86,7 @@ class ContextoConsola:
                 if actor.github_id is None or actor.login is None:
                     raise HTTPException(403, "la consola solo admite personas")
                 return Sesion(actor.login, actor.github_id, self.reloj())
-            cookie = request.cookies.get(COOKIE)
+            cookie = request.cookies.get(self.config.nombre_cookie(COOKIE))
             if cookie is None:
                 raise HTTPException(401, "sin sesión")
             sesion = self.firmador.sesion(cookie, "sesion")

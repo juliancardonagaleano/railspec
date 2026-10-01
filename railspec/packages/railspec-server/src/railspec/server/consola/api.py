@@ -85,13 +85,23 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         vida = timedelta(hours=ctx.config.horas_sesion)
         token = ctx.firmador.emitir(login, github_id, equipos, vida, "sesion")
         respuesta.set_cookie(
-            COOKIE,
+            ctx.config.nombre_cookie(COOKIE),
             token,
             max_age=int(vida.total_seconds()),
             httponly=True,
             secure=ctx.config.cookie_segura,
             samesite="lax",
             path=RUTA_SPA,
+        )
+
+    def _borrar_cookie(respuesta: Response, base: str, path: str) -> None:
+        # Un __Secure- solo se puede borrar con una respuesta que también lleve Secure.
+        respuesta.delete_cookie(
+            ctx.config.nombre_cookie(base),
+            path=path,
+            secure=ctx.config.cookie_segura,
+            httponly=True,
+            samesite="lax",
         )
 
     def _redireccion_oauth() -> str:
@@ -116,7 +126,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         )
         r = RedirectResponse(ctx.github.url_autorizar(_redireccion_oauth(), estado), status_code=302)
         r.set_cookie(
-            COOKIE_ESTADO,
+            ctx.config.nombre_cookie(COOKIE_ESTADO),
             nonce,
             max_age=600,
             httponly=True,
@@ -134,7 +144,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
             estado = ctx.firmador.abrir(state, "oauth")
         except TokenInvalido as exc:
             raise HTTPException(400, f"estado de OAuth inválido: {exc}") from exc
-        if estado.get("n") != request.cookies.get(COOKIE_ESTADO):
+        if estado.get("n") != request.cookies.get(ctx.config.nombre_cookie(COOKIE_ESTADO)):
             raise HTTPException(400, "el estado de OAuth no corresponde a este navegador")
         if not code:
             raise HTTPException(400, "GitHub no devolvió código")
@@ -145,7 +155,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         destino = RUTA_SPA + _volver(estado.get("v"))
         r = RedirectResponse(destino, status_code=302)
         _poner_sesion(r, usuario.login, usuario.github_id, usuario.equipos)
-        r.delete_cookie(COOKIE_ESTADO, path=f"{RUTA_API}/auth")
+        _borrar_cookie(r, COOKIE_ESTADO, f"{RUTA_API}/auth")
         log.info("sesión de consola para %s", usuario.login)
         return r
 
@@ -164,7 +174,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         # cerrar la sesión de nadie.
         if request.headers.get(CABECERA_CSRF) != "1":
             raise HTTPException(403, f"falta la cabecera {CABECERA_CSRF}: 1")
-        cookie = request.cookies.get(COOKIE)
+        cookie = request.cookies.get(ctx.config.nombre_cookie(COOKIE))
         if cookie:
             try:
                 # Revocación real: la cookie (copiada o no) y los tokens api de esta sesión dejan
@@ -173,7 +183,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
             except TokenInvalido:
                 pass
         r = Response(status_code=204)
-        r.delete_cookie(COOKIE, path=RUTA_SPA)
+        _borrar_cookie(r, COOKIE, RUTA_SPA)
         return r
 
     @api.post("/auth/token")

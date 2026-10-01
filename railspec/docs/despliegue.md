@@ -30,6 +30,20 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    NGINX: afinidad por la cabecera `Mcp-Session-Id` (las sesiones MCP viven
    en la memoria de la réplica que las creó), SSE sin buffering y cuerpo de
    hasta 16 MB para los lotes de `graph.index`.
+
+   **Riesgo conocido: `FORWARDED_ALLOW_IPS: "*"`.** El ConfigMap hace que
+   uvicorn confíe en `X-Forwarded-For` y `X-Forwarded-Proto` de *cualquier*
+   origen, porque no se conoce de antemano la red del ingress. Con `*`, uvicorn
+   toma como IP del cliente el primer valor de `X-Forwarded-For`, que el propio
+   cliente puede escribir (el ingress añade la IP real al final). Efecto: el
+   límite de peticiones por IP de `/consola/api/auth/*` (ver `consola.md`) se
+   evade cambiando esa cabecera, y la IP que ven los registros no es de fiar.
+   No abre acceso a nada más (la identidad no depende de la IP). Para cerrarlo,
+   cambiar el valor de `FORWARDED_ALLOW_IPS` en `deploy/k8s/20-configmap.yaml` por
+   la IP o el CIDR de los pods del controlador de ingress (p. ej. el rango de
+   pods de AKS o el de `ingress-nginx`); no se fija aquí porque depende del
+   clúster. El código usa siempre la IP que resuelve uvicorn, nunca la
+   cabecera por su cuenta.
 3. **TLS.** Un Secret `kubernetes.io/tls` para el dominio en el namespace
    (cert-manager o Key Vault con el add-on).
 4. **Secret de la aplicación.** Se crea a mano; los manifiestos solo lo

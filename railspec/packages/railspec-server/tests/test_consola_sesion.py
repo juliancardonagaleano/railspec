@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
 from datetime import timedelta
 
 import httpx
 import pytest
+from apoyo_motor import JULIAN, entrada_start
 from railspec.contracts.repositorio import Rol
 from railspec.server.api.identidad import TokenInvalido
 from railspec.server.api.superficies import aplicacion
@@ -21,7 +23,13 @@ from test_consola import ANA_ID, CSRF, JULIAN_ID, LUIS_ID, ORG, WS, Montaje, asi
 SECRETO = "s" * 40
 
 
-# --- B1: secreto de sesión fuerte ------------------------------------------------------------------
+def _nombre(m: Montaje) -> str:
+    """Nombre de la cookie de sesión tal como la pone el servidor (con __Secure- bajo https)."""
+
+    return m.ctx.config.nombre_cookie(COOKIE)
+
+
+# --- B1: secreto de sesión fuerte ----------------------------------------------------------------
 
 
 def test_firmador_rechaza_un_secreto_debil():
@@ -70,7 +78,7 @@ def test_montar_consola_rechaza_un_firmador_efimero_con_https():
         montar_consola(app, m.ctx)
 
 
-# --- B2: tokens malformados dan 401, no 500 --------------------------------------------------------
+# --- B2: tokens malformados dan 401, no 500 ------------------------------------------------------
 
 # Latin-1 que no es ASCII: así llega por HTTP un token con "é" en la firma.
 FIRMA_NO_ASCII = b"rsc1.e30.firma-\xe9"
@@ -89,7 +97,7 @@ def test_token_rsc1_malformado_es_401_en_consola_y_en_v1():
             assert (await c.get("/consola/api/yo", headers=bearer)).status_code == 401
             r = await c.post("/v1/tools/unit.list", json={}, headers=bearer)
             assert r.status_code == 401, r.text
-            cookie = {"Cookie": COOKIE.encode() + b"=" + FIRMA_NO_ASCII}
+            cookie = {"Cookie": _nombre(m).encode() + b"=" + FIRMA_NO_ASCII}
             assert (await c.get("/consola/api/yo", headers=cookie)).status_code == 401
 
     correr(caso())
@@ -113,7 +121,7 @@ def test_ruta_de_la_spa_con_byte_nulo_no_da_500(tmp_path):
     correr(caso())
 
 
-# --- B9: una subclave por tipo y ``abrir`` exige el tipo -------------------------------------------
+# --- B9: una subclave por tipo y ``abrir`` exige el tipo -----------------------------------------
 
 
 def _carga(token: str) -> dict:
@@ -173,7 +181,7 @@ def test_la_clave_depende_del_secreto_y_el_token_lleva_audiencia():
         Firmador("t" * 40).sesion(token["api"], "api")
 
 
-# --- A3: el token api no se renueva solo ni vale en /consola/api -----------------------------------
+# --- A3: el token api no se renueva solo ni vale en /consola/api ---------------------------------
 
 
 async def _token_api(m: Montaje, token_dev: str) -> str:
@@ -245,7 +253,7 @@ def test_cookie_y_token_api_no_son_intercambiables():
         sesion = m.firmador.emitir("ana", ANA_ID, frozenset(), timedelta(hours=1), "sesion")
         async with m.cliente() as c:
             # Un token api puesto como cookie no abre sesión.
-            c.cookies.set(COOKIE, api, domain="railspec.test", path="/consola")
+            c.cookies.set(_nombre(m), api, domain="railspec.test", path="/consola")
             assert (await c.get("/consola/api/yo")).status_code == 401
         async with m.cliente() as c:
             # La cookie de sesión como Bearer no vale ni en /v1 ni en la consola.
@@ -262,7 +270,7 @@ def test_el_token_api_no_dura_mas_que_la_sesion():
         m = Montaje()
         sesion = m.firmador.emitir("julian", JULIAN_ID, frozenset(), timedelta(minutes=10), "sesion")
         async with m.cliente() as c:
-            c.cookies.set(COOKIE, sesion, domain="railspec.test", path="/consola")
+            c.cookies.set(_nombre(m), sesion, domain="railspec.test", path="/consola")
             r = await c.post("/consola/api/auth/token", headers=CSRF)
             assert r.status_code == 200, r.text
         token = r.json()["token"]
@@ -273,7 +281,7 @@ def test_el_token_api_no_dura_mas_que_la_sesion():
     correr(caso())
 
 
-# --- B4: cerrar sesión exige la cabecera anti-CSRF -------------------------------------------------
+# --- B4: cerrar sesión exige la cabecera anti-CSRF -----------------------------------------------
 
 SALIR = "/consola/api/auth/salir"
 
@@ -291,7 +299,7 @@ def test_salir_exige_la_cabecera_anti_csrf():
     correr(caso())
 
 
-# --- B10: el cierre de sesión revoca de verdad -----------------------------------------------------
+# --- B10: el cierre de sesión revoca de verdad ---------------------------------------------------
 
 
 def test_salir_revoca_la_cookie_y_los_tokens_api_de_esa_sesion():
@@ -300,14 +308,14 @@ def test_salir_revoca_la_cookie_y_los_tokens_api_de_esa_sesion():
         asignar(m.almacen, Rol.lector, ANA_ID)
         alcance = {"alcance": {"org": ORG, "workspace": WS}}
         async with m.cliente("tk-ana") as c:
-            cookie = c.cookies.get(COOKIE)
+            cookie = c.cookies.get(_nombre(m))
             api = (await c.post("/consola/api/auth/token", headers=CSRF)).json()["token"]
             bearer = {"Authorization": f"Bearer {api}"}
             assert (await c.post("/v1/tools/unit.list", json=alcance, headers=bearer)).status_code == 200
             assert (await c.post(SALIR, headers=CSRF)).status_code == 204
         # Quien se quedó con la cookie o con el token no entra: el logout no es solo borrar la cookie.
         async with m.cliente() as otro:
-            otro.cookies.set(COOKIE, cookie, domain="railspec.test", path="/consola")
+            otro.cookies.set(_nombre(m), cookie, domain="railspec.test", path="/consola")
             r = await otro.get("/consola/api/yo")
             assert r.status_code == 401 and "cerrada" in r.json()["detalle"]
             r = await otro.post("/v1/tools/unit.list", json=alcance, headers=bearer)
@@ -425,3 +433,217 @@ def test_la_ventana_de_equipos_congelados_esta_acotada():
     for malo in ("0", "-1", "25", "mucho"):
         with pytest.raises(ValueError, match="RAILSPEC_CONSOLA_SESION_HORAS"):
             ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_SESION_HORAS": malo})
+
+
+# --- B7: cabeceras de seguridad, límite de /auth/* y cookies __Secure- ---------------------------
+
+
+async def _con_config(m: Montaje, tmp_path=None, **cambios):
+    """Una app nueva con la consola montada con otra configuración (el middleware la lee al montar)."""
+
+    if tmp_path is not None:
+        cambios["carpeta_spa"] = str(tmp_path)
+    m.ctx.config = dataclasses.replace(m.ctx.config, **cambios)
+    app = aplicacion(m.ctx.registro, m.ctx.identidad)
+    montar_consola(app, m.ctx)
+    return app
+
+
+def _cliente(app, ip: str = "203.0.113.7") -> httpx.AsyncClient:
+    transporte = httpx.ASGITransport(app=app, client=(ip, 5000))
+    return httpx.AsyncClient(transport=transporte, base_url="https://railspec.test")
+
+
+def _spa(tmp_path) -> None:
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><title>Railspec</title>")
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)")
+
+
+def _comunes(r: httpx.Response) -> None:
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+
+
+def test_la_spa_y_la_api_salen_con_cabeceras_de_seguridad(tmp_path):
+    _spa(tmp_path)
+
+    async def caso():
+        app = await _con_config(Montaje(), tmp_path)
+        async with _cliente(app) as c:
+            for ruta in (
+                "/consola",  # 308
+                "/consola/",
+                "/consola/acme/certificados",
+                "/consola/assets/app.js",
+                "/consola/%00",
+                "/consola/api/auth/config",
+                "/consola/api/yo",  # 401
+                "/consola/api/no-existe",  # 404
+            ):
+                r = await c.get(ruta)
+                _comunes(r)
+                assert r.headers["strict-transport-security"].startswith("max-age="), ruta
+            spa = (await c.get("/consola/")).headers["content-security-policy"]
+            # Scripts solo del propio origen y sin evaluación dinámica ni en línea.
+            assert "script-src 'self'" in spa and "'unsafe-eval'" not in spa
+            assert "script-src 'self' 'unsafe-inline'" not in spa and "object-src 'none'" in spa
+            assert "default-src 'none'" in (await c.get("/consola/api/yo")).headers["content-security-policy"]
+            # Lo que ya fijaba el servido se conserva.
+            assert (await c.get("/consola/")).headers["cache-control"] == "no-cache"
+            assert "immutable" in (await c.get("/consola/assets/app.js")).headers["cache-control"]
+            # El token y la sesión no se guardan en cachés.
+            assert (await c.get("/consola/api/auth/config")).headers["cache-control"] == "no-store"
+
+    correr(caso())
+
+
+def test_hsts_solo_con_url_https():
+    async def caso():
+        app = await _con_config(Montaje(), url_publica="http://localhost:8080", github_app=None)
+        async with _cliente(app) as c:
+            r = await c.get("/consola/api/auth/config")
+            _comunes(r)
+            assert "strict-transport-security" not in r.headers
+
+    correr(caso())
+
+
+def test_las_cabeceras_no_rompen_el_sse(tmp_path):
+    async def caso():
+        m = Montaje()
+        salida = await m.motor.start(entrada_start(), JULIAN)
+        alcance = salida.estado.unidad
+        app = await _con_config(m)
+        url = f"/consola/api/orgs/{ORG}/workspaces/{WS}/unidades/{alcance.unidad}/eventos"
+        async with _cliente(app) as c:
+            await c.post("/consola/api/auth/desarrollo", json={"token": "tk-julian"})
+            r = await c.get(url)
+            assert r.headers["content-type"].startswith("text/event-stream")
+            _comunes(r)
+            assert "event: sync" in r.text
+
+    correr(caso())
+
+
+def test_limite_por_ip_en_auth_no_toca_el_resto():
+    async def caso():
+        app = await _con_config(Montaje(), limite_auth_minuto=5)
+        async with _cliente(app, "203.0.113.7") as c, _cliente(app, "198.51.100.2") as otro:
+            for _ in range(5):
+                assert (await c.get("/consola/api/auth/config")).status_code == 200
+            r = await c.post("/consola/api/auth/desarrollo", json={"token": "adivinando"})
+            assert r.status_code == 429, r.text
+            assert int(r.headers["retry-after"]) >= 1 and "detalle" in r.json()
+            _comunes(r)
+            # Cualquier ruta de /auth/ cuenta, y X-Forwarded-For no cambia de IP al cliente.
+            r = await c.get("/consola/api/auth/config", headers={"X-Forwarded-For": "9.9.9.9"})
+            assert r.status_code == 429
+            # Otra IP sigue entrando; y lo que no es /auth/ no se limita.
+            assert (await otro.get("/consola/api/auth/config")).status_code == 200
+            assert (await c.get("/consola/api/yo")).status_code == 401
+            assert (await c.get("/livez")).status_code == 200
+
+    correr(caso())
+
+
+def test_el_limite_es_de_ventana_y_se_libera():
+    async def caso():
+        app = await _con_config(Montaje(), limite_auth_minuto=2)
+        ahora = [1000.0]
+        app.state.limitador_auth.reloj = lambda: ahora[0]
+        async with _cliente(app) as c:
+            assert (await c.get("/consola/api/auth/config")).status_code == 200
+            ahora[0] += 30
+            assert (await c.get("/consola/api/auth/config")).status_code == 200
+            r = await c.get("/consola/api/auth/config")
+            assert r.status_code == 429 and 29 <= int(r.headers["retry-after"]) <= 31
+            ahora[0] += 31  # sale de la ventana la primera
+            assert (await c.get("/consola/api/auth/config")).status_code == 200
+            assert (await c.get("/consola/api/auth/config")).status_code == 429
+
+    correr(caso())
+
+
+def test_el_limite_se_configura_y_se_puede_desactivar():
+    assert ConfigConsola().limite_auth_minuto == 60
+    assert ConfigConsola.desde_entorno({}).limite_auth_minuto == 60
+    assert ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_AUTH_LIMITE": "10"}).limite_auth_minuto == 10
+    assert ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_AUTH_LIMITE": "0"}).limite_auth_minuto == 0
+    for malo in ("-1", "muchos", "1.5"):
+        with pytest.raises(ValueError, match="RAILSPEC_CONSOLA_AUTH_LIMITE"):
+            ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_AUTH_LIMITE": malo})
+
+    async def caso():
+        app = await _con_config(Montaje(), limite_auth_minuto=0)
+        async with _cliente(app) as c:
+            for _ in range(100):
+                assert (await c.get("/consola/api/auth/config")).status_code == 200
+
+    correr(caso())
+
+
+def test_el_limitador_no_crece_sin_tope():
+    from railspec.server.consola.seguridad import LimitadorVentana
+
+    t = [0.0]
+    lim = LimitadorVentana(3, 60, max_claves=100, reloj=lambda: t[0])
+    for i in range(1000):
+        lim.golpear(f"10.0.{i // 250}.{i % 250}")
+    assert len(lim._golpes) <= 100
+    t[0] += 120  # todo vencido: se purga solo
+    lim.golpear("1.1.1.1")
+    assert len(lim._golpes) == 1
+
+
+def test_cookies_con_prefijo_secure_con_url_https():
+    async def caso():
+        m = Montaje()
+        assert m.ctx.config.nombre_cookie(COOKIE) == "__Secure-railspec_sesion"
+        async with m.cliente() as c:
+            r = await c.post("/consola/api/auth/desarrollo", json={"token": "tk-ana"})
+            cookie = r.headers["set-cookie"]
+            assert cookie.startswith("__Secure-railspec_sesion=") and "Secure" in cookie
+            assert "HttpOnly" in cookie
+            assert (await c.get("/consola/api/yo")).json()["login"] == "ana"
+            # La que no lleva el prefijo ya no abre sesión (no la pone el servidor).
+            valor = c.cookies.get("__Secure-" + COOKIE)
+            c.cookies.clear()
+            c.cookies.set(COOKIE, valor, domain="railspec.test", path="/consola")
+            assert (await c.get("/consola/api/yo")).status_code == 401
+            c.cookies.clear()
+            c.cookies.set("__Secure-" + COOKIE, valor, domain="railspec.test", path="/consola")
+            r = await c.post("/consola/api/auth/salir", headers=CSRF)
+            # Para borrar una cookie __Secure- el navegador exige que la respuesta lleve Secure.
+            assert r.status_code == 204 and "Secure" in r.headers["set-cookie"]
+
+    correr(caso())
+
+
+def test_cookies_sin_prefijo_con_url_http():
+    async def caso():
+        app = await _con_config(Montaje(), url_publica="http://localhost:8080", github_app=None)
+        async with _cliente(app) as c:
+            r = await c.post("/consola/api/auth/desarrollo", json={"token": "tk-ana"})
+            assert r.headers["set-cookie"].startswith(COOKIE + "=")
+            assert "secure" not in r.headers["set-cookie"].lower()
+            assert (await c.get("/consola/api/yo")).json()["login"] == "ana"
+
+    correr(caso())
+
+
+def test_el_estado_de_oauth_tambien_va_en_cookie_con_prefijo():
+    def responder(peticion: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    async def caso():
+        m = Montaje(github_http=httpx.Client(transport=httpx.MockTransport(responder)))
+        async with m.cliente() as c:
+            r = await c.get("/consola/api/auth/github/inicio")
+            assert r.status_code == 302
+            assert r.headers["set-cookie"].startswith("__Secure-railspec_oauth=")
+            assert "Secure" in r.headers["set-cookie"]
+
+    correr(caso())

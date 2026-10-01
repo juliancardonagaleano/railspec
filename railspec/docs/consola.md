@@ -55,6 +55,7 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas. El de Julian es `83125327`. |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
+| `RAILSPEC_CONSOLA_AUTH_LIMITE` | opcional | Peticiones por minuto y por IP en `/consola/api/auth/*` (60 por defecto; 0 lo desactiva). 429 con `Retry-After` al pasarse. |
 | `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión en horas (4 por defecto, de 1 a 24). Es también la ventana en que quedan congelados los equipos de GitHub de la cookie. |
 
 `RAILSPEC_TOKENS_DESARROLLO` (ya existente) habilita además el inicio de sesión
@@ -74,7 +75,8 @@ con token de desarrollo, solo para entornos sin GitHub App.
 ## Sesión, tokens y anti-CSRF
 
 - **Cookie** `railspec_sesion`: HttpOnly, SameSite=Lax, `Path=/consola`,
-  `Secure` con URL https. Formato `rsc1.<carga>.<firma HMAC-SHA256>`; lleva
+  `Secure` con URL https, y con https se llama `__Secure-railspec_sesion` (el
+  navegador la rechaza si no es `Secure`; `__Host-` exigiría `Path=/`). Formato `rsc1.<carga>.<firma HMAC-SHA256>`; lleva
   login, `github_id`, equipos de GitHub y expiración. La carga trae el tipo
   (`t`: `sesion`, `api` u `oauth`) y la audiencia (`aud`), y cada tipo se firma
   con su propia subclave (HKDF-SHA256 del secreto): el `state` de OAuth, que es
@@ -136,6 +138,28 @@ con token de desarrollo, solo para entornos sin GitHub App.
 - **Cambio de formato.** Las cookies y los tokens `rsc1` emitidos por versiones
   anteriores dejan de valer al desplegar esta (subclaves por tipo): hay que
   volver a iniciar sesión una vez.
+
+## Cabeceras de seguridad y límite de peticiones
+
+El servidor las pone él mismo (`consola/seguridad.py`, middleware ASGI), sin
+depender del ingress, en toda respuesta bajo `/consola`: la SPA, sus estáticos,
+las redirecciones y la API, incluidos los 401 y 404.
+
+| Cabecera | Valor |
+| --- | --- |
+| `Content-Security-Policy` (SPA) | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`. Revisada contra el build de Vite: `index.html` solo trae un `<script type="module" src>` y un `<link>` del propio origen, sin scripts ni estilos en línea; `'unsafe-inline'` va solo en estilos (React y las librerías de gráficos fijan estilos en los elementos). Sin `eval`: no añadir librerías que lo necesiten. |
+| `Content-Security-Policy` (API) | `default-src 'none'; frame-ancestors 'none'` |
+| `X-Frame-Options` | `DENY` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `no-referrer` |
+| `Strict-Transport-Security` | `max-age=31536000`, solo con `RAILSPEC_CONSOLA_URL` https |
+| `Cache-Control: no-store` | En `/consola/api/auth/*` (sesión y token); lo que ya fija cada ruta se conserva |
+
+**Límite en `/consola/api/auth/*`**: ventana deslizante de un minuto por IP, en
+memoria y por réplica (con N réplicas el tope efectivo es N veces el
+configurado). La IP es la que resuelve uvicorn a partir de
+`FORWARDED_ALLOW_IPS`; con el `*` del ConfigMap un cliente puede falsear
+`X-Forwarded-For` y evadir el límite (ver el riesgo en `despliegue.md`).
 
 ## Autorización
 

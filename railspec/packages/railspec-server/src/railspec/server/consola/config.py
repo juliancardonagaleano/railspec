@@ -20,6 +20,11 @@ MIN_SECRETO = 32
 #: Vida por defecto de la sesión y tope configurable (horas).
 HORAS_SESION = 4
 MAX_HORAS_SESION = 24
+#: Peticiones por minuto y por IP en ``/consola/api/auth/*`` (0 = sin límite).
+LIMITE_AUTH_MINUTO = 60
+#: Con https las cookies llevan este prefijo: el navegador las rechaza si no son ``Secure``.
+#: (``__Host-`` exigiría ``Path=/``, y las cookies de la consola van en ``/consola``.)
+PREFIJO_SEGURO = "__Secure-"
 
 
 def _horas_sesion(crudo: str | None) -> int:
@@ -55,6 +60,18 @@ def validar_secreto(secreto: str | None, *, exigido: bool) -> None:
         )
 
 
+def _limite_auth(crudo: str | None) -> int:
+    if not crudo:
+        return LIMITE_AUTH_MINUTO
+    try:
+        limite = int(crudo)
+    except ValueError:
+        limite = -1
+    if limite < 0:
+        raise ValueError("RAILSPEC_CONSOLA_AUTH_LIMITE debe ser un entero >= 0 (peticiones por minuto y IP)")
+    return limite
+
+
 @dataclass(frozen=True)
 class ConfigGithubApp:
     client_id: str
@@ -78,10 +95,17 @@ class ConfigConsola:
     #: lleva la cookie (se leen al iniciar sesión): por eso es corta y tiene tope.
     horas_sesion: int = HORAS_SESION
     minutos_token: int = 60
+    #: Peticiones por minuto y por IP en ``/consola/api/auth/*`` (0 = sin límite).
+    limite_auth_minuto: int = LIMITE_AUTH_MINUTO
 
     @property
     def cookie_segura(self) -> bool:
         return bool(self.url_publica and self.url_publica.startswith("https://"))
+
+    def nombre_cookie(self, base: str) -> str:
+        """Nombre real de una cookie: con URL https lleva el prefijo ``__Secure-``."""
+
+        return PREFIJO_SEGURO + base if self.cookie_segura else base
 
     @property
     def exige_secreto(self) -> bool:
@@ -113,6 +137,7 @@ class ConfigConsola:
             administradores=frozenset(admins),
             carpeta_spa=env.get("RAILSPEC_CONSOLA_DIR") or None,
             horas_sesion=_horas_sesion(env.get("RAILSPEC_CONSOLA_SESION_HORAS")),
+            limite_auth_minuto=_limite_auth(env.get("RAILSPEC_CONSOLA_AUTH_LIMITE")),
         )
         validar_secreto(config.secreto_sesion, exigido=config.exige_secreto)
         return config
