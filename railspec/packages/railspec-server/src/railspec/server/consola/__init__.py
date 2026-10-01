@@ -1,0 +1,45 @@
+"""Consola web de Railspec (fase 7): API en ``/consola/api`` y SPA en ``/consola/``.
+
+``montar_consola`` añade ambas a la app ASGI del servidor. La SPA
+(``railspec-console``) es estática: si ``RAILSPEC_CONSOLA_DIR`` apunta a su
+``dist``, el servidor la sirve con vuelta a ``index.html`` para las rutas del
+cliente; si no, solo se monta la API.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from .config import ConfigConsola, ConfigGithubApp
+
+
+def montar_consola(app: Any, ctx: Any) -> None:
+    """``ctx``: un ``ContextoConsola`` (import perezoso: FastAPI es del extra ``motor``)."""
+
+    from fastapi.responses import FileResponse, RedirectResponse
+
+    from .api import RUTA_API, RUTA_SPA, crear_api
+
+    app.mount(RUTA_API, crear_api(ctx))
+    if ctx.config.carpeta_spa is None:
+        return
+    raiz = Path(ctx.config.carpeta_spa).resolve()
+    indice = raiz / "index.html"
+    if not indice.is_file():
+        raise ValueError(f"RAILSPEC_CONSOLA_DIR={raiz} no contiene index.html (¿falta npm run build?)")
+
+    @app.get(RUTA_SPA, include_in_schema=False)
+    async def _raiz_spa():
+        return RedirectResponse(RUTA_SPA + "/", status_code=308)
+
+    @app.get(RUTA_SPA + "/{ruta:path}", include_in_schema=False)
+    async def _spa(ruta: str):
+        archivo = (raiz / ruta).resolve()
+        if ruta and archivo.is_file() and archivo.is_relative_to(raiz):
+            cache = "public, max-age=31536000, immutable" if ruta.startswith("assets/") else "no-cache"
+            return FileResponse(archivo, headers={"Cache-Control": cache})
+        return FileResponse(indice, headers={"Cache-Control": "no-cache"})
+
+
+__all__ = ["ConfigConsola", "ConfigGithubApp", "montar_consola"]

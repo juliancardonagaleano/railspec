@@ -41,7 +41,10 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
      --from-literal=RAILSPEC_MONGO_URI='mongodb://…' \
      --from-literal=RAILSPEC_FALKORDB_URL='redis://…' \
      --from-literal=RAILSPEC_FOUNDRY_API_KEY='…' \
-     --from-literal=RAILSPEC_PCE_API_KEY='…'
+     --from-literal=RAILSPEC_PCE_API_KEY='…' \
+     --from-literal=RAILSPEC_CONSOLA_SECRETO="$(openssl rand -base64 48)" \
+     --from-literal=RAILSPEC_GITHUB_APP_CLIENT_ID='Iv1.…' \
+     --from-literal=RAILSPEC_GITHUB_APP_CLIENT_SECRET='…'
    ```
 
    | Clave | Obligatoria | Uso |
@@ -51,6 +54,8 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
+   | `RAILSPEC_CONSOLA_SECRETO` | sí, con más de una réplica | Clave de las sesiones de la consola web; sin ella cada réplica inventa una y las sesiones se pierden al cambiar de réplica. |
+   | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | para iniciar sesión en la consola | GitHub App de Railspec (ver `consola.md`). |
 
 ## Variables de los manifiestos
 
@@ -85,6 +90,7 @@ no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
 | `RAILSPEC_OIDC_AUDIENCIA` | `railspec` | Audiencia del token OIDC de CI; debe coincidir con la del workflow de reindexado. Vacía desactiva `graph.index`. |
 | `RAILSPEC_OIDC_EMISOR` | `https://token.actions.githubusercontent.com` | Emisor OIDC. |
 | `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista opcional `owner/repo,…` de repositorios que pueden llamar `graph.index`. |
+| `RAILSPEC_CONSOLA_ADMINS` | vacío | `github_id` (numéricos, separados por coma) que administran la plataforma en la consola: crean organizaciones y son `org-admin` en todas. |
 
 ## Desplegar
 
