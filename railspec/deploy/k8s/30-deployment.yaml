@@ -53,7 +53,8 @@ spec:
             - configMapRef:
                 name: railspec-server
             # Claves: RAILSPEC_MONGO_URI (obligatoria), RAILSPEC_FALKORDB_URL,
-            # RAILSPEC_FOUNDRY_API_KEY, RAILSPEC_PCE_API_KEY, RAILSPEC_ANTHROPIC_API_KEY.
+            # RAILSPEC_FOUNDRY_API_KEY, RAILSPEC_PCE_API_KEY, RAILSPEC_ANTHROPIC_API_KEY,
+            # RAILSPEC_CONSOLA_SECRETO, RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET (consola).
             - secretRef:
                 name: ${RAILSPEC_SECRETO}
           # /livez: el proceso atiende. /healthz: además Mongo y FalkorDB responden

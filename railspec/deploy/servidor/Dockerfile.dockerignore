@@ -3,7 +3,10 @@
 !railspec/packages/railspec-contracts
 !railspec/packages/railspec-graph
 !railspec/packages/railspec-server
+!railspec/packages/railspec-console
 !railspec/deploy/servidor/requirements.lock
 **/__pycache__
 **/*.egg-info
 **/tests
+**/node_modules
+**/dist

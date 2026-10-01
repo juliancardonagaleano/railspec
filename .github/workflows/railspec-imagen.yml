@@ -13,6 +13,7 @@ on:
       - "railspec/packages/railspec-contracts/**"
       - "railspec/packages/railspec-graph/**"
       - "railspec/packages/railspec-server/**"
+      - "railspec/packages/railspec-console/**"
       - "railspec/deploy/servidor/**"
       - ".github/workflows/railspec-imagen.yml"
   push:
@@ -22,6 +23,7 @@ on:
       - "railspec/packages/railspec-contracts/**"
       - "railspec/packages/railspec-graph/**"
       - "railspec/packages/railspec-server/**"
+      - "railspec/packages/railspec-console/**"
       - "railspec/deploy/servidor/**"
       - ".github/workflows/railspec-imagen.yml"
   workflow_dispatch:

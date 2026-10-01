@@ -12,6 +12,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from .consola.config import ConfigConsola
+
 _VERDADEROS = {"1", "true", "si", "sí", "yes", "on"}
 
 
@@ -74,6 +76,8 @@ class Configuracion:
     chat_modelo: str = "claude-sonnet-5-5"
     host: str = "0.0.0.0"
     puerto: int = 8080
+    #: Consola web (``RAILSPEC_CONSOLA_*`` y GitHub App); ver ``railspec/docs/consola.md``.
+    consola: ConfigConsola = field(default_factory=ConfigConsola)
 
     @property
     def modo_memoria(self) -> bool:
@@ -124,6 +128,7 @@ class Configuracion:
             chat_modelo=env.get("RAILSPEC_CHAT_MODELO") or "claude-sonnet-5-5",
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
+            consola=ConfigConsola.desde_entorno(env),
         )
 
 

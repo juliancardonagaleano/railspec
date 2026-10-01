@@ -139,6 +139,11 @@ class Registro:
         manejadores.update(extra or {})
         return cls(manejadores, autorizador)
 
+    def con_autorizador(self, autorizador: Autorizador) -> Registro:
+        """Mismas tools con otro autorizador (la consola resuelve también roles de equipos)."""
+
+        return Registro(self._manejadores, autorizador)
+
     def tools(self, superficie: Superficie) -> list[ToolDef]:
         return [t for n, t in sorted(TOOLS.items()) if superficie in t.superficies and n in self._manejadores]
 

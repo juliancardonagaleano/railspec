@@ -17,6 +17,7 @@ railspec/
     railspec-server/      esqueleto del motor y del repositorio central (fases 2 y 4)
     railspec-local/       proxy MCP local, CLI `railspec` y adaptadores de arnés
     railspec-graph/       grafo de código centralizado y RAG sobre FalkorDB
+    railspec-console/     consola web (SPA React + Vite) que sirve railspec-server
   schemas/v1/             JSON Schema generados + manifiesto de tools
   examples/v1/            un ejemplo válido por mensaje
   deploy/                 imagen, manifiestos de Kubernetes y cliente de reindexado
@@ -41,5 +42,6 @@ Las pruebas extremo a extremo (Mongo, FalkorDB, servidor y proxy por stdio) se
 saltan si Mongo y FalkorDB no responden: ver [integracion/README.md](integracion/README.md).
 
 Ver [docs/contratos.md](docs/contratos.md), [docs/grafo.md](docs/grafo.md) y
-[docs/proxy-local.md](docs/proxy-local.md). Despliegue en AKS:
+[docs/proxy-local.md](docs/proxy-local.md). Consola web: [docs/consola.md](docs/consola.md).
+Despliegue en AKS:
 [docs/despliegue.md](docs/despliegue.md).

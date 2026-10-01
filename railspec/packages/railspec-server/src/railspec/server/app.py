@@ -24,10 +24,12 @@ def ensamblar(
     motor_grafo: Any | None = None,
     verificador_oidc: Any | None = None,
     fuente_codigo: Any | None = None,
+    cliente_github: Any | None = None,
 ) -> tuple[Motor, Any]:
     """Construye motor y app ASGI. ``proveedores``, ``gobernanza``, ``motor_grafo`` (un
-    ``MotorGrafo`` de railspec-graph), ``verificador_oidc`` y ``fuente_codigo`` (clones
-    canónicos para ``code.read``) permiten inyectar dobles (pruebas y entorno de
+    ``MotorGrafo`` de railspec-graph), ``verificador_oidc``, ``fuente_codigo`` (clones
+    canónicos para ``code.read``) y ``cliente_github`` (HTTP del inicio de sesión de la
+    consola) permiten inyectar dobles (pruebas y entorno de
     integración sin credenciales)."""
 
     from .api.identidad import (
@@ -38,6 +40,11 @@ def ensamblar(
     )
     from .api.registro import AutorizadorRoles, Registro
     from .api.superficies import aplicacion
+    from .consola import montar_consola
+    from .consola.almacen import AlmacenConsola
+    from .consola.contexto import ContextoConsola
+    from .consola.github import ClienteGithub
+    from .consola.sesion import Firmador, IdentidadConConsola
 
     if config.modo_memoria:
         log.warning("sin RAILSPEC_MONGO_URI: estado en memoria, solo para desarrollo")
@@ -65,7 +72,9 @@ def ensamblar(
         verificador_oidc = VerificadorOidcActions(
             config.oidc_audiencia, config.oidc_emisor, config.oidc_repositorios
         )
-    identidad = IdentidadCompuesta(humana, verificador_oidc)
+    firmador = Firmador(config.consola.secreto_sesion)
+    # Los tokens ``rsc1`` de la consola valen como Bearer en /v1 (tools y chat).
+    identidad = IdentidadConConsola(IdentidadCompuesta(humana, verificador_oidc), firmador)
     from .portabilidad import manejadores as manejadores_portabilidad
 
     extra = manejadores_portabilidad(motor)
@@ -103,6 +112,21 @@ def ensamblar(
     sondas = _sondas(config, almacen, motor_grafo)
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
     app.include_router(router_chat(servicio_chat, identidad))
+    consola = ContextoConsola(
+        config=config.consola,
+        firmador=firmador,
+        datos=AlmacenConsola(almacen.db),
+        almacen=almacen,
+        registro=registro,
+        identidad=identidad,
+        github=ClienteGithub(config.consola.github_app, cliente_github),
+        logins_desarrollo={login: gid for login, gid in config.tokens_desarrollo.values()},
+        tokens_desarrollo=dict(config.tokens_desarrollo),
+        grafo=grafo,
+        acceso_grafo=acceso,
+        abierto=config.modo_memoria,
+    )
+    montar_consola(app, consola)
     return motor, app
 
 
