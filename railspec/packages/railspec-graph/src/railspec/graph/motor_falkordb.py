@@ -7,6 +7,7 @@ Esquema por grafo:
   un stub solo lleva ``id`` y ``stub = true``.
 - ``(:Simbolo)-[:REL {tipo}]->(:Simbolo)``.
 - ``(:Cluster {id, nombre, miembros})`` y ``(:Proceso {id, nombre, entrada, pasos})``.
+- ``(:Traza {unidad, criterio, simbolo})``: solo en el grafo de trazas del repositorio.
 
 FalkorDB es SSPL: sirve para uso interno; venderlo como servicio exige su
 licencia comercial o cambiar a otro ``MotorGrafo``.
@@ -17,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .motor import PROPIEDADES_SIMBOLO, AristaMotor, Cluster, Meta, Proceso
+from .motor import PROPIEDADES_SIMBOLO, AristaMotor, Cluster, Meta, Proceso, Traza
 
 _CAMPOS = ", ".join(f"s.{p} AS {p}" for p in PROPIEDADES_SIMBOLO)
 
@@ -275,3 +276,23 @@ class MotorFalkor:
     def procesos(self, grafo: str) -> list[Proceso]:
         filas = self._leer(grafo, "MATCH (p:Proceso) RETURN p.id, p.nombre, p.entrada, p.pasos")
         return sorted((Proceso(i, n, e, tuple(s)) for i, n, e, s in filas), key=lambda p: p.id)
+
+    # --- trazabilidad CA-NN ------------------------------------------------
+    def agregar_trazas(self, grafo: str, trazas: list[Traza]) -> None:
+        if trazas:
+            self._escribir(
+                grafo,
+                "UNWIND $t AS t MERGE (:Traza {unidad: t.u, criterio: t.c, simbolo: t.s})",
+                {"t": [{"u": t.unidad, "c": t.criterio, "s": t.simbolo} for t in trazas]},
+            )
+
+    def trazas(
+        self, grafo: str, unidad: str | None, criterio: str | None, simbolo: str | None
+    ) -> list[Traza]:
+        filas = self._leer(
+            grafo,
+            "MATCH (t:Traza) WHERE ($u IS NULL OR t.unidad = $u) AND ($c IS NULL OR t.criterio = $c) "
+            "AND ($s IS NULL OR t.simbolo = $s) RETURN t.unidad, t.criterio, t.simbolo",
+            {"u": unidad, "c": criterio, "s": simbolo},
+        )
+        return sorted((Traza(u, c, s) for u, c, s in filas), key=lambda t: (t.unidad, t.criterio, t.simbolo))

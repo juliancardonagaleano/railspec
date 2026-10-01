@@ -6,7 +6,9 @@ fragmentos; aquí se añade lo que depende del vínculo del servidor:
 - el snapshot debe ser del repositorio y del workspace del vínculo;
 - no puede declarar un nivel más abierto que el del vínculo;
 - las exclusiones del vínculo se aplican otra vez en el servidor (defensa
-  en profundidad): esos símbolos no entran al grafo.
+  en profundidad): esos símbolos no entran al grafo;
+- con los criterios de las tareas completadas, enlaza cada ``CA-NN`` con los
+  símbolos que el snapshot cambió respecto del anterior (trazabilidad).
 
 El grafo nunca guarda texto de código, en ningún nivel: ni el diff ni los
 fragmentos del snapshot pasan de aquí. Si el nivel lo permite, persistirlos
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 import fnmatch
 import posixpath
+from collections.abc import Iterable
 
 from railspec.contracts.comun import AlcanceRepositorio, NivelCodigo
 from railspec.contracts.repositorio import VinculoRepositorio
@@ -60,10 +63,30 @@ def filtrar_delta(delta: DeltaIndice, patrones: list[str]) -> DeltaIndice:
     )
 
 
-def ingerir_snapshot(snapshot: Snapshot, vinculo: VinculoRepositorio, grafo: AlmacenGrafo) -> bool:
+def cambiados(delta: DeltaIndice, previas: dict[str, str]) -> list[str]:
+    """Ids que el delta cambia respecto de la superposición anterior (``firmas_superposicion``).
+
+    El delta de un snapshot es siempre base..árbol de trabajo, así que lo que
+    ya estaba igual en el snapshot anterior no es obra de este reporte.
+    """
+
+    nuevos = {s.id for s in delta.simbolos_upsert if previas.get(s.id) != s.sha256}
+    borrados = {i for i in delta.simbolos_borrados if previas.get(i) != ""}
+    return sorted(nuevos | borrados)
+
+
+def ingerir_snapshot(
+    snapshot: Snapshot,
+    vinculo: VinculoRepositorio,
+    grafo: AlmacenGrafo,
+    criterios: Iterable[str] = (),
+) -> bool:
     """Aplica el delta del snapshot a la superposición de su unidad.
 
-    Devuelve False si no había nada que aplicar (``solo-hashes``).
+    Con ``criterios`` (los ``CA-NN`` de las tareas que el reporte completa),
+    enlaza cada uno con los símbolos que este snapshot cambia respecto del
+    anterior de la misma unidad. Devuelve False si no había nada que aplicar
+    (``solo-hashes``).
     """
 
     alcance = AlcanceRepositorio(
@@ -80,6 +103,11 @@ def ingerir_snapshot(snapshot: Snapshot, vinculo: VinculoRepositorio, grafo: Alm
         )
     if snapshot.modo_delta == ModoDelta.solo_hashes or snapshot.delta_indice is None:
         return False
+    unidad = snapshot.unidad.unidad
     delta = filtrar_delta(snapshot.delta_indice, list(vinculo.exclusiones))
-    grafo.aplicar_delta(alcance, snapshot.base_commit, delta, snapshot.unidad.unidad)
+    criterios = sorted(set(criterios))
+    tocados = cambiados(delta, grafo.firmas_superposicion(alcance, unidad)) if criterios else []
+    grafo.aplicar_delta(alcance, snapshot.base_commit, delta, unidad)
+    if tocados:
+        grafo.enlazar_criterios(alcance, unidad, criterios, tocados)
     return True
