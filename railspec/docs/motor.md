@@ -58,6 +58,18 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   `unit.report`.
 - Las aprobaciones web son opcionales y gana la primera resolución; la
   segunda recibe `checkpoint-ya-resuelto`.
+- Importar y exportar (contrato 1.4, módulo `portabilidad`): `unit.import`
+  crea una unidad desde un paquete `railspec.unidad/v1` y entra al DAG por
+  triaje con `Importacion` en vez de `Arranque`. Los artefactos del paquete
+  pasan la capa determinista en orden; el primero que no encaja en la
+  plantilla (lo habitual con el kit SDD) vuelve a refinar con esos hallazgos,
+  y si todos encajan la unidad retoma en `fase_retomar`: redacción, paquete de
+  aprobación según el modo, implementación o cierre. Una unidad cerrada entra
+  cerrada, con el gate de código escalado por `importado` y rehabilitado por
+  quien importa; los gates de spec, plan y tasks no se fingen. Es idempotente
+  por workspace, repositorio primario y origen (colección `importaciones`) y
+  cada importación se audita con su origen. `unit.export` devuelve el paquete
+  con los artefactos del checkpoint aprobados como prefijo según la fase.
 
 ## Variables de entorno
 

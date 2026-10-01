@@ -134,7 +134,8 @@
         "cambio-nivel",
         "cambio-configuracion",
         "desvinculo-repositorio",
-        "bloqueo-gate-salida"
+        "bloqueo-gate-salida",
+        "importacion"
       ],
       "title": "EventoAuditoria",
       "type": "string"
@@ -186,6 +187,45 @@
       "title": "OidcGithubActions",
       "type": "object"
     },
+    "OrigenPaquete": {
+      "additionalProperties": false,
+      "properties": {
+        "id_original": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id Original",
+          "type": "string"
+        },
+        "repositorio": {
+          "anyOf": [
+            {
+              "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repositorio"
+        },
+        "tipo": {
+          "enum": [
+            "sdd-kit",
+            "railspec"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tipo",
+        "id_original"
+      ],
+      "title": "OrigenPaquete",
+      "type": "object"
+    },
     "Proveedor": {
       "enum": [
         "foundry",
@@ -213,6 +253,21 @@
     },
     "alcance": {
       "$ref": "#/$defs/AlcanceWorkspace"
+    },
+    "artefactos_importados": {
+      "anyOf": [
+        {
+          "maximum": 3,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.4: artefactos aprobados por importación.",
+      "title": "Artefactos Importados"
     },
     "conversacion": {
       "anyOf": [
@@ -280,6 +335,18 @@
         }
       ],
       "default": null
+    },
+    "origen_importacion": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OrigenPaquete"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.4: evento importacion."
     },
     "proveedor": {
       "anyOf": [

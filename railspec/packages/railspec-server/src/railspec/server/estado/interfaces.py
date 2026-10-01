@@ -65,6 +65,14 @@ class AlmacenMotor(Protocol):
 
     def listar_estados(self, consulta: UnitListEntrada) -> tuple[list[EstadoUnidad], str | None]: ...
 
+    def reclamar_importacion(
+        self, alcance: AlcanceWorkspace, repositorio: str, tipo: str, id_original: str, unidad: str
+    ) -> str:
+        """Asocia un origen importado (``unit.import``) a ``unidad`` si nadie lo hizo antes.
+
+        Devuelve la unidad asociada al origen: ``unidad`` la primera vez, la existente después.
+        """
+
     # --- órdenes, reportes y snapshots --------------------------------------------
     def guardar_orden(self, orden: OrdenDeTrabajo) -> None: ...
 

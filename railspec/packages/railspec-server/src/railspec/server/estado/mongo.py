@@ -222,6 +222,23 @@ class AlmacenMongo:
         )
         return int(doc["valor"])
 
+    def reclamar_importacion(
+        self, alcance: AlcanceWorkspace, repositorio: str, tipo: str, id_original: str, unidad: str
+    ) -> str:
+        # El _id es el origen completo: el upsert es atómico y dos importaciones a la vez dan la misma unidad.
+        clave = json.dumps([alcance.org, alcance.workspace, repositorio, tipo, id_original])
+        cambio = {"$setOnInsert": {"org": alcance.org, "workspace": alcance.workspace, "unidad": unidad}}
+        for intento in range(2):
+            try:
+                doc = self.db.importaciones.find_one_and_update(
+                    {"_id": clave}, cambio, upsert=True, return_document=ReturnDocument.AFTER
+                )
+                return str(doc["unidad"])
+            except DuplicateKeyError:
+                if intento:
+                    raise
+        raise AssertionError("inalcanzable")
+
     def listar_estados(self, consulta: UnitListEntrada) -> tuple[list[EstadoUnidad], str | None]:
         filtro: dict[str, Any] = _filtro_ws(consulta.alcance.org, consulta.alcance.workspace, "unidad")
         if consulta.repositorio:
