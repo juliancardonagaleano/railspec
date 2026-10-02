@@ -8,7 +8,8 @@ Es un cliente público: solo usa el client id de la App, nunca su secret. El flu
    segundos hasta que GitHub entrega el token de usuario (``ghu_…``), o dice que venció o se denegó.
 
 El token que sale es el que el servidor acepta en ``/mcp``: el de usuario de esa App, que él verifica con
-``POST /applications/{client_id}/token``. La App tiene que tener activado «Enable Device Flow».
+``POST /applications/{client_id}/token``. La App tiene que tener activado «Enable Device Flow». Si además
+emite tokens que vencen, GitHub entrega un refresh token con el que ``renovacion.py`` mantiene la sesión.
 """
 
 from __future__ import annotations
@@ -50,12 +51,19 @@ class TokenUsuario:
     access_token: str = field(repr=False)
     #: Segundos de vida; ``None`` si la App emite tokens que no vencen.
     expires_in: int | None
+    #: Solo con «Expire user authorization tokens»: el que permite renovar la sesión (``renovacion.py``).
+    refresh_token: str | None = field(default=None, repr=False)
+    refresh_expires_in: int | None = None
 
 
 @dataclass(frozen=True)
 class Persona:
     login: str
     github_id: int
+
+
+def _segundos(valor: Any) -> int | None:
+    return valor if isinstance(valor, int) and not isinstance(valor, bool) and valor > 0 else None
 
 
 def _recortar(texto: Any, tope: int = 200) -> str:
@@ -200,9 +208,12 @@ class FlujoDispositivo:
         token = cuerpo.get("access_token")
         if not isinstance(token, str) or not token:
             raise LoginFallido("GitHub no entregó un access_token.")
-        vida = cuerpo.get("expires_in")
+        refresh = cuerpo.get("refresh_token")
         return TokenUsuario(
-            access_token=token, expires_in=vida if isinstance(vida, int) and vida > 0 else None
+            access_token=token,
+            expires_in=_segundos(cuerpo.get("expires_in")),
+            refresh_token=refresh if isinstance(refresh, str) and refresh else None,
+            refresh_expires_in=_segundos(cuerpo.get("refresh_token_expires_in")),
         )
 
     def _mensaje_error(self, cuerpo: dict[str, Any]) -> str:

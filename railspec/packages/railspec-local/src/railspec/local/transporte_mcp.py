@@ -4,7 +4,8 @@ El token del desarrollador (token de usuario de la GitHub App de Railspec) viaja
 como ``Authorization: Bearer``; el servidor deriva el actor de él. Sale de
 ``RAILSPEC_TOKEN`` o de la sesión que guardó ``railspec login`` y se resuelve en
 cada petición, no al abrir la sesión MCP: un ``railspec login`` con el arnés
-abierto vale sin reiniciarlo. La sesión MCP se abre al primer uso, en una tarea
+abierto vale sin reiniciarlo, y una sesión vencida se renueva sola con su refresh
+token (``renovacion.py``). La sesión MCP se abre al primer uso, en una tarea
 propia, y se reabre si la conexión se cae.
 """
 
@@ -33,6 +34,14 @@ class _BearerVigente(httpx2.Auth):
 
     def auth_flow(self, request: httpx2.Request):
         token = self.fuente.token()
+        if token:
+            request.headers["Authorization"] = f"Bearer {token}"
+        yield request
+
+    async def async_auth_flow(self, request: httpx2.Request):
+        # ``token()`` lee el archivo y, con la sesión vencida, renueva por red (candado de archivo, hasta
+        # unos segundos): en un hilo, para no parar el bucle del proxy.
+        token = await asyncio.to_thread(self.fuente.token)
         if token:
             request.headers["Authorization"] = f"Bearer {token}"
         yield request

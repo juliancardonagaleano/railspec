@@ -85,10 +85,13 @@ railspec logout             # borra la sesión de este equipo
   si está definida; `RAILSPEC_CREDENCIALES` fija otra ruta, absoluta), fuera de cualquier
   repositorio. Carpeta 0700, archivo 0600 creado así desde el primer byte y
   reemplazado de forma atómica. Una entrada por servidor con el token, el client
-  id, el login y el id de GitHub, y cuándo vence. Si el archivo está más abierto
-  que 0600, `railspec` lo cierra antes de usarlo (y si no puede, se niega); si
-  está dañado, lo dice sin repetir su contenido y `railspec login` lo reescribe.
-  No se guarda el refresh token. Solo POSIX: el proxy no corre en Windows.
+  id, el login y el id de GitHub, cuándo vence y, si la App emite tokens que
+  vencen, el refresh token con el que se renueva (ver
+  [Renovación de la sesión](#renovación-de-la-sesión)). Si el archivo está más
+  abierto que 0600, `railspec` lo cierra antes de usarlo (y si no puede, se
+  niega); si está dañado, lo dice sin repetir su contenido y `railspec login` lo
+  reescribe. Al lado hay `credenciales.json.lock`, el candado que serializa la
+  renovación (no contiene nada). Solo POSIX: el proxy no corre en Windows.
 - **Quién gana.** `RAILSPEC_TOKEN`, si está exportada, manda sobre la sesión
   guardada (como `GH_TOKEN` en `gh`); `login` avisa cuando lo está y `whoami`
   dice cuál se usa y qué sesión ignora.
@@ -102,10 +105,54 @@ railspec logout             # borra la sesión de este equipo
   hacer: «No hay sesión iniciada: ejecuta `railspec login`», «La sesión de
   `railspec login` como ana venció el …», o, si el token viene de
   `RAILSPEC_TOKEN`, que tiene prioridad y qué tipo de token vale. Un token
-  vencido ya no se manda al servidor.
+  vencido ya no se manda al servidor: antes se renueva (abajo), y si no se puede
+  el mensaje dice por qué y qué hacer.
 - **`logout` solo olvida el token en este equipo.** Revocarlo en GitHub exige el
   client secret de la App; mientras no venza sigue valiendo y se quita desde
   <https://github.com/settings/apps/authorizations>.
+
+### Renovación de la sesión
+
+Con «Expire user authorization tokens» activada el token dura 8 horas. GitHub
+entrega junto a él un **refresh token** (6 meses), que `railspec login` guarda,
+y el proxy renueva la sesión solo, sin que la persona haga nada:
+
+- **Cuándo.** En la petición que encuentra la sesión vencida o a punto de vencer
+  (un minuto de margen). Esa petición espera la renovación (el servidor tiene
+  15 s para contestar) y sigue con el token nuevo; el resto del proxy no se
+  bloquea. `railspec whoami` hace lo mismo que el proxy y lo avisa con
+  `"renovada"` (también sirve para forzarla a mano). `railspec doctor` solo
+  lee: da por buena una sesión vencida con refresh token vigente y dice que el
+  proxy la renovará, sin renovarla ni probarla contra el servidor.
+- **Cómo.** Renovar exige el client secret de la App, que no sale del servidor:
+  el proxy llama a `POST {servidor}/v1/auth/renovar` con el refresh token y el
+  client id de la sesión, y el servidor lo canjea en GitHub con el secret que ya
+  tiene (`RAILSPEC_GITHUB_APP_CLIENT_ID`/`_SECRET`; no hay variables nuevas). El
+  endpoint no pide `Authorization`, porque el refresh token es la credencial,
+  no guarda ni registra tokens y acota las llamadas simultáneas a GitHub.
+  El refresh token solo viaja por https (o a un servidor en `localhost`).
+- **Varios arneses a la vez.** GitHub **rota** el refresh token: al usarlo, el
+  anterior deja de valer. Por eso la renovación corre bajo un candado del archivo
+  de credenciales y relee la sesión dentro de él: si otro arnés (u otro hilo) ya
+  la renovó, se usa esa y no se canjea nada. `railspec login` y `logout` esperan
+  al mismo candado.
+- **Si falla.** Un fallo *pasajero* (sin red, el servidor responde 5xx o no
+  tiene el endpoint, p. ej. un servidor sin actualizar) no toca la sesión: la
+  petición falla con «la sesión venció el … y no se pudo renovar: …» y el proxy
+  vuelve a intentarlo, como mucho cada 30 s. Un fallo *definitivo* (GitHub no
+  acepta el refresh token porque venció, ya se gastó o se revocó la App en
+  GitHub; o el client id de la sesión es de otra App) descarta el refresh token
+  de la sesión guardada, para no probarlo en cada petición, y el mensaje manda a
+  `railspec login`. Es lo único que obliga a iniciar sesión de nuevo (como mucho
+  cada 6 meses sin usar el proxy, o tras revocar la App).
+- **Sesiones guardadas antes de esta versión** no tienen refresh token: siguen
+  funcionando hasta que venzan y entonces piden `railspec login`, que ya guarda
+  el refresh token. `doctor` lo dice («no tiene refresh token»).
+- **Qué no cubre.** Si la respuesta del servidor se pierde después de que GitHub
+  rotó el refresh token, el que quedó guardado ya no vale y el siguiente intento
+  cae en el fallo definitivo (hay que repetir `railspec login`). Una sesión
+  revocada en GitHub antes de vencer se descubre cuando el servidor rechaza el
+  token, no al renovar.
 
 ### Configurar la GitHub App (quien administra el servidor)
 
@@ -119,12 +166,12 @@ En Settings → Developer settings → GitHub Apps → la App de Railspec (la mi
    servidor (`RAILSPEC_GITHUB_APP_CLIENT_ID`): el servidor rechaza los tokens de
    cualquier otra App.
 3. Decide **Expire user authorization tokens**. Activada (lo que GitHub propone
-   en Apps nuevas) el token dura 8 horas y `railspec login` no puede renovarlo:
-   renovarlo exige el client secret, que no debe viajar a las máquinas de los
-   desarrolladores, así que hay que repetir `railspec login` cuando venza (el
-   proxy lo dice con la fecha). Desactivada, el token no vence y solo se quita
-   revocándolo en GitHub. La primera cuida más un token que vive en disco; la
-   segunda evita repetir el inicio de sesión cada día.
+   en Apps nuevas, y la recomendada) el token dura 8 horas y el proxy lo renueva
+   solo a través del servidor ([Renovación de la sesión](#renovación-de-la-sesión));
+   hace falta un servidor con `POST /v1/auth/renovar` (esta versión) y que las
+   variables de la App del servidor sean las de esta misma App. Si lo
+   desactivas, el token no vence y solo se quita revocándolo en GitHub: no hay
+   nada que renovar, pero un token robado vale hasta entonces.
 
 ## Adaptadores: el stack de tres piezas
 
@@ -330,7 +377,7 @@ trabajar) o ✗ (roto, con el remedio debajo). **Sale con 1 si hay algún ✗** 
 | `repositorio` | Hay un clon y `.railspec/config.json` válido (org, workspace, repositorio, nivel) | no es un repositorio git o falta o es inválida la configuración | — |
 | `comando` | `railspec` en el `PATH` | no está: el arnés no puede lanzar el proxy ni la guardia | — |
 | `servidor` | `RAILSPEC_URL` responde (lista las tools por MCP; tope de 20 s) | falta `RAILSPEC_URL`, no responde, da error o agota el tiempo | — |
-| `sesion` | De dónde sale el token (`RAILSPEC_TOKEN` o `railspec login`) y que el servidor lo acepta (`unit.list`) | no hay sesión, venció, el archivo está dañado o abierto a otros usuarios, el servidor rechaza el token o el rol | no hay `RAILSPEC_URL`, no se pudo probar el token (sin conexión, o sin configuración del repositorio) o vence en menos de una hora |
+| `sesion` | De dónde sale el token (`RAILSPEC_TOKEN` o `railspec login`) y que el servidor lo acepta (`unit.list`); una sesión vencida con refresh token vigente cuenta como buena (solo lee: no la renueva ni la prueba) | no hay sesión, venció y no se puede renovar (sin refresh token, o también venció), el archivo está dañado o abierto a otros usuarios, la renovación falla, el servidor rechaza el token o el rol | no hay `RAILSPEC_URL`, no se pudo probar el token (sin conexión, o sin configuración del repositorio), el refresh token vence en menos de 7 días, o la sesión vence en menos de una hora y no puede renovarse |
 | `contrato` | El servidor publica las tools de este proxy (contrato 1.5) y su respuesta cumple el contrato. Solo si el servidor respondió | faltan tools (contrato anterior) o la respuesta de `unit.list` no valida | sobran tools (¿contrato más nuevo?) o el transporte no las lista |
 | `adaptadores` | Deriva de cada adaptador instalado, por repositorio y por usuario, respecto de esta versión | alguna pieza falta o no coincide (cada una, listada) | ningún arnés tiene el adaptador |
 | `codex` | Solo si el repositorio instaló Codex: hay confianza guardada para el hook de la guardia | el hook no está confiado (Codex no lo ejecuta y las ediciones pasan sin revisar) | no se pudo leer `~/.codex/config.toml` |
@@ -826,10 +873,12 @@ mismo PR. Construir en local: `empaquetado/README.md`.
 
 ## Pendiente
 
-- **Renovar el token de la sesión.** Con la expiración de tokens de la GitHub App
-  activada, `railspec login` hay que repetirlo cada 8 horas. Renovarlo sin que
-  el proxy conozca el client secret pide un endpoint del servidor que lo
-  refresque con él (hoy el servidor solo verifica tokens); no se hizo.
+- **Renovación probada solo con dobles.** La renovación (`POST /v1/auth/renovar`)
+  se probó con GitHub simulado y contra un servidor MCP local, no contra GitHub
+  real: la forma de la respuesta de `grant_type=refresh_token` sigue la
+  documentación de GitHub. Prueba una vez con la App real: `railspec login`,
+  edita `expira_en` de la sesión a una fecha pasada y ejecuta `railspec whoami`
+  (debe decir `renovada`).
 - **Instalación por usuario de Codex y Copilot.** Claude Code y OpenCode se
   instalan por usuario; para Codex y Copilot falta verificar contra cada CLI
   dónde cargan hooks, skills y servidor MCP en la configuración del usuario (ver

@@ -50,6 +50,8 @@ Estado = Literal["ok", "aviso", "fallo"]
 TOPE_SERVIDOR_S = 20.0
 #: Un token que vence dentro de este margen se avisa antes de que falle a media tarea.
 AVISO_VENCIMIENTO_S = 3600
+#: Un refresh token que vence dentro de este margen (7 días) se avisa: sin él ya no hay renovación.
+AVISO_REFRESH_S = 7 * 24 * 3600
 #: Tools que este proxy espera encontrar en el servidor: las que el contrato publica por MCP.
 TOOLS_ESPERADAS = frozenset(nombre_mcp(n) for n, d in TOOLS.items() if Superficie.mcp in d.superficies)
 
@@ -187,20 +189,51 @@ def _sesion_local(fuente: FuenteToken | None, ahora: datetime) -> tuple[Comproba
         )
     quien = credencial.login or "una persona sin login"
     if sesion.vencida:
-        return (
-            _fallo(
-                "sesion",
-                f"la sesión de {quien} venció el {credencial.expira_en:%Y-%m-%d %H:%M} UTC.",
-                "`railspec login`",
-            ),
-            False,
+        vencio = f"{credencial.expira_en:%Y-%m-%d %H:%M} UTC"
+        if sesion.renovable:
+            # ``doctor`` solo lee (su fuente no tiene renovador): no la renueva ni la prueba contra el
+            # servidor; el proxy lo hace en su primera petición y ``railspec whoami`` lo hace ahora.
+            return (
+                _ok(
+                    "sesion",
+                    f"la sesión de {quien} venció el {vencio}; el proxy la renueva con su refresh token en "
+                    "la próxima llamada (doctor solo lee: `railspec whoami` la renueva ahora)",
+                ),
+                False,
+            )
+        causa = (
+            "no tiene refresh token con el que renovarse (inicia sesión otra vez para que se guarde)"
+            if credencial.refresh_token is None
+            else "su refresh token también venció"
         )
+        return _fallo(
+            "sesion", f"la sesión de {quien} venció el {vencio} y {causa}.", "`railspec login`"
+        ), False
     if credencial.expira_en is None:
         return _ok("sesion", f"sesión de {quien} (railspec login, no vence)"), True
     vence = f"{credencial.expira_en:%Y-%m-%d %H:%M} UTC"
+    if credencial.renovable(ahora):
+        if (
+            credencial.refresh_expira_en is not None
+            and (credencial.refresh_expira_en - ahora).total_seconds() < AVISO_REFRESH_S
+        ):
+            return (
+                _aviso(
+                    "sesion",
+                    f"el refresh token de {quien} vence el {credencial.refresh_expira_en:%Y-%m-%d} UTC: "
+                    "después no podrá renovarse.",
+                    "`railspec login`",
+                ),
+                True,
+            )
+        return _ok("sesion", f"sesión de {quien} (railspec login, vence {vence}; se renueva sola)"), True
     if (credencial.expira_en - ahora).total_seconds() < AVISO_VENCIMIENTO_S:
-        return _aviso("sesion", f"la sesión de {quien} vence el {vence}.", "`railspec login`"), True
-    return _ok("sesion", f"sesión de {quien} (railspec login, vence {vence})"), True
+        return _aviso(
+            "sesion", f"la sesión de {quien} vence el {vence} y no se renueva.", "`railspec login`"
+        ), True
+    return _ok(
+        "sesion", f"sesión de {quien} (railspec login, vence {vence}; sin refresh token, no se renueva)"
+    ), True
 
 
 async def _con_tope(coro: Awaitable[object], tope_s: float) -> object:

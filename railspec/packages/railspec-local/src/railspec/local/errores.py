@@ -67,6 +67,18 @@ class LoginFallido(ErrorRailspec):
     """``railspec login`` no consiguió el token: denegado, código vencido o App mal configurada."""
 
 
+class RenovacionFallida(ErrorRailspec):
+    """No se pudo renovar la sesión con el refresh token.
+
+    ``definitiva``: el refresh token no vale (venció, ya se usó, se revocó la App) y reintentar no cambia
+    nada; el mensaje dice qué hacer. Si no, es pasajera (sin red, servidor caído) y el proxy reintenta.
+    """
+
+    def __init__(self, mensaje: str, *, definitiva: bool = False) -> None:
+        super().__init__(mensaje)
+        self.definitiva = definitiva
+
+
 class SecretosDetectados(ErrorRailspec):
     """El árbol de trabajo tiene secretos: el snapshot no se construye ni se sube."""
 

@@ -5,9 +5,12 @@ servidor. El proxy lo usa cuando no hay ``RAILSPEC_TOKEN`` (que tiene prioridad)
 petición: un ``railspec login`` hecho con el arnés abierto vale sin reiniciarlo.
 
 El archivo vive fuera de cualquier repositorio (``~/.config/railspec/credenciales.json``), con modo 0600 en
-una carpeta 0700, y se reemplaza de forma atómica. No se guarda el refresh token: renovar el token de
-usuario de una GitHub App exige su client secret, que no puede viajar a las máquinas de los desarrolladores;
-un token vencido se resuelve volviendo a ejecutar ``railspec login``.
+una carpeta 0700, y se reemplaza de forma atómica. Si la GitHub App emite tokens que vencen (8 h), guarda
+también el refresh token y el proxy renueva la sesión solo (``renovacion.py``): renovar exige el client secret
+de la App, que no puede viajar a las máquinas de los desarrolladores, así que la renovación pasa por el
+servidor. Mientras renueva, un candado de archivo serializa a los procesos que comparten el archivo: GitHub
+rota el refresh token en cada uso, y un segundo proceso con el viejo lo invalidaría. Un refresh token vencido
+(6 meses) o revocado se resuelve volviendo a ejecutar ``railspec login``.
 """
 
 from __future__ import annotations
@@ -16,23 +19,30 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Callable, Mapping
-from contextlib import suppress
+import threading
+import time
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
 from . import config
-from .errores import CredencialesInvalidas
+from .errores import CredencialesInvalidas, ErrorRailspec, RenovacionFallida
 
 VERSION_ARCHIVO = 1
 
 #: Un token que vence dentro de este margen ya no se manda: llegaría vencido al servidor.
 MARGEN_VENCIMIENTO_S = 60
+#: Espera máxima por el candado del archivo (otro proceso renovando o guardando).
+ESPERA_CANDADO_S = 30.0
+#: Tras un fallo pasajero al renovar (sin red, servidor caído) no se vuelve a intentar antes de esto: cada
+#: petición del proxy pregunta por el token y no debe golpear al servidor en bucle.
+REINTENTO_RENOVACION_S = 30.0
 
 
 def ahora_utc() -> datetime:
@@ -75,10 +85,24 @@ class Credencial(BaseModel):
     github_id: int | None = None
     obtenido_en: AwareDatetime
     expira_en: AwareDatetime | None = Field(default=None, description="Vacío: el token no vence.")
+    refresh_token: str | None = Field(
+        default=None, repr=False, description="Vacío: la App no emite tokens que vencen, o ya no vale."
+    )
+    refresh_expira_en: AwareDatetime | None = Field(
+        default=None, description="Vacío con refresh token: GitHub no dijo cuándo vence."
+    )
 
     def vencida(self, ahora: datetime) -> bool:
         return (
             self.expira_en is not None and self.expira_en - timedelta(seconds=MARGEN_VENCIMIENTO_S) <= ahora
+        )
+
+    def renovable(self, ahora: datetime) -> bool:
+        """¿Hay un refresh token que aún pueda canjearse?"""
+
+        return self.refresh_token is not None and (
+            self.refresh_expira_en is None
+            or self.refresh_expira_en - timedelta(seconds=MARGEN_VENCIMIENTO_S) > ahora
         )
 
 
@@ -112,6 +136,10 @@ class AlmacenCredenciales:
         self._entorno = entorno
         # ``False`` para quien solo mira (``railspec doctor``): un archivo abierto se informa, no se corrige.
         self._cerrar_permisos = cerrar_permisos
+        self._cerrojo = (
+            threading.RLock()
+        )  # entre hilos del proceso; el candado de archivo lo es entre procesos
+        self._candado: int | None = None
 
     @property
     def ruta(self) -> Path:
@@ -123,22 +151,73 @@ class AlmacenCredenciales:
         return self._leer_todo().get(clave_servidor(url))
 
     def guardar(self, url: str, credencial: Credencial) -> None:
-        try:
-            todo = self._leer_todo()
-        except CredencialesInvalidas:
-            todo = {}  # un archivo dañado no puede impedir iniciar sesión: se reescribe
-        todo[clave_servidor(url)] = credencial
-        self._escribir(todo)
+        with self.bloqueo():
+            try:
+                todo = self._leer_todo()
+            except CredencialesInvalidas:
+                todo = {}  # un archivo dañado no puede impedir iniciar sesión: se reescribe
+            todo[clave_servidor(url)] = credencial
+            self._escribir(todo)
 
     def borrar(self, url: str) -> bool:
-        todo = self._leer_todo()
-        if todo.pop(clave_servidor(url), None) is None:
-            return False
-        if todo:
-            self._escribir(todo)
-        else:
-            self.ruta.unlink(missing_ok=True)
-        return True
+        with self.bloqueo():
+            todo = self._leer_todo()
+            if todo.pop(clave_servidor(url), None) is None:
+                return False
+            if todo:
+                self._escribir(todo)
+            else:
+                self.ruta.unlink(missing_ok=True)
+            return True
+
+    @contextmanager
+    def bloqueo(self, espera_s: float | None = None) -> Iterator[None]:
+        """Candado exclusivo sobre el archivo, entre hilos y entre procesos; reentrante.
+
+        Quien renueva lo toma antes de releer la credencial: así, de varios arneses abiertos a la vez solo uno
+        canjea el refresh token y los demás ven la sesión ya renovada. El candado es un archivo aparte
+        (``credenciales.json.lock``) porque el principal se reemplaza con ``os.replace`` y el candado de un
+        archivo reemplazado ya no protege nada. Solo POSIX (``fcntl``), como el resto del proxy.
+        """
+
+        with self._cerrojo:
+            if self._candado is not None:  # reentrada del mismo hilo
+                yield
+                return
+            try:
+                import fcntl
+            except ImportError:  # sin fcntl (Windows) queda el cerrojo entre hilos; el proxy no corre ahí
+                yield
+                return
+
+            carpeta = self.ruta.parent
+            carpeta.mkdir(mode=0o700, parents=True, exist_ok=True)
+            ruta = self.ruta.with_name(self.ruta.name + ".lock")
+            try:
+                fd = os.open(ruta, os.O_CREAT | os.O_RDWR, 0o600)
+            except OSError as exc:
+                raise CredencialesInvalidas(f"No se puede abrir {ruta}: {exc.strerror or exc}") from exc
+            espera_s = ESPERA_CANDADO_S if espera_s is None else espera_s
+            limite = time.monotonic() + espera_s
+            try:
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= limite:
+                            raise CredencialesInvalidas(
+                                f"Otro proceso de railspec tiene bloqueado {self.ruta} desde hace más de "
+                                f"{espera_s:.0f} s: reintenta."
+                            ) from None
+                        time.sleep(0.05)
+                self._candado = fd
+                try:
+                    yield
+                finally:
+                    self._candado = None
+            finally:
+                os.close(fd)  # cerrar el descriptor suelta el candado
 
     def _leer_todo(self) -> dict[str, Credencial]:
         try:
@@ -198,6 +277,12 @@ class AlmacenCredenciales:
 Origen = Literal["entorno", "credenciales", "ninguna"]
 
 
+class Renovador(Protocol):
+    """Canjea el refresh token de la sesión de ``url`` y la guarda (``renovacion.RenovadorServidor``)."""
+
+    def renovar(self, url: str, ahora: datetime) -> Credencial: ...
+
+
 @dataclass(frozen=True)
 class Sesion:
     """Qué token manda el proxy ahora y por qué."""
@@ -207,6 +292,10 @@ class Sesion:
     credencial: Credencial | None = None
     vencida: bool = False
     problema: str | None = None
+    #: Con la sesión vencida: hay refresh token que canjear, así que el proxy la renovará solo.
+    renovable: bool = False
+    #: Por qué falló el último intento de renovar (solo lo sabe el proceso que lo intentó).
+    fallo_renovacion: str | None = None
 
     def nota(self) -> str:
         """Qué hacer cuando el servidor rechaza este token (cierra el mensaje de ``ServidorRechazo``)."""
@@ -224,8 +313,24 @@ class Sesion:
         quien = f" como {self.credencial.login}" if self.credencial.login else ""
         if self.vencida:
             vencio = f"{self.credencial.expira_en:%Y-%m-%d %H:%M} UTC"
+            if self.fallo_renovacion:
+                return (
+                    f"La sesión de `railspec login`{quien} venció el {vencio} y no se pudo renovar: "
+                    f"{self.fallo_renovacion}"
+                )
+            if self.renovable:
+                return (
+                    f"La sesión de `railspec login`{quien} venció el {vencio}; se renueva sola en la próxima "
+                    "llamada. Si no pasa, ejecuta `railspec login`."
+                )
             return (
-                f"La sesión de `railspec login`{quien} venció el {vencio}: ejecuta `railspec login` otra vez."
+                f"La sesión de `railspec login`{quien} venció el {vencio}"
+                + (
+                    " y no tiene con qué renovarse (la GitHub App no emitió un refresh token)"
+                    if self.credencial.refresh_token is None
+                    else " y su refresh token también venció"
+                )
+                + ": ejecuta `railspec login` otra vez."
             )
         return (
             f"El servidor no acepta la sesión de `railspec login`{quien}: ejecuta `railspec login` otra vez. "
@@ -235,7 +340,11 @@ class Sesion:
 
 
 class FuenteToken:
-    """De dónde sale el token en cada petición: ``RAILSPEC_TOKEN`` o, si no está, la sesión guardada."""
+    """De dónde sale el token en cada petición: ``RAILSPEC_TOKEN`` o, si no está, la sesión guardada.
+
+    ``sesion()`` solo mira el archivo (sin red ni efectos): ``whoami`` y ``doctor`` lo usan. ``token()`` es lo
+    que llama el proxy en cada petición y, con la sesión vencida y un refresh token vigente, la renueva.
+    """
 
     def __init__(
         self,
@@ -243,11 +352,19 @@ class FuenteToken:
         token_entorno: str | None = None,
         almacen: AlmacenCredenciales | None = None,
         ahora: Callable[[], datetime] = ahora_utc,
+        renovador: Renovador | None = None,
     ) -> None:
         self._url = url
         self._entorno = token_entorno or None
         self._almacen = almacen
         self._ahora = ahora
+        self._renovador = renovador
+        self._cerrojo = threading.Lock()
+        # Del último intento fallido: lo que cuenta ``nota`` y cuándo se puede volver a intentar.
+        self._fallo: str | None = None
+        self._no_antes: datetime | None = None
+        #: Esta fuente renovó (o encontró renovada) la sesión: ``whoami`` lo cuenta.
+        self.renovada = False
 
     def sesion(self) -> Sesion:
         if self._entorno:
@@ -260,14 +377,49 @@ class FuenteToken:
             return Sesion("ninguna", problema=str(exc))
         if credencial is None:
             return Sesion("ninguna")
-        if credencial.vencida(self._ahora()):
-            return Sesion("credenciales", credencial=credencial, vencida=True)
+        ahora = self._ahora()
+        if credencial.vencida(ahora):
+            return Sesion(
+                "credenciales",
+                credencial=credencial,
+                vencida=True,
+                renovable=credencial.renovable(ahora),
+                fallo_renovacion=self._fallo,
+            )
         return Sesion("credenciales", token=credencial.access_token, credencial=credencial)
 
     def token(self) -> str | None:
         """Nunca lanza: se llama dentro de cada petición HTTP, donde un error mataría la sesión MCP."""
 
-        return self.sesion().token
+        sesion = self.sesion()
+        if sesion.vencida and sesion.renovable and self._renovador is not None:
+            sesion = self._renovar(sesion)
+        return sesion.token
 
     def nota(self) -> str:
         return self.sesion().nota()
+
+    def _renovar(self, previa: Sesion) -> Sesion:
+        assert self._url is not None and self._renovador is not None
+        # Un solo hilo canjea; los que esperan encuentran la sesión ya renovada al releerla.
+        with self._cerrojo:
+            ahora = self._ahora()
+            if self._no_antes is not None and ahora < self._no_antes:
+                return previa
+            try:
+                credencial = self._renovador.renovar(self._url, ahora)
+            except RenovacionFallida as exc:
+                self._fallo = str(exc)
+                self._no_antes = None if exc.definitiva else ahora + timedelta(seconds=REINTENTO_RENOVACION_S)
+                return self.sesion()
+            except ErrorRailspec as exc:  # el archivo de credenciales: dañado, bloqueado, sin permisos
+                self._fallo = str(exc)
+                self._no_antes = ahora + timedelta(seconds=REINTENTO_RENOVACION_S)
+                return self.sesion()
+            except Exception as exc:  # nunca debe romper la petición HTTP que pide el token
+                self._fallo = f"error inesperado al renovar ({type(exc).__name__})"
+                self._no_antes = ahora + timedelta(seconds=REINTENTO_RENOVACION_S)
+                return self.sesion()
+            self._fallo = self._no_antes = None
+            self.renovada = True
+            return Sesion("credenciales", token=credencial.access_token, credencial=credencial)
