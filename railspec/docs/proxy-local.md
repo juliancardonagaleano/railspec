@@ -98,6 +98,7 @@ arranque es una skill `railspec` con el mismo texto que el comando
 | Arranque | skill `.agents/skills/railspec/SKILL.md`; se invoca `$railspec <petición>` | skill `.github/skills/railspec/SKILL.md`; se invoca `/railspec <petición>` |
 | Bucle de cliente | `.agents/skills/railspec-bucle/SKILL.md` | `.github/skills/railspec-bucle/SKILL.md` |
 | Reglas de conducta | bloque delimitado en `AGENTS.md` | bloque delimitado en `AGENTS.md` |
+| Reglas aplicadas (hooks) | `hooks.PreToolUse` en `.codex/hooks.json` | `preToolUse` en `.github/hooks/railspec.json` |
 | Permisos | `approval_mode` por tool en el mismo bloque TOML | `allowed-tools` en las dos skills |
 
 **Permisos.** En Codex, las tools del bucle llevan `approval_mode =
@@ -110,9 +111,11 @@ en que se invoca la skill, y las decisiones humanas no se listan, así que
 preguntan siempre.
 
 **Confianza y worktrees.** Codex solo lee `.codex/config.toml` en proyectos de
-confianza y Copilot solo carga los servidores de `.mcp.json` en carpetas de
-confianza; los dos lo preguntan al abrir el repositorio la primera vez y lo
-guardan en la configuración del usuario, que `instalar` no toca. Ninguno tiene
+confianza y Copilot solo carga los servidores de `.mcp.json` y los hooks de
+`.github/hooks` en carpetas de confianza; los dos lo preguntan al abrir el
+repositorio la primera vez y lo guardan en la configuración del usuario, que
+`instalar` no toca. Los hooks de Codex piden además su propia confianza (ver
+abajo). Ninguno tiene
 una configuración de proyecto fuera de git para la carpeta de worktrees: se
 lanzan con `codex --add-dir <worktrees>` o `copilot --add-dir <worktrees>`
 (Copilot exige que la carpeta exista), y `instalar` imprime la ruta.
@@ -129,7 +132,9 @@ list --json`, `copilot skill list --json`, `copilot instruction list --json`),
 en una carpeta de confianza y sin sesión iniciada. Sin credenciales en el
 entorno de pruebas no se pudo correr un turno de modelo en ninguno: queda sin
 verificar que el modelo invoque las tools y que Copilot aplique
-`allowed-tools` al invocar la skill (lo valida en ese momento).
+`allowed-tools` al invocar la skill (lo valida en ese momento). Los turnos con
+un modelo de pega que sí corrieron, para la guardia de hooks, están en
+«Reglas de conducta aplicadas con hooks».
 
 ## Importar y exportar unidades
 
@@ -168,13 +173,10 @@ redactar. `exportar` pide el paquete con `unit.export`.
 ## Reglas de conducta aplicadas con hooks
 
 Las reglas de conducta están escritas para el agente, pero donde el arnés
-tiene un hook previo a cada tool, Railspec además las impone. Ambos arneses
-llaman a la misma guardia, `railspec hook <arnés>` (`guardia.py`), que lee la
-llamada por stdin y responde por stdout. Tienen guardia Claude Code y
-OpenCode; Codex y GitHub Copilot CLI todavía no (solo las reglas escritas y
-sus permisos), aunque ambos tienen hooks donde engancharla: Codex admite hooks
-de proyecto en carpetas de confianza y Copilot lee `.github/hooks/*.json`
-(`preToolUse` con `permissionDecision`). Con una unidad en curso en el repositorio:
+tiene un hook previo a cada tool, Railspec además las impone. Los cuatro
+arneses llaman a la misma guardia, `railspec hook <arnés>` (`guardia.py`),
+que lee la llamada por stdin y responde por stdout, cada uno en su formato.
+Con una unidad en curso en el repositorio:
 
 | Intento | Respuesta |
 |---|---|
@@ -184,7 +186,7 @@ de proyecto en carpetas de confianza y Copilot lee `.github/hooks/*.json`
 | Escribir en `.railspec/` del worktree (estado del proxy) | Rechazada siempre |
 | Escribir sin orden vigente | Rechazada: primero `unit_advance` |
 | Escribir en el worktree de una unidad cerrada | Rechazada |
-| `unit_approve`, `unit_set_mode`, `unit_integrate` | Pide confirmación al humano (Claude Code) |
+| `unit_approve`, `unit_set_mode`, `unit_integrate` | Pide confirmación al humano (Claude Code, Copilot); en Codex, ver abajo |
 | Cualquier otra cosa, o sin unidades en curso | La guardia no opina; decide el arnés |
 
 Una unidad está en curso si su worktree tiene estado local y su fase no es
@@ -217,13 +219,57 @@ carga al arrancar:
   en la carpeta. No se usa el hook `permission.ask`: en OpenCode 1.18.34 no se
   invoca.
 
-**Lo que no se aplica.** Los comandos de shell (`Bash` en Claude Code, `bash`
-en OpenCode) no se revisan: no hay forma fiable de saber qué escribe un
+**Codex.** `instalar` añade a `hooks.PreToolUse` de `.codex/hooks.json` (mismo
+formato de archivo que los hooks de Claude Code) una entrada con `matcher`
+`apply_patch|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
+y el comando `railspec hook codex`. `apply_patch` es la única tool de edición
+de Codex (de un parche se revisan todas las rutas). La entrada propia se
+reconoce por el comando, como en Claude Code. Tres cosas lo distinguen:
+
+- **El hook tiene que estar confiado.** Codex no ejecuta un hook de proyecto
+  hasta que el humano lo revisa (`/hooks` en el TUI avisa de que hay hooks por
+  revisar). La confianza queda por máquina en `~/.codex/config.toml`
+  (`[hooks.state."<repo>/.codex/hooks.json:pre_tool_use:0:0"]`,
+  `trusted_hash`) y va ligada al contenido del hook: si `instalar` lo cambia,
+  Codex pide revisarlo otra vez. **Sin esa confianza la guardia no corre y no
+  hay ningún error: la tool pasa.** `instalar` lo avisa; `--verificar` no puede
+  saberlo. (`codex --dangerously-bypass-hook-trust` la salta en una invocación.)
+- **Solo `deny`.** Un `ask` del hook cuenta como error del hook y la tool corre,
+  así que nunca se envía. La confirmación de las tres tools humanas sigue
+  siendo `approval_mode = "prompt"` del bloque TOML: con aprobaciones activas
+  Codex muestra «Allow the railspec MCP server to run tool …?» y el hook no
+  opina. Sin aprobaciones (`approval_policy = "never"`, que Codex informa a los
+  hooks como `permission_mode: bypassPermissions`) nadie puede confirmar: con
+  `-s workspace-write` Codex ya rechaza la tool, pero con
+  `--dangerously-bypass-approvals-and-sandbox` `approval_mode` no se respeta y
+  la tool corre. Ahí el hook rechaza las tres, con el motivo; `RAILSPEC_GUARDIA=0`
+  lo abre.
+- **No falla cerrado.** Un hook que no llega a ejecutarse (`railspec` fuera del
+  `PATH`, 30 s agotados) deja pasar la tool. La guardia en sí sí falla cerrada:
+  ante un error interno responde `deny`.
+
+**GitHub Copilot CLI.** `instalar` escribe `.github/hooks/railspec.json`:
+Copilot carga todos los `*.json` de esa carpeta, así que es un archivo solo de
+Railspec y los hooks ajenos no se tocan. Contiene un `preToolUse` con
+`"bash"` y `"powershell"` = `railspec hook copilot`, `timeoutSec` 30 y `matcher`
+`create|edit|apply_patch|railspec-unit_approve|railspec-unit_set_mode|railspec-unit_integrate`:
+Copilot edita con `create` y `edit` o, con los modelos GPT-5 de código, con
+`apply_patch` (el parche llega como texto), y nombra las tools MCP
+`<servidor>-<tool>`. El hook responde `permissionDecision` `deny` o `ask` con el
+motivo. El `ask` se aplica aunque la sesión corra con `--allow-all-tools`: en
+modo interactivo Copilot muestra «Hook permission request» con Sí/No; en `-p`,
+sin nadie a quien preguntar, lo rechaza («unable to ask user for
+confirmation»). Si el hook falla Copilot rechaza la tool; si agota el tiempo,
+la deja pasar. Solo corre en carpetas de confianza (también en `-p`); en una
+carpeta sin confianza no hay guardia.
+
+**Lo que no se aplica.** Los comandos de shell (`Bash` en Claude Code y Codex,
+`bash` en OpenCode y Copilot) no se revisan: no hay forma fiable de saber qué escribe un
 comando. Ahí siguen rigiendo solo las reglas escritas, y el proxy rechaza al
 reportar los archivos fuera de alcance (`unit_report` con un cambio fuera de
 `alcance.permitidos` falla). En OpenCode, un `tool.execute.before` no puede
 pedir confirmación; las tres tools humanas preguntan por
-`permission.railspec_<tool>: "ask"`.
+`permission.railspec_<tool>: "ask"`. En Codex, tampoco: ver arriba.
 
 **Verificado de verdad** (2026-10-01) con una unidad en curso creada por el
 proxy contra el servidor doble de las pruebas:
@@ -237,6 +283,48 @@ proxy contra el servidor doble de las pruebas:
   que dicta las tool calls): los mismos tres casos con el mismo resultado y
   sin preguntar por `external_directory`; sin el hook `config` OpenCode pidió
   ese permiso y, en `run`, lo rechazó.
+
+**Verificado de verdad en Codex y Copilot** (2026-10-02), con el adaptador que
+instala `railspec instalar`, `railspec` en el `PATH`, una unidad en curso
+creada por el proxy contra el servidor doble de las pruebas (orden de
+implementar con `src/**` permitido y `src/generado/**` prohibido) y un modelo
+de pega que dicta las tool calls. Solo el servidor MCP `railspec` fue un
+doble (no hay servidor remoto en el entorno de pruebas); el hook, el
+`matcher` y los archivos son los reales.
+
+- Codex 0.160.0 (`codex exec` y el TUI): `hooks/list` del app-server descubre
+  el hook como de proyecto y `untrusted`; sin confiarlo, `apply_patch` en el
+  clon principal pasa; confiado (el `trusted_hash` que informa Codex, escrito
+  en la configuración del usuario), `apply_patch` rechazado en el clon
+  principal, en `README.md` del worktree, en `.railspec/`, en `src/generado/` y
+  en un parche mezclado (no se aplica ninguna de sus rutas), y aplicado en
+  `src/calc.py`; el motivo llega al modelo. `unit_advance` pasa. Con
+  `approval_policy = "never"` y con `--dangerously-bypass-approvals-and-sandbox`
+  el hook rechaza `unit_approve`, `unit_set_mode` y `unit_integrate`; con
+  `RAILSPEC_GUARDIA=0` la tool corre. Un hook de prueba que responde `ask`
+  termina «Failed» y la tool corre (por eso no se envía). En el TUI con
+  `approval_policy = "on-request"` el hook corre sin opinar y Codex muestra su
+  diálogo: Cancelar («user cancelled MCP tool call») y Permitir (la tool corre).
+- Copilot CLI 1.0.91 (`copilot -p` con un proveedor BYOK de pega y el TUI): en
+  una carpeta de confianza `create`, `edit` y `apply_patch` rechazados en el
+  clon principal, fuera del alcance, en `.railspec/` y en `src/generado/`, y
+  aplicados dentro del alcance; las tools de lectura y `bash` no invocan el
+  hook (el `matcher` filtra). En `-p`, `unit_approve`, `unit_set_mode` y
+  `unit_integrate` se rechazan con «unable to ask user for confirmation»; en el
+  TUI con `--allow-all-tools` aparece «Hook permission request» con el motivo:
+  Sí ejecuta la tool y No no. Con `RAILSPEC_GUARDIA=0` el `create` en el clon
+  principal pasa. En una carpeta sin confianza la guardia no corre.
+
+**Sin verificar.** En Codex, el flujo de confianza por `/hooks`: la confianza se
+simuló escribiendo el hash que informa el app-server; la existencia de `/hooks`
+y del aviso de hooks por revisar salen del binario. Los nombres de las tools de
+edición de Copilot (`create`, `edit`, `apply_patch`) salen de las
+herramientas que Copilot declara para varios identificadores de modelo
+(Claude, GPT-4.1, GPT-5, Gemini), no de turnos con esos modelos, y tampoco se
+probó que cada modelo elija esas tools. `toolArgs` como texto JSON (versiones
+anteriores de Copilot) solo lo cubre una prueba unitaria. Nada en Windows ni
+macOS (la entrada `powershell` de Copilot no se ejecutó). Las subagentes de
+cada arnés no se probaron.
 
 ## Tools que ve el arnés
 

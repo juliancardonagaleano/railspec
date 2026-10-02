@@ -31,6 +31,7 @@ def test_instalar_codex_preserva_lo_ajeno_y_es_idempotente(tmp_path):
             ".agents/skills/railspec/SKILL.md",
             ".agents/skills/railspec-bucle/SKILL.md",
             ".codex/config.toml",
+            ".codex/hooks.json",
             "AGENTS.md",
         ]
     )
@@ -98,6 +99,7 @@ def test_instalar_copilot_comparte_mcp_json_y_aprueba_solo_el_bucle(tmp_path):
         [
             ".github/skills/railspec/SKILL.md",
             ".github/skills/railspec-bucle/SKILL.md",
+            ".github/hooks/railspec.json",
             ".mcp.json",
             "AGENTS.md",
         ]
@@ -154,6 +156,9 @@ def test_cli_desinstalar_todo_no_deja_piezas_compartidas(tmp_path, capsys):
         # `avisos` solo sale si hay algo que avisar: claude-code no trae ninguno con `railspec` en el PATH.
         avisos_por_arnes[arnes] = json.loads(capsys.readouterr().out).get("avisos", [])
     assert any("codex --add-dir" in a for a in avisos_por_arnes["codex"])
+    # Sin confiar el hook, Codex no corre la guardia: `instalar` lo dice.
+    assert any("/hooks" in a and "confíes" in a for a in avisos_por_arnes["codex"])
+    assert any(".github/hooks" in a for a in avisos_por_arnes["copilot"])
 
     assert cli.main(["--repo", str(tmp_path), "desinstalar", "--config"]) == 0
     restos = sorted(p.name for p in tmp_path.iterdir() if p.name != ".git")
