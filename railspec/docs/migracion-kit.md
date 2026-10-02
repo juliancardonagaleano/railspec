@@ -8,7 +8,9 @@ automática: cada unidad se trae cuando tú lo pides.
 
 Lo que afirma la sección «Convivir en un repositorio» lo prueba
 `installer/tests/test_convivencia_railspec.py`: instala el kit y `railspec instalar` en
-repositorios temporales, en los dos órdenes, y comprueba que ninguno pisa al otro.
+repositorios temporales, en los dos órdenes, y comprueba que ninguno pisa al otro. Corre en el CI
+(entrada `installer` de la matriz de `railspec-ci.yml`, con railspec-local instalado) y en local con
+`python -m pytest installer/tests`.
 
 ## Equivalencias
 
@@ -248,5 +250,3 @@ doctor`: revisa los adaptadores con `railspec instalar --verificar`, el estado d
 - El gate de pre-push del kit rechaza el primer push con el adaptador de Codex (ver arriba).
 - Supervisado, desatendido, mandato y paradas tipificadas no están en Railspec.
 - La importación necesita un servidor desplegado; sin él solo sirve `--solo-convertir`.
-- `installer/tests/test_convivencia_railspec.py` no corre en el CI de Railspec (`railspec-ci.yml`
-  solo recorre `railspec/`); se corre a mano con `python -m pytest installer/tests`.
