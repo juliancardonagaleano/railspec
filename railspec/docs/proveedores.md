@@ -90,6 +90,30 @@ falla, rige la última copia leída en memoria o, tras un reinicio, la guardada
 en Mongo. El catálogo nunca se inventa: si no hay ninguna copia, ese proveedor
 no sirve a ningún rol y `unit.start` lo explica.
 
+**Sincronizar desde la consola.** Un `org-admin` puede forzar la lectura desde
+Configuración → Catálogo de modelos (todos los proveedores o uno solo); ver
+[consola.md](consola.md#catálogo-de-modelos). Es la misma lectura y la misma
+copia por organización, y no pasa por el TTL: pero dos lecturas seguidas del
+mismo proveedor llaman una sola vez a su API (la última lectura se reutiliza si
+tiene menos de 30 s), y una lectura se corta a los 60 s (el cerrojo del
+catálogo se sostiene mientras se lee, y el SDK de Anthropic espera hasta diez
+minutos por defecto).
+
+**Errores de lectura.** Cada fallo se clasifica con un código estable y un texto
+que nombra al proveedor y la causa sin URLs, credenciales ni el cuerpo de la
+respuesta (el detalle técnico va al log del servidor): `autenticacion` (401 o
+token de Entra ID que no se obtiene), `permiso` (403), `no-encontrado` (404:
+endpoint o proyecto mal configurados), `limite` (429), `proveedor` (otro HTTP
+de error), `red`, `tiempo`, `forma`, `configuracion` y `interno`. Un fallo no
+borra nada: rige el catálogo anterior y la consola lo dice.
+
+La forma de la respuesta del proyecto de Foundry sigue sin verificarse contra un
+recurso real, así que ahora una respuesta que no se reconoce **se dice** en vez
+de vaciar el catálogo: sin la lista `value`, o con elementos y ninguno con
+`name` y `modelName` (o de otro `type`), es un error `forma` y se conserva el
+catálogo anterior. Una lista vacía, o solo de conexiones u otros tipos, sí es un
+catálogo sin modelos. El parseo de los elementos reconocidos no cambió.
+
 **Región por SKU.** La región de un despliegue de Foundry sale de su SKU:
 
 | SKU | Región en el catálogo | ¿Sirve a `restringido` e `interno`? |

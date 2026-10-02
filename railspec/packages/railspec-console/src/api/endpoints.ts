@@ -8,6 +8,7 @@ import type {
   EscrituraPerfil,
   EscrituraProveedorContexto,
   EscrituraVinculo,
+  EstadoCatalogo,
   EstadoUnidad,
   FiltrosAuditoria,
   GraphQueryEntrada,
@@ -21,8 +22,10 @@ import type {
   PerfilConfig,
   Presupuesto,
   PresupuestoConfig,
+  Proveedor,
   ProveedorContexto,
   RepositorioGrafo,
+  ResultadoSincronizacion,
   ResumenWorkspace,
   Rol,
   RolContexto,
@@ -134,7 +137,10 @@ export const repositorios = {
 
 export const catalogo = {
   listar: (org: string) => pedir<ModeloCatalogo[]>(`/orgs/${c(org)}/catalogo`),
-  sincronizar: (org: string) => pedir<{ modelos: number }>(`/orgs/${c(org)}/catalogo/sincronizar`, { metodo: "POST" }),
+  estado: (org: string) => pedir<EstadoCatalogo>(`/orgs/${c(org)}/catalogo/estado`),
+  /** Sin `proveedor` lee todos; con él, solo ese. 502 si todos los pedidos fallaron. */
+  sincronizar: (org: string, proveedor?: Proveedor) =>
+    pedir<ResultadoSincronizacion>(`/orgs/${c(org)}/catalogo/sincronizar`, { metodo: "POST", consulta: { proveedor } }),
 };
 
 export const perfiles = {
@@ -189,6 +195,7 @@ export const claves = {
   roles: (org: string, ws?: string) => ["roles", org, ws ?? null] as const,
   repositorios: (org: string, ws: string) => ["repositorios", org, ws] as const,
   catalogo: (org: string) => ["catalogo", org] as const,
+  catalogoEstado: (org: string) => ["catalogo", org, "estado"] as const,
   perfiles: (org: string, ws?: string) => ["perfiles", org, ws ?? null] as const,
   presupuestos: (org: string, ws?: string) => ["presupuestos", org, ws ?? null] as const,
   proveedores: (org: string, ws?: string) => ["proveedores-contexto", org, ws ?? null] as const,

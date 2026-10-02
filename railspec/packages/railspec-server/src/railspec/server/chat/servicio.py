@@ -67,6 +67,7 @@ from railspec.contracts.repositorio import (
 )
 from railspec.contracts.tools import CodigoError, InsumoGetEntrada, InsumoGetSalida, Superficie, resolver_tool
 
+from ..api.roles import alcanza
 from ..motor.motor import ErrorNegocio
 from ..proveedores import ErrorProveedor, PerfilInsatisfacible, PeticionModelo, Proveedores
 from . import gate as gate_salida
@@ -77,7 +78,6 @@ from .normalizacion import HuellasContexto, Parametros
 
 log = logging.getLogger("railspec.chat")
 
-_JERARQUIA = [Rol.lector, Rol.desarrollador, Rol.workspace_admin, Rol.org_admin]
 _RESTRICCION = [NivelCodigo.restringido, NivelCodigo.interno, NivelCodigo.abierto]
 
 
@@ -192,7 +192,7 @@ class ServicioChat:
         if actor.tipo != TipoActor.humano:
             raise ErrorChat(CodigoError.fuera_de_alcance.value, "el chat es solo para personas", 403)
         rol = self.autorizador.rol(actor, alcance.org, alcance.workspace)
-        if rol is None or _JERARQUIA.index(rol) < _JERARQUIA.index(minimo):
+        if not alcanza(rol, minimo):
             raise ErrorChat(
                 CodigoError.fuera_de_alcance.value,
                 f"hace falta rol {minimo.value} en {alcance.org}/{alcance.workspace}",

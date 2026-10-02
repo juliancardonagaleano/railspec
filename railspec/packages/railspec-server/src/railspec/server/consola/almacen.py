@@ -70,6 +70,7 @@ class AlmacenConsola:
         db.workspaces.create_index([("alcance.org", ASCENDING)])
         db.roles.create_index([("org", ASCENDING), ("workspace", ASCENDING)])
         db.reportes.create_index([("_clave", ASCENDING)])
+        db.catalogo_estado.create_index([("org", ASCENDING)])
 
     # --- escritura con bloqueo optimista --------------------------------------------
 
@@ -238,6 +239,21 @@ class AlmacenConsola:
     def catalogo(self, org: str) -> list[ModeloCatalogo]:
         orden = [("proveedor", ASCENDING), ("modelo", ASCENDING)]
         return self._varios("catalogo", {"org": org}, ModeloCatalogo, orden)
+
+    def guardar_estado_catalogo(self, estado: Any) -> None:
+        """Último intento de lectura del catálogo de un proveedor para una organización (``EstadoLectura``).
+
+        Un documento por ``org/proveedor`` en ``catalogo_estado``: lo que ve la consola es lo mismo en
+        todas las réplicas, y no guarda nada del proveedor más que el resultado y un error ya saneado.
+        """
+
+        doc = estado.a_doc()
+        clave = f"{doc['org']}/{doc['proveedor']}"
+        self.db.catalogo_estado.replace_one({"_id": clave}, {"_id": clave, **doc}, upsert=True)
+
+    def estados_catalogo(self, org: str) -> list[dict[str, Any]]:
+        cursor = self.db.catalogo_estado.find({"org": org}).sort([("proveedor", ASCENDING)])
+        return [_limpio(d) for d in cursor]
 
     # --- auditoría ------------------------------------------------------------------------------
 

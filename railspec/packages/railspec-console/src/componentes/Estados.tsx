@@ -27,6 +27,7 @@ function tituloError(error: unknown): string {
     if (error.status === 404) return "No encontrado";
     if (error.status === 409) return "Conflicto";
     if (error.status === 501) return "Aún no disponible";
+    if (error.status === 502) return "El proveedor falló";
   }
   return "Algo salió mal";
 }

@@ -521,9 +521,10 @@ def test_perfil_validado_contra_catalogo_y_presupuesto(monkeypatch):
                 len((await c.get(f"/consola/api/orgs/{ORG}/perfiles", params={"workspace": WS})).json()) == 2
             )
             assert (await c.get(f"/consola/api/orgs/{ORG}/catalogo")).json()[0]["modelo"] == "gpt-5"
+            # Sin proveedores de modelo en el servidor no hay nada que sincronizar (409, no 501).
             assert (
                 await c.post(f"/consola/api/orgs/{ORG}/catalogo/sincronizar", headers=CSRF)
-            ).status_code == 501
+            ).status_code == 409
             r = await c.put(
                 f"/consola/api/orgs/{ORG}/presupuestos",
                 params={"workspace": WS},

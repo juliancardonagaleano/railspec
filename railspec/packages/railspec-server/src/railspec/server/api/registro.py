@@ -26,12 +26,11 @@ from railspec.contracts.tools import TOOLS, CodigoError, ErrorTool, Superficie, 
 
 from ..motor.motor import ErrorNegocio, Motor
 from .identidad import ActorConEquipos
+from .roles import alcanza, rol_efectivo
 
 log = logging.getLogger("railspec.api")
 
 Manejador = Callable[[Any, Actor], Awaitable[BaseModel]]
-
-_JERARQUIA = [Rol.lector, Rol.desarrollador, Rol.workspace_admin, Rol.org_admin]
 
 
 class ErrorEntrada(Exception):
@@ -69,14 +68,9 @@ class AutorizadorRoles:
         equipos: frozenset[int] = frozenset()
         if isinstance(actor, ActorConEquipos) and actor.tipo == TipoActor.humano:
             equipos = actor.equipos
-        roles = [
-            a.rol
-            for a in self._almacen.asignaciones(org, github_id, equipos)
-            if a.workspace is None or a.workspace == workspace
-        ]
-        if not roles:
-            return Rol.desarrollador if self._abierto else None
-        return max(roles, key=_JERARQUIA.index)
+        return rol_efectivo(
+            self._almacen.asignaciones(org, github_id, equipos), workspace, abierto=self._abierto
+        )
 
 
 def _ambito(entrada: BaseModel) -> tuple[str, str | None]:
@@ -183,10 +177,9 @@ class Registro:
             rol = tool.rol_minimo if tool.tipos_actor == {TipoActor.servicio} else None
         else:
             rol = self._autorizador.rol(actor, org, workspace)
-        if rol is None or _JERARQUIA.index(rol) < _JERARQUIA.index(tool.rol_minimo):
+        if not alcanza(rol, tool.rol_minimo):
             return _error(
-                CodigoError.fuera_de_alcance,
-                f"{nombre} exige rol {tool.rol_minimo.value} en {org}/{workspace}",
+                CodigoError.fuera_de_alcance, _denegado(nombre, tool.rol_minimo, rol, org, workspace, actor)
             )
         try:
             salida = await self._manejadores[nombre](entrada, actor)
@@ -197,6 +190,23 @@ class Registro:
         if not isinstance(salida, tool.salida):
             salida = tool.salida.model_validate(salida)
         return Resultado(True, salida.model_dump(mode="json"))
+
+
+def _denegado(
+    nombre: str, minimo: Rol, rol: Rol | None, org: str, workspace: str | None, actor: Actor
+) -> str:
+    """Por qué se niega la tool, con lo que le sirve a quien llama desde el arnés para arreglarlo."""
+
+    texto = f"{nombre} exige rol {minimo.value} en {org}/{workspace}"
+    if rol is not None:
+        return f"{texto}; tienes {rol.value}"
+    texto += "; no tienes ninguno"
+    if actor.tipo == TipoActor.humano and not getattr(actor, "equipos", None):
+        texto += (
+            " (no se resolvieron equipos de GitHub para este token, así que solo cuentan los roles "
+            "asignados a tu persona)"
+        )
+    return texto
 
 
 def _errores(exc: ValidationError) -> list[dict[str, Any]]:
