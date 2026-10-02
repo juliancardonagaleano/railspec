@@ -48,6 +48,8 @@ class ContextoConsola:
     tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
     grafo: Any | None = None
     acceso_grafo: Any | None = None
+    #: ``Catalogo`` del servidor (lectura por API de cada proveedor); ``None`` sin proveedores de modelo.
+    catalogo: Any | None = None
     #: Sin Mongo (solo desarrollo): toda persona sin asignaciones es ``desarrollador``.
     abierto: bool = False
     reloj: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))

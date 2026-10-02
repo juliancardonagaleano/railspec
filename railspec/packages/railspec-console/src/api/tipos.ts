@@ -621,6 +621,69 @@ export interface ModeloCatalogo {
   leido_en: string;
 }
 
+/** Códigos estables de un fallo al leer el catálogo de un proveedor (el texto ya viene saneado del servidor). */
+export type CodigoErrorCatalogo =
+  | "autenticacion"
+  | "permiso"
+  | "no-encontrado"
+  | "limite"
+  | "proveedor"
+  | "red"
+  | "tiempo"
+  | "forma"
+  | "configuracion"
+  | "interno";
+
+export interface ErrorLecturaCatalogo {
+  codigo: CodigoErrorCatalogo;
+  detalle: string;
+}
+
+/** Último intento de leer el catálogo de un proveedor para la organización. */
+export interface IntentoCatalogo {
+  intento_en: string;
+  origen: "consola" | "automatica";
+  por: string | null;
+  resultado: "ok" | "error";
+  /** La sincronización no llamó al proveedor: su última lectura era reciente. */
+  reutilizada: boolean;
+  modelos: number;
+  leido_en: string | null;
+  error: ErrorLecturaCatalogo | null;
+}
+
+export interface EstadoProveedorCatalogo {
+  proveedor: Proveedor;
+  /** El servidor tiene credenciales y fuente para este proveedor. */
+  configurado: boolean;
+  /** De dónde sale el catálogo: `declarados`, `proyecto` o `api`. */
+  fuentes: string[];
+  modelos: number;
+  leido_en: string | null;
+  ultimo_intento: IntentoCatalogo | null;
+  aviso: string | null;
+}
+
+export interface EstadoCatalogo {
+  /** El servidor tiene al menos un proveedor de modelos que leer. */
+  sincronizable: boolean;
+  proveedores: EstadoProveedorCatalogo[];
+}
+
+export interface ResultadoSincronizacion {
+  resultado: "ok" | "parcial" | "error";
+  modelos: number;
+  proveedores: {
+    proveedor: Proveedor;
+    intento_en: string;
+    resultado: "ok" | "error";
+    reutilizada: boolean;
+    modelos: number;
+    leido_en: string | null;
+    error: ErrorLecturaCatalogo | null;
+  }[];
+}
+
 export interface RequisitoRol {
   modelo: Partial<Record<Proveedor, string>>;
   effort?: Effort | null;

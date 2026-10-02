@@ -131,10 +131,14 @@ def ensamblar(
     sondas = _sondas(config, almacen, motor_grafo)
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
     app.include_router(router_chat(servicio_chat, identidad))
+    datos_consola = AlmacenConsola(almacen.db)
+    catalogo = getattr(proveedores, "catalogo", None)
+    if catalogo is not None and catalogo.registrar is None:
+        catalogo.registrar = datos_consola.guardar_estado_catalogo
     consola = ContextoConsola(
         config=config.consola,
         firmador=firmador,
-        datos=AlmacenConsola(almacen.db),
+        datos=datos_consola,
         almacen=almacen,
         registro=registro,
         identidad=identidad,
@@ -143,6 +147,7 @@ def ensamblar(
         tokens_desarrollo=tokens_desarrollo,
         grafo=grafo,
         acceso_grafo=acceso,
+        catalogo=catalogo,
         abierto=config.modo_memoria,
     )
     montar_consola(app, consola)
