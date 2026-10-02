@@ -18,6 +18,9 @@ from pathlib import Path
 
 DIRECTORIO = Path(__file__).resolve().parent / "k8s"
 
+#: Dónde monta el Deployment los clones del chat; ``RAILSPEC_CHAT_CLONES`` apunta aquí.
+RUTA_CLONES = "/var/lib/railspec/clones"
+
 #: nombre -> (valor por defecto o None si es obligatoria, descripción)
 VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_IMAGEN": (
@@ -68,6 +71,29 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
         "owner/repo separados por comas que pueden llamar graph.index. Obligatoria con audiencia.",
     ),
     "RAILSPEC_CONSOLA_ADMINS": ("", "github_id que administran la plataforma en la consola (coma)."),
+    "RAILSPEC_CONSOLA_SESION_HORAS": ("4", "Vida de la sesión de la consola, en horas (1 a 24)."),
+    "RAILSPEC_CONSOLA_AUTH_LIMITE": (
+        "60",
+        "Peticiones por minuto y por IP en /consola/api/auth/* (0 = sin límite).",
+    ),
+    "RAILSPEC_CONSOLA_SSE_MAX_USUARIO": ("5", "Flujos de eventos en vivo por persona y réplica."),
+    "RAILSPEC_CONSOLA_SSE_MAX_GLOBAL": ("200", "Flujos de eventos en vivo por réplica."),
+    "RAILSPEC_CONSOLA_SSE_REVALIDAR_S": (
+        "30",
+        "Cada cuántos segundos un flujo en vivo vuelve a comprobar el rol lector.",
+    ),
+    # Vacía a propósito: el chat falla cerrado. Sin regiones aquí no responde en restringido ni interno.
+    "RAILSPEC_CHAT_ZONA_DATOS": (
+        "",
+        "Regiones de Azure (coma, minúsculas: eastus2) donde el chat puede enviar código en "
+        "restringido/interno. Vacía = el chat no responde en esos niveles.",
+    ),
+    "RAILSPEC_CHAT_MODELO": ("", "Despliegue de Foundry del rol chat. Vacío = claude-sonnet-5-5."),
+    "RAILSPEC_CHAT_CLONES_PVC": (
+        "",
+        "PersistentVolumeClaim con un clon por repositorio (<owner>/<repo>), que se monta de solo lectura "
+        "en " + RUTA_CLONES + ". Vacío = el chat responde sin leer código.",
+    ),
 }
 _MARCA = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
@@ -108,7 +134,67 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
             "usar la forma despliegue=modelo[:SKU], no JSON"
         )
     _validar_oidc(salida)
+    _validar_consola(salida)
+    _validar_chat(salida)
     salida["RAILSPEC_WORKLOAD_IDENTITY"] = "true" if salida["RAILSPEC_AZURE_CLIENT_ID"] else "false"
+    # Derivadas: el volumen de clones solo existe con PVC; sin él el servidor no recibe ruta y no
+    # registra ``code.read`` (el chat responde sin leer código).
+    pvc = salida["RAILSPEC_CHAT_CLONES_PVC"]
+    salida["RAILSPEC_CHAT_CLONES_RUTA"] = RUTA_CLONES
+    salida["RAILSPEC_CHAT_CLONES"] = RUTA_CLONES if pvc else ""
+    volumen = "emptyDir: {sizeLimit: 1Mi}"
+    if pvc:
+        volumen = f"persistentVolumeClaim: {{claimName: {pvc}, readOnly: true}}"
+    salida["RAILSPEC_CHAT_CLONES_VOLUMEN"] = volumen
+    return salida
+
+
+def _entero(salida: Mapping[str, str], nombre: str, minimo: int, maximo: int | None = None) -> None:
+    valor = salida[nombre]
+    if not re.fullmatch(r"\d+", valor) or int(valor) < minimo or (maximo is not None and int(valor) > maximo):
+        rango = f"de {minimo} a {maximo}" if maximo is not None else f">= {minimo}"
+        raise ErrorRender(f"{nombre} debe ser un entero {rango} (el servidor no arranca con otro valor)")
+
+
+def _validar_consola(salida: Mapping[str, str]) -> None:
+    """Los mismos límites que ``ConfigConsola.desde_entorno``: un valor inválido tumba el arranque."""
+
+    _entero(salida, "RAILSPEC_CONSOLA_SESION_HORAS", 1, 24)
+    _entero(salida, "RAILSPEC_CONSOLA_AUTH_LIMITE", 0)
+    _entero(salida, "RAILSPEC_CONSOLA_SSE_MAX_USUARIO", 1)
+    _entero(salida, "RAILSPEC_CONSOLA_SSE_MAX_GLOBAL", 1)
+    revalidar = salida["RAILSPEC_CONSOLA_SSE_REVALIDAR_S"]
+    if not re.fullmatch(r"\d+(\.\d+)?", revalidar) or float(revalidar) <= 0:
+        raise ErrorRender("RAILSPEC_CONSOLA_SSE_REVALIDAR_S debe ser un número de segundos mayor que cero")
+
+
+def _validar_chat(salida: Mapping[str, str]) -> None:
+    # El servidor compara cada región con la del despliegue tal cual (minúsculas): una mayúscula
+    # no falla al arrancar, hace que el chat se niegue en silencio.
+    if not re.fullmatch(r"[a-z0-9]+(\s*,\s*[a-z0-9]+)*|", salida["RAILSPEC_CHAT_ZONA_DATOS"]):
+        raise ErrorRender(
+            "RAILSPEC_CHAT_ZONA_DATOS espera regiones de Azure en minúsculas separadas por comas "
+            "(p. ej. eastus2,swedencentral)"
+        )
+    if not re.fullmatch(r"[A-Za-z0-9._:-]*", salida["RAILSPEC_CHAT_MODELO"]):
+        raise ErrorRender("RAILSPEC_CHAT_MODELO solo admite letras, dígitos y . _ : -")
+    pvc = salida["RAILSPEC_CHAT_CLONES_PVC"]
+    if pvc and not re.fullmatch(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?", pvc):
+        raise ErrorRender("RAILSPEC_CHAT_CLONES_PVC debe ser un nombre de PersistentVolumeClaim válido")
+
+
+def avisos(entorno: Mapping[str, str]) -> list[str]:
+    """Configuraciones válidas que dejan el chat sin responder o sin código; van a stderr."""
+
+    tabla = valores(entorno)
+    salida = []
+    if not tabla["RAILSPEC_CHAT_ZONA_DATOS"]:
+        salida.append(
+            "RAILSPEC_CHAT_ZONA_DATOS está vacía: el chat no responderá en restringido ni interno "
+            "(falla cerrado; ver railspec/docs/chat.md)"
+        )
+    if not tabla["RAILSPEC_CHAT_CLONES_PVC"]:
+        salida.append("RAILSPEC_CHAT_CLONES_PVC está vacía: el chat responderá sin leer código")
     return salida
 
 
@@ -160,6 +246,8 @@ def main() -> int:
         return 0
     try:
         sys.stdout.write(renderizar(os.environ))
+        for aviso in avisos(os.environ):
+            print(f"renderizar: aviso: {aviso}", file=sys.stderr)
     except ErrorRender as exc:
         print(f"renderizar: {exc}", file=sys.stderr)
         return 2

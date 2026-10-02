@@ -116,6 +116,142 @@ no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
 | `RAILSPEC_OIDC_EMISOR` | `https://token.actions.githubusercontent.com` | Emisor OIDC. |
 | `RAILSPEC_OIDC_REPOSITORIOS` | vacío | Lista `owner/repo,…` de repositorios que pueden llamar `graph.index`. **Obligatoria con audiencia**: sin ella el renderizador y el servidor se niegan (antes, vacía admitía a cualquier repositorio con vínculo). |
 | `RAILSPEC_CONSOLA_ADMINS` | vacío | `github_id` (numéricos, separados por coma) que administran la plataforma en la consola: crean organizaciones y son `org-admin` en todas. |
+| `RAILSPEC_CONSOLA_SESION_HORAS` | `4` | Vida de la sesión de la consola, de 1 a 24 horas. Es también la ventana en que quedan congelados los equipos de GitHub de la cookie ([consola.md](consola.md#variables-de-entorno)). |
+| `RAILSPEC_CONSOLA_AUTH_LIMITE` | `60` | Peticiones por minuto y por IP en `/consola/api/auth/*`; `0` lo desactiva. Depende de `FORWARDED_ALLOW_IPS` (ver arriba). |
+| `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | `5` | Flujos de eventos en vivo abiertos a la vez por persona y por réplica; al excederlo, 429. |
+| `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | `200` | Ídem en total por réplica. |
+| `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | `30` | Cada cuántos segundos un flujo en vivo vuelve a comprobar el rol `lector` y se cierra si lo perdió. |
+| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma, **minúsculas**: `eastus2,swedencentral`) donde el chat puede enviar código a un modelo en `restringido` e `interno`. **Vacía, el chat no responde en esos niveles** (falla cerrado) y el renderizador lo avisa por stderr. Ver [Chat de contexto](#chat-de-contexto-zona-de-datos-modelo-y-clones). |
+| `RAILSPEC_CHAT_MODELO` | vacío | Despliegue de Foundry del rol `chat`. Vacío, el del servidor (`claude-sonnet-5-5`). |
+| `RAILSPEC_CHAT_CLONES_PVC` | vacío | PersistentVolumeClaim con un clon por repositorio. El Deployment lo monta de solo lectura en `/var/lib/railspec/clones` y el ConfigMap le pasa esa ruta al servidor como `RAILSPEC_CHAT_CLONES`. Vacío, el chat responde sin leer código. Ver [Chat de contexto](#chat-de-contexto-zona-de-datos-modelo-y-clones). |
+
+## Chat de contexto: zona de datos, modelo y clones
+
+El chat ([chat.md](chat.md)) falla cerrado: sin estos valores se niega o
+responde sin código. El renderizador avisa por stderr (`renderizar: aviso: …`)
+cuando `RAILSPEC_CHAT_ZONA_DATOS` o `RAILSPEC_CHAT_CLONES_PVC` quedan vacías.
+
+- **Zona de datos.** `RAILSPEC_CHAT_ZONA_DATOS` lista las regiones de Azure
+  donde el chat puede enviar código. En `restringido` e `interno` solo sirve un
+  despliegue de Foundry con región fija y esa región debe estar en la lista,
+  escrita en minúsculas igual que la que devuelve Azure (una mayúscula no
+  falla al arrancar: el chat se niega con 422 `perfil-insatisfacible`, y por
+  eso el renderizador la rechaza). Pon la región de tu recurso de Foundry
+  (`RAILSPEC_FOUNDRY_REGION`). En `abierto` no hace falta salvo que el vínculo
+  exija hosting en la zona de datos.
+- **Modelo.** `RAILSPEC_CHAT_MODELO` es el despliegue del rol `chat`; tiene que
+  existir en el catálogo de Foundry ([proveedores.md](proveedores.md)) y, en
+  `restringido` e `interno`, ser de un SKU DataZone o Standard.
+- **Clones.** `code.read` y la comprobación de referencias obsoletas de los
+  insumos leen con `git show` el repositorio vinculado en
+  `<RAILSPEC_CHAT_CLONES>/<owner>/<repo>`, en `refs/remotes/origin/<rama>` o
+  `refs/heads/<rama>`. La imagen trae `git`. Con `RAILSPEC_CHAT_CLONES_PVC`
+  el Deployment monta ese PVC en `/var/lib/railspec/clones`, `readOnly`, y la
+  raíz del contenedor sigue de solo lectura; el servidor no escribe en él. El
+  volumen debe admitir `ReadWriteMany` (varias réplicas, más quien lo
+  actualiza). No hace falta que los archivos sean del uid 10001: `ClonesGit`
+  declara `safe.directory` solo para cada clon.
+
+Quién llena y mantiene los clones no lo decide el despliegue: se necesita algo
+que corra `git` con un token de lectura. Lo más simple es un CronJob con la
+misma imagen del servidor (ya trae `git` y corre como 10001). **Ejemplo sin
+probar en un clúster** (el bucle sí se ejecutó contra repositorios locales:
+clona, actualiza, poda ramas borradas y un repositorio que falla no detiene a
+los demás). Un clon `--bare` basta, no deja árbol de trabajo y se actualiza con
+`fetch` a `refs/heads/*`.
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: railspec-clones            # el valor de RAILSPEC_CHAT_CLONES_PVC
+  namespace: railspec
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: azurefile-csi  # cualquiera que admita ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: railspec-clones
+  namespace: railspec
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: actualizar
+              image: registro.azurecr.io/railspec-server@sha256:…   # la misma que el servidor
+              command: ["/bin/sh", "-ceu"]
+              args:
+                - |
+                  fallo=0
+                  export GIT_CONFIG_COUNT=1
+                  export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+                  export GIT_CONFIG_VALUE_0="Authorization: Basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+                  cd /clones
+                  for repo in $REPOSITORIOS; do
+                    if [ -d "$repo" ]; then
+                      git -C "$repo" fetch --quiet --prune origin '+refs/heads/*:refs/heads/*'
+                    else
+                      mkdir -p "$(dirname "$repo")" && rm -rf "$repo.tmp" &&
+                        git clone --quiet --bare "https://github.com/$repo.git" "$repo.tmp" && mv "$repo.tmp" "$repo"
+                    fi || { echo "falló $repo" >&2; fallo=1; }
+                  done
+                  exit $fallo
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: REPOSITORIOS            # <owner>/<repo> de los vínculos, separados por espacios
+                  value: "acme/certificados-api acme/web"
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: railspec-clones     # lo creas tú; no está en el repositorio
+                      key: GITHUB_TOKEN
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: clones
+                  mountPath: /clones
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: clones
+              persistentVolumeClaim:
+                claimName: railspec-clones
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+```
+
+El token (`GITHUB_TOKEN`) necesita solo lectura de contenido en los repositorios
+de la lista: un token de acceso personal de grano fino, o el de instalación de una
+GitHub App (este caduca en una hora y habría que acuñarlo antes de cada
+corrida). Si el volumen no deja escribir al uid 10001, fija `uid=10001,gid=10001`
+en `mountOptions` de la StorageClass. Mientras un repositorio no esté clonado,
+`code.read` responde `no-encontrado` para ese repositorio y el chat contesta
+sin su código.
 
 ## Desplegar
 
@@ -124,6 +260,9 @@ export RAILSPEC_IMAGEN=miacr.azurecr.io/railspec-server@sha256:…
 export RAILSPEC_DOMINIO=railspec.midominio.com
 export RAILSPEC_TLS_SECRETO=railspec-tls
 export RAILSPEC_FOUNDRY_ENDPOINT=https://….services.ai.azure.com
+export RAILSPEC_FOUNDRY_REGION=eastus2
+export RAILSPEC_CHAT_ZONA_DATOS=eastus2
+export RAILSPEC_CHAT_CLONES_PVC=railspec-clones   # opcional; ver Chat de contexto
 python3 railspec/deploy/renderizar.py > railspec.yaml
 kubectl apply --dry-run=server -f railspec.yaml
 kubectl apply -f railspec.yaml
@@ -168,11 +307,6 @@ que un OIDC válido no puede leer unidades, órdenes, telemetría ni grafo.
 
 ## Pendiente fuera de este directorio
 
-- La identidad OIDC, el manejador de `graph.index` y `/livez` llegan con el
-  cambio del hilo de integración, aún no en `master`. Hasta que llegue, no
-  definir `RAILSPEC_URL` (el reindexado daría 401 o 404) ni desplegar estos
-  manifiestos (la sonda de vida en `/livez` daría 404 y reiniciaría las
-  réplicas).
 - El indexador local por CLI de `codebase-memory-mcp` pagina de a unas 60 a
   180 filas y cada llamada cuesta unos 4 s de arranque, así que un índice
   completo de un repositorio mediano tarda decenas de minutos (el job tiene

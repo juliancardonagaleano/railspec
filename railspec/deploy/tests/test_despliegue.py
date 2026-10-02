@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -165,6 +166,162 @@ def test_render_produce_yaml_valido():
     )
     despliegue = next(d for d in documentos if d["kind"] == "Deployment")
     assert despliegue["spec"]["replicas"] == 2
+
+
+# --- chat y consola -------------------------------------------------------------------
+
+
+def _documentos(entorno: dict[str, str]) -> list[dict]:
+    yaml = pytest.importorskip("yaml")
+    return [d for d in yaml.safe_load_all(renderizar.renderizar({**MINIMO, **entorno})) if d]
+
+
+def _despliegue(entorno: dict[str, str]) -> dict:
+    return next(d for d in _documentos(entorno) if d["kind"] == "Deployment")["spec"]["template"]["spec"]
+
+
+def test_render_chat_y_consola_salen_en_el_configmap_con_los_defectos_del_servidor():
+    mapa = _configmap({})
+    # Falla cerrado por defecto: sin regiones el chat se niega en restringido e interno.
+    assert mapa["RAILSPEC_CHAT_ZONA_DATOS"] == ""
+    assert mapa["RAILSPEC_CHAT_MODELO"] == ""  # vacío = el del servidor
+    assert mapa["RAILSPEC_CHAT_CLONES"] == ""
+    assert {k: v for k, v in mapa.items() if k.startswith("RAILSPEC_CONSOLA_") and k[17:] != "URL"} == {
+        "RAILSPEC_CONSOLA_ADMINS": "",
+        "RAILSPEC_CONSOLA_SESION_HORAS": "4",
+        "RAILSPEC_CONSOLA_AUTH_LIMITE": "60",
+        "RAILSPEC_CONSOLA_SSE_MAX_USUARIO": "5",
+        "RAILSPEC_CONSOLA_SSE_MAX_GLOBAL": "200",
+        "RAILSPEC_CONSOLA_SSE_REVALIDAR_S": "30",
+    }
+    mapa = _configmap(
+        {
+            "RAILSPEC_CHAT_ZONA_DATOS": "eastus2, swedencentral",
+            "RAILSPEC_CHAT_MODELO": "claude-opus-5-5",
+            "RAILSPEC_CONSOLA_SESION_HORAS": "8",
+            "RAILSPEC_CONSOLA_AUTH_LIMITE": "0",
+            "RAILSPEC_CONSOLA_SSE_MAX_USUARIO": "3",
+            "RAILSPEC_CONSOLA_SSE_MAX_GLOBAL": "50",
+            "RAILSPEC_CONSOLA_SSE_REVALIDAR_S": "12.5",
+        }
+    )
+    assert mapa["RAILSPEC_CHAT_ZONA_DATOS"] == "eastus2, swedencentral"
+    assert mapa["RAILSPEC_CHAT_MODELO"] == "claude-opus-5-5"
+    assert mapa["RAILSPEC_CONSOLA_AUTH_LIMITE"] == "0"  # "0" no se pierde ante el defecto
+    assert mapa["RAILSPEC_CONSOLA_SSE_REVALIDAR_S"] == "12.5"
+
+
+def test_render_clones_del_chat_solo_se_montan_con_pvc_y_en_solo_lectura():
+    def clones(entorno):
+        spec = _despliegue(entorno)
+        montaje = next(m for m in spec["containers"][0]["volumeMounts"] if m["name"] == "clones")
+        volumen = next(v for v in spec["volumes"] if v["name"] == "clones")
+        return montaje, volumen
+
+    montaje, volumen = clones({})
+    assert montaje["readOnly"] is True and "persistentVolumeClaim" not in volumen
+    assert _configmap({})["RAILSPEC_CHAT_CLONES"] == ""  # sin ruta, el servidor no registra code.read
+
+    entorno = {"RAILSPEC_CHAT_CLONES_PVC": "railspec-clones"}
+    montaje, volumen = clones(entorno)
+    assert volumen["persistentVolumeClaim"] == {"claimName": "railspec-clones", "readOnly": True}
+    assert montaje["readOnly"] is True
+    # La ruta que recibe el servidor es la del montaje, no una copia que pueda desviarse.
+    assert _configmap(entorno)["RAILSPEC_CHAT_CLONES"] == montaje["mountPath"] == renderizar.RUTA_CLONES
+    # El contenedor sigue con la raíz de solo lectura: los clones no la relajan.
+    assert _despliegue(entorno)["containers"][0]["securityContext"]["readOnlyRootFilesystem"] is True
+
+
+@pytest.mark.parametrize(
+    ("variable", "valor", "texto"),
+    [
+        ("RAILSPEC_CONSOLA_SESION_HORAS", "0", "SESION_HORAS"),
+        ("RAILSPEC_CONSOLA_SESION_HORAS", "25", "SESION_HORAS"),
+        ("RAILSPEC_CONSOLA_SESION_HORAS", "cuatro", "SESION_HORAS"),
+        ("RAILSPEC_CONSOLA_AUTH_LIMITE", "-1", "AUTH_LIMITE"),
+        ("RAILSPEC_CONSOLA_SSE_MAX_USUARIO", "0", "SSE_MAX_USUARIO"),
+        ("RAILSPEC_CONSOLA_SSE_MAX_GLOBAL", "1.5", "SSE_MAX_GLOBAL"),
+        ("RAILSPEC_CONSOLA_SSE_REVALIDAR_S", "0", "SSE_REVALIDAR_S"),
+        ("RAILSPEC_CONSOLA_SSE_REVALIDAR_S", "rápido", "SSE_REVALIDAR_S"),
+        ("RAILSPEC_CHAT_ZONA_DATOS", "EastUS2", "minúsculas"),
+        ("RAILSPEC_CHAT_ZONA_DATOS", 'eastus2"\n  X: "y', "minúsculas"),
+        ("RAILSPEC_CHAT_ZONA_DATOS", "eastus2,", "minúsculas"),
+        ("RAILSPEC_CHAT_MODELO", 'claude"\n  X: "y', "CHAT_MODELO"),
+        ("RAILSPEC_CHAT_CLONES_PVC", "Clones", "PersistentVolumeClaim"),
+        ("RAILSPEC_CHAT_CLONES_PVC", "x}, readOnly: false, {y: 1", "PersistentVolumeClaim"),
+    ],
+)
+def test_render_rechaza_lo_que_el_servidor_no_acepta_o_dejaria_el_chat_mudo(variable, valor, texto):
+    with pytest.raises(renderizar.ErrorRender, match=texto):
+        renderizar.renderizar({**MINIMO, variable: valor})
+
+
+def test_avisos_cuando_el_chat_quedaria_sin_responder_o_sin_codigo():
+    assert len(renderizar.avisos(MINIMO)) == 2
+    completo = {**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": "eastus2", "RAILSPEC_CHAT_CLONES_PVC": "clones"}
+    assert renderizar.avisos(completo) == []
+    solo_zona = renderizar.avisos({**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": "eastus2"})
+    assert len(solo_zona) == 1 and "sin leer código" in solo_zona[0]
+
+
+# --- cobertura: ninguna variable del servidor puede quedarse fuera del despliegue ------
+
+RAIZ = DEPLOY.parent
+#: Claves del Secret (despliegue.md § Secret): el servidor las lee, pero nunca viajan por el ConfigMap.
+CLAVES_DEL_SECRET = {
+    "RAILSPEC_MONGO_URI",
+    "RAILSPEC_FALKORDB_URL",
+    "RAILSPEC_FOUNDRY_API_KEY",
+    "RAILSPEC_PCE_API_KEY",
+    "RAILSPEC_ANTHROPIC_API_KEY",
+    "RAILSPEC_CONSOLA_SECRETO",
+    "RAILSPEC_GITHUB_APP_CLIENT_ID",
+    "RAILSPEC_GITHUB_APP_CLIENT_SECRET",
+}
+#: Las que el servidor lee y el despliegue no pasa por el ConfigMap, a propósito.
+FUERA_DEL_CONFIGMAP = {
+    "RAILSPEC_CONSOLA_DIR": "la imagen la fija con ENV (Dockerfile)",
+    "RAILSPEC_SECRETOS_DIR": "ruta de montaje de credencial_ref (proveedores.md)",
+    "RAILSPEC_FOUNDRY_PROYECTO_API_VERSION": "versión de la API del proyecto de Foundry (proveedores.md)",
+}
+
+
+def _variables_del_servidor() -> set[str]:
+    patron = re.compile(r"\bRAILSPEC_[A-Z0-9]+(?:_[A-Z0-9]+)*\b")
+    fuentes = (RAIZ / "packages" / "railspec-server" / "src").rglob("*.py")
+    return {nombre for f in fuentes for nombre in patron.findall(f.read_text(encoding="utf-8"))}
+
+
+def _claves(archivo: str, patron: str) -> set[str]:
+    return set(re.findall(patron, (DEPLOY / "k8s" / archivo).read_text(encoding="utf-8"), re.M))
+
+
+def test_toda_variable_que_lee_el_servidor_esta_en_el_despliegue_o_declarada_fuera():
+    """Así quedaron sin salir RAILSPEC_CHAT_* y RAILSPEC_CONSOLA_SSE_*: el chat se negaba sin aviso."""
+
+    en_configmap = _claves("20-configmap.yaml", r"^  (RAILSPEC_[A-Z0-9_]+):")
+    en_deployment = _claves("30-deployment.yaml", r"- name: (RAILSPEC_[A-Z0-9_]+)")
+    cubiertas = en_configmap | en_deployment | CLAVES_DEL_SECRET | set(FUERA_DEL_CONFIGMAP)
+    huerfanas = _variables_del_servidor() - cubiertas
+    assert not huerfanas, (
+        f"el servidor lee {sorted(huerfanas)} y ni el ConfigMap, ni el Deployment, ni la lista de claves "
+        "del Secret ni FUERA_DEL_CONFIGMAP la cubren: añadirla a renderizar.py y despliegue.md"
+    )
+    # La otra dirección: una errata en el ConfigMap pasaría por válida y el servidor no la leería.
+    ignoradas = en_configmap - _variables_del_servidor()
+    assert not ignoradas, f"el ConfigMap trae {sorted(ignoradas)} y el servidor no las lee"
+    # Y lo que se declara fuera sigue existiendo en el servidor: la lista no puede pudrirse.
+    sobrantes = (CLAVES_DEL_SECRET | set(FUERA_DEL_CONFIGMAP)) - _variables_del_servidor()
+    assert not sobrantes, f"ya no las lee el servidor: {sorted(sobrantes)}"
+
+
+def test_despliegue_md_documenta_cada_variable():
+    doc = (RAIZ / "docs" / "despliegue.md").read_text(encoding="utf-8")
+    sin_fila = [n for n in renderizar.VARIABLES if f"| `{n}` |" not in doc]
+    assert not sin_fila, f"faltan en la tabla de despliegue.md: {sin_fila}"
+    docs = "".join(f.read_text(encoding="utf-8") for f in (RAIZ / "docs").glob("*.md"))
+    sin_doc = [n for n in sorted(CLAVES_DEL_SECRET | set(FUERA_DEL_CONFIGMAP)) if n not in docs]
+    assert not sin_doc, f"sin documentar en railspec/docs: {sin_doc}"
 
 
 # --- lotes ----------------------------------------------------------------------------

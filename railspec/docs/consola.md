@@ -67,11 +67,11 @@ Las que Julian debe suministrar:
 | `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas (p. ej. `1234567`; el id numérico de tu usuario sale de `GET https://api.github.com/users/<login>`). |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
 | `RAILSPEC_CONSOLA_DIR` | Imagen | Carpeta de la SPA compilada; la imagen ya la fija. |
-| `RAILSPEC_CONSOLA_AUTH_LIMITE` | opcional | Peticiones por minuto y por IP en `/consola/api/auth/*` (60 por defecto; 0 lo desactiva). 429 con `Retry-After` al pasarse. |
-| `RAILSPEC_CONSOLA_SESION_HORAS` | opcional | Vida de la sesión en horas (4 por defecto, de 1 a 24). Es también la ventana en que quedan congelados los equipos de GitHub de la cookie. |
-| `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | opcional | Flujos de eventos en vivo abiertos a la vez por persona y por réplica (5 por defecto); al exceder, 429. |
-| `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | opcional | Ídem en total por réplica (200 por defecto). |
-| `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | opcional | Cada cuántos segundos un flujo vuelve a comprobar el rol `lector` y se cierra si lo perdió (30 por defecto). |
+| `RAILSPEC_CONSOLA_AUTH_LIMITE` | ConfigMap (`renderizar.py`) | Peticiones por minuto y por IP en `/consola/api/auth/*` (60 por defecto; 0 lo desactiva). 429 con `Retry-After` al pasarse. |
+| `RAILSPEC_CONSOLA_SESION_HORAS` | ConfigMap (`renderizar.py`) | Vida de la sesión en horas (4 por defecto, de 1 a 24). Es también la ventana en que quedan congelados los equipos de GitHub de la cookie. |
+| `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | ConfigMap (`renderizar.py`) | Flujos de eventos en vivo abiertos a la vez por persona y por réplica (5 por defecto); al exceder, 429. |
+| `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | ConfigMap (`renderizar.py`) | Ídem en total por réplica (200 por defecto). |
+| `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | ConfigMap (`renderizar.py`) | Cada cuántos segundos un flujo vuelve a comprobar el rol `lector` y se cierra si lo perdió (30 por defecto). |
 | `RAILSPEC_PROVEEDORES_HOSTS` | ConfigMap (`renderizar.py`) | Hosts permitidos para los proveedores de contexto que configura una organización (`host`, `*.dominio`, coma); se suma el de `RAILSPEC_PCE_URL`. Vacía: ninguno ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
 | `RAILSPEC_VINCULOS_OWNERS` | ConfigMap (`renderizar.py`) | Owners de GitHub (coma) que puede vincular una organización que **no** tiene `github_org`. Vacía (por defecto): esas organizaciones no pueden vincular repositorios. Una organización con `github_org` solo vincula repositorios de ese owner, con o sin esta variable. |
 

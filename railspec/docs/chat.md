@@ -159,15 +159,26 @@ no se marcan. El arnés trae el texto de cada referencia en local con
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
-| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma) donde el chat puede enviar código en `restringido`/`interno`. Vacío: el chat no responde en esos niveles. |
+| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma, en minúsculas: `eastus2,swedencentral`) donde el chat puede enviar código en `restringido`/`interno`. Vacío: el chat no responde en esos niveles. |
 | `RAILSPEC_CHAT_MODELO` | `claude-sonnet-5-5` | Modelo (despliegue en Foundry) del rol `chat`. |
 | `RAILSPEC_CHAT_CLONES` | vacío | Carpeta con un clon de solo lectura por repositorio en `<owner>/<repo>`. Sin ella no hay `code.read` y el chat responde sin leer código. |
 
-El despliegue debe mantener esos clones al día con la rama por defecto
-(por ejemplo un `git fetch` periódico o disparado por el mismo push que
-reindexa el grafo); `code.read` lee `origin/<rama>` o `<rama>`. TTL de
-conversaciones: 72 h. El chat no consulta aún gobernanza (PCE) ni memoria:
-no son tools del registro.
+En AKS no se escriben a mano: `deploy/renderizar.py` las saca en el ConfigMap
+desde `RAILSPEC_CHAT_ZONA_DATOS` y `RAILSPEC_CHAT_MODELO`, y fija
+`RAILSPEC_CHAT_CLONES=/var/lib/railspec/clones` cuando se da
+`RAILSPEC_CHAT_CLONES_PVC` (el PVC que el Deployment monta de solo lectura en
+esa ruta). Sin zona de datos el renderizador avisa por stderr y rechaza una
+región con mayúsculas, porque el servidor compara la región tal cual y el chat se
+negaría en silencio. Cómo definirlas, crear el PVC y mantener los clones al día:
+[despliegue.md](despliegue.md#chat-de-contexto-zona-de-datos-modelo-y-clones).
+
+Los clones los lee `git show` (la imagen del servidor trae `git`) en
+`origin/<rama por defecto del vínculo>` o, si no existe, en `<rama>`; sirve un
+clon `--bare` mantenido con `git fetch origin '+refs/heads/*:refs/heads/*'`. No importa de quién sean los
+archivos del volumen: `ClonesGit` declara `safe.directory` por clon. El despliegue
+debe mantenerlos al día con la rama por defecto (un CronJob, o el mismo push que
+reindexa el grafo). TTL de conversaciones: 72 h. El chat no consulta aún
+gobernanza (PCE) ni memoria: no son tools del registro.
 
 ## Verificación
 
