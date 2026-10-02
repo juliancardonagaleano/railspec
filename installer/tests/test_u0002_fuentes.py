@@ -32,11 +32,13 @@ def test_u0002_ca01_kit_version_is_readable_via_get_kit_version() -> None:
 
 def _repo_data_files() -> list[Path]:
     out: list[Path] = []
-    skip_dirs = {".git", "__pycache__", "node_modules", ".gitnexus", ".codebase-memory"}
+    # `railspec/` es otro producto con sus propias versiones de paquete: la de este
+    # kit (`kit_version`) no es suya, aunque la cadena pueda coincidir.
+    skip_dirs = {".git", "__pycache__", "node_modules", ".gitnexus", ".codebase-memory", "railspec"}
     for path in REPO_ROOT.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in skip_dirs for part in path.parts):
+        if any(part in skip_dirs for part in path.relative_to(REPO_ROOT).parts):
             continue
         if path in IGNORED_FOR_DUPLICATE_CHECK:
             continue

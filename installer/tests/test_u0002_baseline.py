@@ -16,8 +16,9 @@ CLI = REPO_ROOT / "installer" / "cli.py"
 
 sys.path.insert(0, str(REPO_ROOT))
 
+from installer.convivencia import digest_de_instalacion  # noqa: E402
 from installer.git_target import resolve_git_dir  # noqa: E402
-from installer.manifest import load_and_validate, sha256_file  # noqa: E402
+from installer.manifest import load_and_validate  # noqa: E402
 from installer.verifier import iter_payload_files  # noqa: E402
 
 
@@ -53,6 +54,8 @@ def test_u0002_ca08_baseline_has_one_entry_per_payload_path(tmp_path: Path) -> N
 
     assert set(baseline.keys()) == payload_dests
 
+    # La línea base de cada ruta es el digest de su parte del kit: el del archivo entero,
+    # salvo en los cuatro compartidos con Railspec (ver `installer/convivencia.py`).
     for source_file, dest_rel in pairs:
-        actual = sha256_file(target / dest_rel)
+        actual = digest_de_instalacion(dest_rel, (target / dest_rel).read_bytes())
         assert baseline[dest_rel] == actual, dest_rel
