@@ -184,6 +184,12 @@ export interface Insumo {
   sha256: string;
 }
 
+/** Repositorio que el shell ofrece en el selector (un vínculo del workspace). */
+export interface RepositorioElegible {
+  id: string;
+  nivel?: string;
+}
+
 // ---- Cuerpos de petición ----
 
 export interface PeticionCrearConversacion {

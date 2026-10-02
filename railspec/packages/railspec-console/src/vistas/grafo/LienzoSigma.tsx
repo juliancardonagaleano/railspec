@@ -2,15 +2,21 @@ import { useEffect, useRef } from "react";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import Sigma from "sigma";
-import { COLOR_RELACION, COLOR_TIPO, colorRepositorio, type ModeloGrafo } from "./modelo";
+import { COLOR_CAMBIO, COLOR_RELACION, COLOR_TIPO, colorRepositorio, type ModeloGrafo, type NodoModelo } from "./modelo";
 
-export type ColorearPor = "tipo" | "repositorio";
+export type ColorearPor = "tipo" | "repositorio" | "cambio";
 
 interface Props {
   modelo: ModeloGrafo;
   seleccionado: string | null;
   colorearPor: ColorearPor;
   alElegir: (id: string) => void;
+}
+
+function colorDeNodo(n: NodoModelo, colorearPor: ColorearPor): string {
+  if (colorearPor === "tipo") return COLOR_TIPO[n.tipo_simbolo];
+  if (colorearPor === "repositorio") return colorRepositorio(n.repositorio);
+  return COLOR_CAMBIO[n.cambio ?? "igual"];
 }
 
 /** Sincroniza el grafo de graphology con el modelo, conservando las posiciones ya calculadas. */
@@ -20,7 +26,7 @@ function sincronizar(grafo: Graph, modelo: ModeloGrafo, colorearPor: ColorearPor
 
   const nuevos: string[] = [];
   for (const n of Object.values(modelo.nodos)) {
-    const color = colorearPor === "tipo" ? COLOR_TIPO[n.tipo_simbolo] : colorRepositorio(n.repositorio);
+    const color = colorDeNodo(n, colorearPor);
     const atributos = { label: n.nombre, color, size: modelo.expandidos.includes(n.id) ? 9 : 6 };
     if (grafo.hasNode(n.id)) grafo.mergeNodeAttributes(n.id, atributos);
     else {
@@ -29,13 +35,13 @@ function sincronizar(grafo: Graph, modelo: ModeloGrafo, colorearPor: ColorearPor
     }
   }
   for (const a of Object.values(modelo.aristas)) {
-    if (grafo.hasEdge(a.id) || !grafo.hasNode(a.origen) || !grafo.hasNode(a.destino)) continue;
-    grafo.addDirectedEdgeWithKey(a.id, a.origen, a.destino, {
-      label: a.relacion ?? "",
-      color: a.relacion ? COLOR_RELACION[a.relacion] : "#94a3b8",
-      size: a.indirecta ? 1 : 2,
-      type: "arrow",
-    });
+    if (!grafo.hasNode(a.origen) || !grafo.hasNode(a.destino)) continue;
+    // Al comparar, una relación nueva o eliminada se distingue por color en cualquier modo de coloreado.
+    const color =
+      a.cambio === "nueva" ? COLOR_CAMBIO.nuevo : a.cambio === "eliminada" ? COLOR_CAMBIO.eliminado : a.relacion ? COLOR_RELACION[a.relacion] : "#94a3b8";
+    const atributos = { label: a.relacion ?? "", color, size: a.indirecta ? 1 : a.cambio ? 3 : 2, type: "arrow" };
+    if (grafo.hasEdge(a.id)) grafo.mergeEdgeAttributes(a.id, atributos);
+    else grafo.addDirectedEdgeWithKey(a.id, a.origen, a.destino, atributos);
   }
   // Coloca los nuevos cerca de un vecino ya posicionado y reajusta con ForceAtlas2.
   for (const id of nuevos) {

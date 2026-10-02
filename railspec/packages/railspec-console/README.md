@@ -38,5 +38,7 @@ npm test           # vitest run
 - `src/api/`: cliente (`pedir`, `invocarTool`, `ErrorApi`), endpoints y tipos del contrato.
 - `src/componentes/`: marco, estados de carga/error/vacío, gráficos y `ui/`.
 - `src/vistas/`: login, tablero, unidad, grafo, auditoría, estadísticas, administración, configuración y chat.
-- `src/chat/`: **no** es de este paquete; lo aporta el hilo del chat. La ruta `/$org/$ws/chat` lo carga con
-  `import.meta.glob` si existe (export `ChatContexto` o default, props `{apiBase, token, org, workspace}`).
+- `src/chat/`: el chat de contexto, autocontenido (solo depende de `react`); su README explica las props. La
+  ruta `/$org/$ws/chat` lo carga de forma diferida (`vistas/chat/cargador.ts`) y le da el token, los
+  repositorios vinculados y la última conversación.
+- `src/pruebas/servidor.tsx`: `fetch` falso con rutas y datos de ejemplo para las pruebas de vistas.
