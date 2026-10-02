@@ -102,7 +102,14 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # Clones del chat (``code.read``), de solo lectura. Sin RAILSPEC_CHAT_CLONES_PVC el
+            # volumen es un emptyDir vacío y el servidor no recibe la ruta (ver 20-configmap.yaml).
+            - name: clones
+              mountPath: ${RAILSPEC_CHAT_CLONES_RUTA}
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi
+        - name: clones
+          ${RAILSPEC_CHAT_CLONES_VOLUMEN}

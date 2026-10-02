@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -185,6 +186,43 @@ def test_clones_git_lee_el_clon_del_owner_y_repo(tmp_path):
     commit = _repo_con(raiz / "acme" / "api", "src.py", "print(1)\n")
     clones = ClonesGit(raiz)
     v = _vinculo("https://github.com/acme/api.git")
+    assert clones.leer(v, commit, "src.py") == "print(1)\n"
+    assert clones.commit_canonico(v) == commit
+
+
+def test_clones_git_lee_un_clon_bare_que_se_mantiene_con_fetch(tmp_path):
+    """La forma que documenta despliegue.md: ``clone --bare`` y luego ``fetch`` a ``refs/heads/*``."""
+
+    origen = tmp_path / "origen"
+    primero = _repo_con(origen, "src.py", "print(1)\n")
+    clon = tmp_path / "clones" / "acme" / "api"
+    clon.parent.mkdir(parents=True)
+    _git("clone", "-q", "--bare", str(origen), str(clon), cwd=tmp_path)
+    clones = ClonesGit(tmp_path / "clones")
+    v = _vinculo("https://github.com/acme/api")
+    assert clones.commit_canonico(v) == primero and clones.leer(v, primero, "src.py") == "print(1)\n"
+
+    (origen / "src.py").write_text("print(2)\n")
+    _git("commit", "-q", "-am", "dos", cwd=origen)
+    segundo = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=origen, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    _git("fetch", "-q", "--prune", "origin", "+refs/heads/*:refs/heads/*", cwd=clon)
+    assert clones.commit_canonico(v) == segundo and clones.leer(v, segundo, "src.py") == "print(2)\n"
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="cambiar el dueño de los archivos exige root")
+def test_clones_git_lee_un_clon_de_otro_usuario_como_un_volumen_montado(tmp_path):
+    """En Azure Files o NFS los archivos no son del uid 10001 del contenedor: sin ``safe.directory`` git
+    responde ``detected dubious ownership`` y el chat creería que el archivo no existe."""
+
+    raiz = tmp_path / "clones"
+    commit = _repo_con(raiz / "acme" / "api", "src.py", "print(1)\n")
+    for carpeta, _, archivos in os.walk(raiz):
+        for nombre in [carpeta, *(os.path.join(carpeta, a) for a in archivos)]:
+            os.chown(nombre, 10001, 10001)
+    clones = ClonesGit(raiz)
+    v = _vinculo("https://github.com/acme/api")
     assert clones.leer(v, commit, "src.py") == "print(1)\n"
     assert clones.commit_canonico(v) == commit
 

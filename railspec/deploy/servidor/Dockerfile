@@ -6,6 +6,7 @@
 # instaladas desde requirements.lock con --require-hashes y los tres paquetes
 # propios como ruedas construidas en la etapa anterior, sin dependencias.
 # Para cambiar la base, actualizar el digest y regenerar el lock (bloquear.sh).
+# Única parte sin fijar: git, de los repositorios de Debian de esa base (ver más abajo).
 # La consola web (railspec-console) se compila en su propia etapa con Node,
 # desde package-lock.json con npm ci, y el servidor la sirve en /consola/.
 ARG BASE=python:3.11-slim-bookworm@sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b
@@ -35,6 +36,12 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     RAILSPEC_HOST=0.0.0.0 RAILSPEC_PUERTO=8080 \
     RAILSPEC_CONSOLA_DIR=/opt/railspec-console
+# git: ``code.read`` del chat lee los clones con ``git show`` (RAILSPEC_CHAT_CLONES) y la base slim no
+# lo trae. Sin recomendados: ca-certificates ya viene con la base. Las versiones de apt no se fijan
+# (lo fijado por digest es la base); el resto de la imagen sí es reproducible.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
 COPY railspec/deploy/servidor/requirements.lock /tmp/requirements.lock
 RUN --mount=type=bind,from=ruedas,source=/ruedas,target=/ruedas \
     pip install --require-hashes --no-deps -r /tmp/requirements.lock \
