@@ -1,10 +1,19 @@
 """``StateStore`` y ``AlmacenMotor`` sobre Mongo.
 
-Es el único módulo de acceso a datos del motor: toda consulta pasa por
-``_filtro_*``, que siempre incluye org y workspace, así que no existe una
-consulta sin espacio de nombres (política aprobada el 2026-09-30). Los
-documentos se guardan como el JSON del contrato más campos internos con
-prefijo ``_`` (clave, fechas BSON para TTL y rangos).
+Es el único módulo de acceso a datos del motor: toda consulta lleva org y
+workspace, ya sea por ``_filtro_*`` o por una clave ``_id`` compuesta que los
+contiene, y también las lecturas y los reemplazos por ``_id``: un id ajeno a su
+espacio de nombres no encuentra nada (y un reemplazo con upsert falla con
+``DuplicateKeyError`` en vez de pisar el documento ajeno), según la política
+aprobada el 2026-09-30. Los documentos se guardan como el JSON del contrato más
+campos internos con prefijo ``_`` (clave, fechas BSON para TTL y rangos).
+
+Los datos que son de la organización entera, no de un workspace, filtran solo por
+org y es a propósito: ``asignaciones`` (los roles de una persona en todos los
+workspaces de la organización; el autorizador decide cuáles aplican), ``catalogo`` y la
+caché de nodos (por organización), y ``consultar_telemetria`` cuando la consulta no
+fija workspace (el contrato la admite para las estadísticas de la organización).
+``test_aislamiento_almacenes`` lista cada método con su regla.
 
 En desarrollo y pruebas corre igual sobre ``mongomock``; ``RAILSPEC_MONGO_URI``
 lo conecta al Mongo comunitario en AKS.
@@ -111,6 +120,11 @@ def _filtro_unidad(alcance: AlcanceUnidad, prefijo: str = "unidad") -> dict[str,
     return {**_filtro_ws(alcance.org, alcance.workspace, prefijo), f"{prefijo}.unidad": alcance.unidad}
 
 
+def _filtro_repositorio(alcance: AlcanceRepositorio, prefijo: str = "alcance") -> dict[str, Any]:
+    filtro = _filtro_ws(alcance.org, alcance.workspace, prefijo)
+    return {**filtro, f"{prefijo}.repositorio": alcance.repositorio}
+
+
 def _clave_unidad(alcance: AlcanceUnidad) -> str:
     return f"{alcance.org}/{alcance.workspace}/{alcance.unidad}"
 
@@ -188,7 +202,9 @@ class AlmacenMongo:
         try:
             self.db.eventos.insert_one(doc)
         except DuplicateKeyError:
-            if self.db.eventos.find_one({"_id": str(evento.id)}) is not None:
+            # Duplicado solo si el evento ya está en esta unidad; el mismo id en otro workspace
+            # (o una colisión de secuencia) no es un reenvío y se propaga.
+            if self.existe_evento(evento.unidad, evento.id):
                 return False
             raise
         return True
@@ -317,7 +333,7 @@ class AlmacenMongo:
 
     def guardar_orden(self, orden: OrdenDeTrabajo) -> None:
         self.db.ordenes.replace_one(
-            {"_id": str(orden.id)},
+            {"_id": str(orden.id), "_clave": _clave_unidad(orden.unidad), **_filtro_unidad(orden.unidad)},
             {"_id": str(orden.id), "_clave": _clave_unidad(orden.unidad), **_doc(orden)},
             upsert=True,
         )
@@ -327,14 +343,23 @@ class AlmacenMongo:
         return ADAPTADOR_ORDEN.validate_python(_limpio(doc)) if doc else None
 
     def reporte_aceptado(self, alcance: AlcanceUnidad, orden_id: Any, secuencia: int) -> bool:
-        filtro = {"_id": str(orden_id), "_clave": _clave_unidad(alcance), "secuencia": secuencia}
+        filtro = {
+            "_id": str(orden_id),
+            "_clave": _clave_unidad(alcance),
+            **_filtro_unidad(alcance),
+            "secuencia": secuencia,
+        }
         return self.db.reportes.find_one(filtro, {"_id": 1}) is not None
 
     def guardar_reporte(self, reporte: ReporteOrden) -> None:
         doc = _doc(reporte.model_copy(update={"snapshot": None}))
         doc["snapshot_id"] = str(reporte.snapshot.id) if reporte.snapshot else None
         self.db.reportes.replace_one(
-            {"_id": str(reporte.orden_id)},
+            {
+                "_id": str(reporte.orden_id),
+                "_clave": _clave_unidad(reporte.unidad),
+                **_filtro_unidad(reporte.unidad),
+            },
             {"_id": str(reporte.orden_id), "_clave": _clave_unidad(reporte.unidad), **doc},
             upsert=True,
         )
@@ -342,7 +367,7 @@ class AlmacenMongo:
     def guardar_snapshot(self, snapshot: Snapshot, retencion_dias: int = RETENCION_SNAPSHOTS_DIAS) -> None:
         creado = snapshot.creado_en.astimezone(UTC)
         self.db.snapshots.replace_one(
-            {"_id": str(snapshot.id)},
+            {"_id": str(snapshot.id), **_filtro_unidad(snapshot.unidad)},
             {
                 "_id": str(snapshot.id),
                 "_clave": _clave_unidad(snapshot.unidad),
@@ -446,12 +471,7 @@ class AlmacenMongo:
         return [VinculoRepositorio.model_validate(_limpio(d)) for d in cursor]
 
     def vinculo(self, alcance: AlcanceRepositorio) -> VinculoRepositorio | None:
-        doc = self.db.vinculos.find_one(
-            {
-                **_filtro_ws(alcance.org, alcance.workspace, "alcance"),
-                "alcance.repositorio": alcance.repositorio,
-            }
-        )
+        doc = self.db.vinculos.find_one(_filtro_repositorio(alcance))
         return VinculoRepositorio.model_validate(_limpio(doc)) if doc else None
 
     def asignaciones(
@@ -536,14 +556,14 @@ class AlmacenMongo:
             elif isinstance(e, VinculoRepositorio):
                 a = e.alcance
                 self.db.vinculos.replace_one(
-                    {"_id": f"{a.org}/{a.workspace}/{a.repositorio}"},
+                    {"_id": f"{a.org}/{a.workspace}/{a.repositorio}", **_filtro_repositorio(a)},
                     {"_id": f"{a.org}/{a.workspace}/{a.repositorio}", **_doc(e)},
                     upsert=True,
                 )
             elif isinstance(e, Workspace):
                 a = e.alcance
                 self.db.workspaces.replace_one(
-                    {"_id": f"{a.org}/{a.workspace}"},
+                    {"_id": f"{a.org}/{a.workspace}", **_filtro_ws(a.org, a.workspace, "alcance")},
                     {"_id": f"{a.org}/{a.workspace}", **_doc(e)},
                     upsert=True,
                 )
@@ -555,7 +575,11 @@ class AlmacenMongo:
                     _doc(e),
                 )
             elif isinstance(e, AsignacionRol):
-                self.db.roles.replace_one({"_id": str(e.id)}, {"_id": str(e.id), **_doc(e)}, upsert=True)
+                self.db.roles.replace_one(
+                    {"_id": str(e.id), "org": e.org, "workspace": e.workspace},
+                    {"_id": str(e.id), **_doc(e)},
+                    upsert=True,
+                )
             else:
                 raise TypeError(f"no es configuración: {type(e).__name__}")
 
@@ -572,9 +596,9 @@ class AlmacenMongo:
         col = self.db[coleccion]
         existente = col.find_one(filtro, {"_id": 1})
         if existente is not None:
-            col.replace_one({"_id": existente["_id"]}, doc)
+            col.replace_one({"_id": existente["_id"], **filtro}, doc)
         else:
-            col.replace_one({"_id": clave}, {"_id": clave, **doc}, upsert=True)
+            col.replace_one({"_id": clave, **filtro}, {"_id": clave, **doc}, upsert=True)
 
 
 def _filtro_unidad_doc(alcance: AlcanceUnidad) -> dict[str, Any]:
