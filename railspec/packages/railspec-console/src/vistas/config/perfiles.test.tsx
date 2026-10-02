@@ -381,8 +381,39 @@ describe("perfiles de un workspace", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Effort para redactor")).toHaveValue("xhigh"));
     expect(screen.getByText(/Versión 4/)).toBeInTheDocument();
+    // El editor se remontó con la versión 4 y el aviso de conflicto no se perdió con el viejo.
+    expect(screen.getByText(/Otra persona modificó este registro/)).toHaveTextContent("(versión actual 4)");
     await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
     await waitFor(() => expect(s.de("PUT", "/orgs/acme/perfiles/estandar")).toHaveLength(2));
     expect(s.de("PUT", "/orgs/acme/perfiles/estandar").map((l) => l.cuerpo.version)).toEqual([3, 4]);
+    // Guardar de nuevo retira el aviso y anuncia el guardado.
+    expect(await screen.findByText(/^Guardado · versión 5\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/Otra persona modificó este registro/)).toBeNull();
+  });
+
+  it("el aviso de conflicto no pasa a otra pestaña de perfil ni vuelve al regresar", async () => {
+    const user = userEvent.setup();
+    let vigente = perfilConfig("estandar", { version: 3 });
+    servidorFalso({
+      "GET /orgs/acme/perfiles": () => [vigente, perfilConfig("ligero", { version: 1 })],
+      "GET /orgs/acme/catalogo": () => [],
+      "PUT /orgs/acme/perfiles/estandar": () => json(409, { detalle: "versión desactualizada", version_actual: vigente.version }),
+    });
+    montarConQuery(<Perfiles org="acme" editable />);
+
+    await screen.findByText(/Versión 3/);
+    vigente = perfilConfig("estandar", { version: 4 });
+    await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
+    await screen.findByText(/Versión 4/);
+    expect(screen.getByText(/Otra persona modificó este registro/)).toBeInTheDocument();
+
+    // Cada perfil tiene su aviso: «ligero» no hereda el conflicto de «estandar»...
+    await user.click(screen.getByRole("tab", { name: /ligero/ }));
+    expect(await screen.findByText(/Versión 1/)).toBeInTheDocument();
+    expect(screen.queryByText(/Otra persona modificó este registro/)).toBeNull();
+    // ...y al volver a «estandar» el editor es nuevo y arranca sin el aviso viejo.
+    await user.click(screen.getByRole("tab", { name: /estandar/ }));
+    expect(await screen.findByText(/Versión 4/)).toBeInTheDocument();
+    expect(screen.queryByText(/Otra persona modificó este registro/)).toBeNull();
   });
 });

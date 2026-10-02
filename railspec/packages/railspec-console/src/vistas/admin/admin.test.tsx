@@ -360,9 +360,55 @@ describe("administración del workspace", () => {
     // La vista recarga y el formulario muestra lo vigente, con su versión.
     await waitFor(() => expect(within(screen.getByRole("dialog")).getByLabelText("Nombre")).toHaveValue("Certificados (otra persona)"));
     expect(s.de("PUT", "/orgs/acme/workspaces/cert")[0]!.cuerpo.version).toBe(3);
+    // El formulario se remontó con la versión 4 y el aviso de conflicto no se perdió con el viejo.
+    expect(within(screen.getByRole("dialog")).getByText(/Otra persona modificó este registro/)).toHaveTextContent("(versión actual 4)");
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(s.de("PUT", "/orgs/acme/workspaces/cert")[1]!.cuerpo.version).toBe(4);
+    expect(screen.queryByText(/Otra persona modificó este registro/)).toBeNull();
+  });
+
+  it("si se cierra el diálogo tras un 409, al reabrirlo no queda el aviso viejo", async () => {
+    const user = userEvent.setup();
+    let vigente = workspace("cert", { version: 3 });
+    servidor("desarrollador", "workspace-admin", {
+      "GET /orgs/acme/workspaces": () => [vigente],
+      "PUT /orgs/acme/workspaces/cert": () => json(409, { detalle: "versión desactualizada", version_actual: vigente.version }),
+    });
+    montarWs();
+
+    const tarjeta = (await screen.findByRole("heading", { name: "Workspace" })).parentElement!;
+    await user.click(await within(tarjeta).findByRole("button", { name: "Editar" }));
+    await screen.findByRole("dialog", { name: "Editar Certificados" });
+    vigente = workspace("cert", { nombre: "Certificados (otra persona)", version: 4 });
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByLabelText("Nombre")).toHaveValue("Certificados (otra persona)"));
+    expect(within(screen.getByRole("dialog")).getByText(/Otra persona modificó este registro/)).toBeInTheDocument();
+
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(await within(tarjeta).findByRole("button", { name: "Editar" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Editar Certificados (otra persona)" });
+    expect(within(dialogo).queryByText(/Otra persona modificó este registro/)).toBeNull();
+  });
+
+  it("el aviso de conflicto de la organización también sobrevive a la recarga de su formulario", async () => {
+    const user = userEvent.setup();
+    let vigente = organizacion({ id: "acme", version: 3 });
+    servidor("org-admin", undefined, {
+      "GET /orgs": () => [vigente],
+      "PUT /orgs/acme": () => json(409, { detalle: "versión desactualizada", version_actual: vigente.version }),
+    });
+    montarOrg();
+
+    expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
+    await screen.findByRole("dialog", { name: "Editar Acme Corp" });
+    vigente = organizacion({ id: "acme", nombre: "Acme (otra persona)", version: 5 });
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByLabelText("Nombre")).toHaveValue("Acme (otra persona)"));
+    expect(within(screen.getByRole("dialog")).getByText(/Otra persona modificó este registro/)).toHaveTextContent("(versión actual 5)");
   });
 
   it.each<[Rol, Rol]>([
