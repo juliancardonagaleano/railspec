@@ -182,6 +182,15 @@ específica que exista:
 `<nivel>` es `restringido`, `interno` o `abierto`. Un rol sin ninguna clave en
 el perfil guardado toma el valor del perfil por defecto del mismo nombre.
 
+### Perfil con el que nace una unidad
+
+`unit.start` elige el perfil en este orden: el `perfil` de la petición, si lo
+trae; si no, el «perfil por defecto» del workspace (`Workspace.perfil_por_defecto`,
+editable en la consola); si el workspace no está registrado, `estandar`. El
+perfil elegido es el que se valida contra el catálogo antes de crear la unidad
+(`perfil-insatisfacible`) y el que queda en `EstadoUnidad.perfil`. Cambiar el
+perfil por defecto del workspace no toca las unidades ya creadas.
+
 Ejemplo: un workspace cuyo Claude solo está en despliegue Global y que tiene
 `gpt-5` en zona de datos manda los críticos de `restringido` e `interno` a
 `gpt-5` sin tocar el resto del perfil:

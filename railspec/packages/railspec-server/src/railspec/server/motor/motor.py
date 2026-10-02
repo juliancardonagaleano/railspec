@@ -36,7 +36,6 @@ from railspec.contracts.comun import (
     Fase,
     GateFase,
     Modo,
-    Perfil,
     Presupuesto,
     Riesgo,
     RolRepositorio,
@@ -283,13 +282,12 @@ class Motor:
         for insumo in e.insumos:
             if self.n.insumos is None or not self.n.insumos.existe(e.alcance, insumo):
                 raise ErrorNegocio(CodigoError.no_encontrado, f"insumo {insumo} no existe en este workspace")
-        motivos = await self.n.validar_perfil(
-            e.alcance, e.perfil or Perfil.estandar, e.repositorios[0].repositorio, triaje(e)
-        )
+        perfil = self.n.perfil_inicial(e.alcance, e.perfil)
+        motivos = await self.n.validar_perfil(e.alcance, perfil, e.repositorios[0].repositorio, triaje(e))
         if motivos:
             raise ErrorNegocio(
                 CodigoError.perfil_insatisfacible,
-                f"perfil {(e.perfil or Perfil.estandar).value}: " + " | ".join(motivos),
+                f"perfil {perfil.value}: " + " | ".join(motivos),
             )
         numero = self.n.almacen.siguiente_numero_unidad(e.alcance)
         alcance = AlcanceUnidad(
@@ -333,7 +331,7 @@ class Motor:
             modo_conversion=conversiones,
             pedido=e.pedido,
             riesgo=triaje(e),
-            perfil=e.perfil or Perfil.estandar,
+            perfil=perfil,
             insumos=list(e.insumos),
             presupuesto=presupuesto.por_unidad if presupuesto else Presupuesto(),
             consumo=Consumo(),

@@ -23,7 +23,7 @@ repositorios temporales, en los dos órdenes, y comprueba que ninguno pisa al ot
 | `sdd-retomar` | `/railspec NNNN-slug`, `unit_status` o `railspec estado --unidad NNNN-slug` | Equivale |
 | Modos `interactivo` y `semi-autonomo` | Los mismos nombres: `interactivo` abre `aprobar-spec` y `aprobar-plan`; `semi-autonomo`, un `paquete-aprobacion` | Equivale |
 | `sdd-supervisado`, `sdd-desatendido`, `sdd-preflight` | Los modos existen en el contrato, pero hoy solo omiten los checkpoints de aprobación | Parcial: ver abajo |
-| `sdd-perfil` y `.spec/perfiles.yaml` | Una unidad nueva nace `estandar` (`/railspec` no pasa perfil) y una importada trae el del kit; los perfiles por rol (modelo, effort) de cada organización o workspace se editan en la consola | Distinto: no hay `/sdd-perfil` ni archivo por clon |
+| `sdd-perfil` y `.spec/perfiles.yaml` | Una unidad nueva nace con el «perfil por defecto» del workspace (`estandar` si el workspace no está registrado; `/railspec` no pasa perfil) y una importada trae el del kit; los perfiles por rol (modelo, effort) de cada organización o workspace se editan en la consola | Distinto: no hay `/sdd-perfil` ni archivo por clon |
 | `kit-doctor` | No hay `railspec doctor`. Sirven `railspec instalar --verificar` (deriva de los adaptadores), `railspec estado` y, en el servidor, `/livez` y `/healthz` | Parcial |
 | `pce-mcp` en el clon | El servidor consulta la gobernanza por su cuenta en cada gate | Ver «pce-mcp y kit-doctor» |
 | Hooks `guard_*` de `.spec/scripts` | `railspec hook <arnés>` aplica las reglas de conducta con una unidad en curso | Distinto: otras reglas |
