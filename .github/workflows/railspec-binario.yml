@@ -3,6 +3,8 @@
 # railspec-local-v* publica además una release con los binarios y SHA256SUMS.
 #
 # Receta, lock y humo: railspec/packages/railspec-local/empaquetado/.
+# También comprueba, en cada plataforma, que la versión fijada de codebase-memory-mcp
+# (VERSION_FIJA en railspec/local/indexador_cbm.py) se instala y arranca.
 # Windows no: el proxy usa fcntl.
 name: railspec-binario
 
@@ -63,6 +65,14 @@ jobs:
         run: python "$EMPAQUETADO/construir.py" --salida dist --trabajo "$RUNNER_TEMP/pyinstaller"
       - name: Humo
         run: python "$EMPAQUETADO/humo.py" dist/railspec
+      - name: Indexador fijado (codebase-memory-mcp)
+        # Con las fuentes en PYTHONPATH: es el mismo código con el que el proxy decide, al arrancar,
+        # si el binario del indexador sirve. Para subir la versión se cambia VERSION_FIJA.
+        env:
+          PYTHONPATH: railspec/packages/railspec-contracts/src:railspec/packages/railspec-local/src
+        run: |
+          python -m pip install "codebase-memory-mcp==$(python -m railspec.local.indexador_cbm)"
+          python -m railspec.local.indexador_cbm --verificar
       - name: Versión mínima de macOS
         if: runner.os == 'macOS'
         run: otool -l dist/railspec | grep -A3 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' | head -8
