@@ -7,7 +7,7 @@ import subprocess
 import tomllib
 
 import pytest
-from railspec.contracts.comun import Arnes
+from railspec.contracts.comun import Arnes, Perfil
 from railspec.local import adaptadores, cli
 from railspec.local.adaptadores import codex
 from railspec.local.errores import ErrorRailspec
@@ -163,3 +163,25 @@ def test_cli_desinstalar_todo_no_deja_piezas_compartidas(tmp_path, capsys):
     assert cli.main(["--repo", str(tmp_path), "desinstalar", "--config"]) == 0
     restos = sorted(p.name for p in tmp_path.iterdir() if p.name != ".git")
     assert restos == []
+
+
+@pytest.mark.parametrize(
+    ("arnes", "ruta"),
+    [
+        (Arnes.claude_code, ".claude/commands/railspec.md"),
+        (Arnes.opencode, ".opencode/commands/railspec.md"),
+        (Arnes.codex, ".agents/skills/railspec/SKILL.md"),
+        (Arnes.copilot, ".github/skills/railspec/SKILL.md"),
+    ],
+)
+def test_el_arranque_acepta_perfil_en_todos_los_arneses(tmp_path, arnes, ruta):
+    adaptadores.instalar(tmp_path, arnes)
+    texto = (tmp_path / ruta).read_text()
+    assert "`--perfil` con `ligero`, `estandar` o `profundo`" in texto
+    assert "Pasa `perfil` solo si" in texto
+
+
+def test_el_perfil_del_arranque_son_los_del_contrato():
+    texto = adaptadores.plantilla("comando.md")
+    ayuda = next(linea for linea in texto.splitlines() if linea.startswith("argument-hint:"))
+    assert f"--perfil {'|'.join(p.value for p in Perfil)}" in ayuda

@@ -188,6 +188,15 @@ La fusión solo toca la entrada `railspec`, los permisos que añade y el bloque
 entre marcadores; el resto de cada archivo se conserva. Un JSON inválido no
 se pisa. Al reescribir un `opencode.jsonc` se pierden sus comentarios.
 
+**Argumentos de `/railspec`.** `<petición>` arranca una unidad; `NNNN-slug` retoma
+una. Opciones, todas opcionales y solo si el humano las escribe:
+`--insumo <id>` (insumo exportado desde la consola), `--perfil
+ligero|estandar|profundo` (se pasa como `perfil` a `unit_start`; sin él, el
+servidor usa el perfil por defecto del workspace) y `--modo <modo> --plan
+<slug>`. Un valor de `--perfil` inválido no arranca la unidad: el agente pide
+el correcto. El texto sale de `plantillas/comando.md`, así que en Codex y
+Copilot es el mismo en la skill `railspec`.
+
 **Permisos.** El bucle corre sin preguntas, pero lo que registra una decisión
 humana pregunta siempre:
 
