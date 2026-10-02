@@ -127,10 +127,16 @@ def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
             "acepta «Trust this folder» la primera vez. Para que el sandbox escriba en los worktrees, "
             f"lánzalo con `codex --add-dir {worktrees}`. Arranca una unidad con `$railspec <petición>`."
         )
+        avisos.append(
+            "Codex no ejecuta el hook de la guardia (.codex/hooks.json) hasta que lo confíes: abre /hooks, "
+            "revisa el hook de Railspec y confíalo (otra vez cada vez que `instalar` lo cambie). Sin eso "
+            "la guardia no corre y Codex solo avisa de que el hook necesita revisión."
+        )
     if Arnes.copilot in arneses:
         avisos.append(
-            "Copilot solo carga los servidores MCP de .mcp.json en carpetas de confianza: acéptala la "
-            f"primera vez. Lánzalo con `copilot --add-dir {worktrees}` para trabajar en los worktrees. "
+            "Copilot solo carga los servidores MCP de .mcp.json y los hooks de .github/hooks (la guardia) "
+            f"en carpetas de confianza: acéptala la primera vez. Lánzalo con `copilot --add-dir {worktrees}` "
+            "para trabajar en los worktrees. "
             "Las tools del bucle quedan aprobadas al invocar /railspec; unit_approve, unit_set_mode y "
             "unit_integrate preguntan siempre."
         )
@@ -224,17 +230,7 @@ def _cmd_hook(args: argparse.Namespace) -> int:
         motivo = (
             f"Railspec: la guardia falló ({exc}). Relanza el arnés con {guardia.ENV_GUARDIA}=0 para saltarla."
         )
-        respuesta = (
-            {"decision": "deny", "motivo": motivo}
-            if args.arnes_hook == "opencode"
-            else {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": motivo,
-                }
-            }
-        )
+        respuesta = guardia.denegar(args.arnes_hook, motivo)
     if respuesta is not None:
         print(json.dumps(respuesta, ensure_ascii=False))
     return 0

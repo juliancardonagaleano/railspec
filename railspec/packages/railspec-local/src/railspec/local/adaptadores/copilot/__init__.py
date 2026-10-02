@@ -14,14 +14,24 @@ Verificado con GitHub Copilot CLI 1.0.90:
   invoca la skill; las que registran una decisión humana no se listan, así que
   Copilot pregunta siempre por ellas.
 - Las reglas van en ``AGENTS.md``, el mismo bloque que OpenCode y Codex.
+- Reglas aplicadas con un hook ``preToolUse`` en ``.github/hooks/railspec.json`` (``railspec hook
+  copilot``): Copilot carga todos los ``*.json`` de esa carpeta, así que el archivo es solo de
+  Railspec. Como el servidor MCP, solo corre en carpetas de confianza (en ``-p`` también). Copilot
+  entiende ``deny`` y ``ask``; sin sesión interactiva un ``ask`` se rechaza («unable to ask user for
+  confirmation»). Un hook que falla (error, ``railspec`` fuera del PATH) rechaza la tool; uno que
+  agota el tiempo la deja pasar.
 """
 
 from __future__ import annotations
+
+import json
+from typing import Any
 
 from ..piezas import ArchivoPropio, BloqueReglas, EntradaJson, Pieza
 
 DIR_SKILLS = ".github/skills"
 ARCHIVO_REGLAS = "AGENTS.md"
+ARCHIVO_HOOKS = ".github/hooks/railspec.json"
 
 
 def allowed_tools(servidor: str, tools: tuple[str, ...]) -> list[str]:
@@ -35,6 +45,7 @@ def piezas(
     entrada_mcp: EntradaJson,
     servidor: str,
     automaticas: tuple[str, ...],
+    hook: dict[str, Any],
 ) -> list[Pieza]:
     from ..arranque import con_frontmatter, skill_arranque
 
@@ -46,5 +57,6 @@ def piezas(
         ),
         ArchivoPropio(f"{DIR_SKILLS}/railspec-bucle/SKILL.md", con_frontmatter(skill_bucle, permisos)),
         entrada_mcp,
+        ArchivoPropio(ARCHIVO_HOOKS, json.dumps(hook, indent=2) + "\n"),
         BloqueReglas(ARCHIVO_REGLAS, reglas),
     ]

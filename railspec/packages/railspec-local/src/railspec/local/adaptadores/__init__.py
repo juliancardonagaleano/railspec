@@ -20,7 +20,8 @@ cambiar de modo, integrar) pase siempre por su confirmación.
 
 Donde el arnés tiene hooks previos a cada tool, las reglas de conducta se
 aplican además con ``railspec hook <arnés>`` (ver ``guardia.py``): un hook
-``PreToolUse`` en Claude Code y un plugin en OpenCode.
+``PreToolUse`` en Claude Code y en Codex, uno ``preToolUse`` en Copilot y un
+plugin en OpenCode.
 
 ``instalar``, ``verificar`` y ``desinstalar`` son idempotentes y solo tocan lo
 de Railspec: la entrada ``railspec`` de cada JSON, los permisos que añadió y el
@@ -55,6 +56,9 @@ __all__ = [
     "ADAPTADORES",
     "COMANDO_PROXY",
     "FIN_BLOQUE",
+    "HOOK_CLAUDE_CODE",
+    "HOOK_CODEX",
+    "HOOK_COPILOT",
     "INICIO_BLOQUE",
     "NOMBRE_SERVIDOR",
     "TOOLS_AUTOMATICAS",
@@ -92,6 +96,34 @@ HOOK_CLAUDE_CODE = {
         ["Write", "Edit", "MultiEdit", "NotebookEdit"] + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]
     ),
     "hooks": [{"type": "command", "command": "railspec hook claude-code", "timeout": 30}],
+}
+
+
+#: Lo mismo en Codex: ``apply_patch`` (su única tool de edición) y las tools humanas con su nombre MCP.
+#: Codex no ejecuta un hook de proyecto hasta que el humano lo revisa y confía (``/hooks``).
+HOOK_CODEX = {
+    "matcher": "|".join(["apply_patch"] + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]),
+    "hooks": [{"type": "command", "command": "railspec hook codex", "timeout": 30}],
+}
+
+#: Lo mismo en Copilot: sus tools de edición (``create``, ``edit`` y ``apply_patch``, según el modelo)
+#: y las humanas, que Copilot nombra ``<servidor>-<tool>``. Archivo propio: ``.github/hooks/*.json``
+#: carga todos los archivos de la carpeta.
+HOOK_COPILOT = {
+    "version": 1,
+    "hooks": {
+        "preToolUse": [
+            {
+                "type": "command",
+                "matcher": "|".join(
+                    ["create", "edit", "apply_patch"] + [f"railspec-{t}" for t in TOOLS_HUMANAS]
+                ),
+                "bash": "railspec hook copilot",
+                "powershell": "railspec hook copilot",
+                "timeoutSec": 30,
+            }
+        ]
+    },
 }
 
 
@@ -218,6 +250,7 @@ def _piezas_codex(raiz: Path, dir_worktrees: Path | None) -> list[Pieza]:
         COMANDO_PROXY,
         TOOLS_AUTOMATICAS,
         TOOLS_HUMANAS,
+        HOOK_CODEX,
     )
 
 
@@ -231,6 +264,7 @@ def _piezas_copilot(raiz: Path, dir_worktrees: Path | None) -> list[Pieza]:
         _entrada_mcp_json(),
         NOMBRE_SERVIDOR,
         TOOLS_AUTOMATICAS,
+        HOOK_COPILOT,
     )
 
 

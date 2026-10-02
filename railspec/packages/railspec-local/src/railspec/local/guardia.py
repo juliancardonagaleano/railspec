@@ -17,6 +17,12 @@ de una unidad cerrada no se edita), y lo que cae fuera del repositorio
 queda a los permisos del propio arnés. La salida de emergencia es
 ``RAILSPEC_GUARDIA=0`` en el entorno del arnés.
 
+Cada arnés llama a la guardia con su propio formato: ``hook_claude_code``,
+``hook_codex``, ``hook_copilot`` y ``hook_opencode``. Se parecen en lo
+esencial (nombre de la tool, argumentos, cwd) y difieren en cómo piden lo que
+la guardia quiere: Claude Code, Copilot y OpenCode pueden pedir confirmación;
+Codex no (su hook solo puede rechazar).
+
 Se lee el estado local como JSON plano, sin validarlo contra el contrato: el
 hook corre antes de cada edición y debe arrancar rápido.
 """
@@ -123,10 +129,16 @@ def _rechazo(motivo: str) -> Veredicto:
     return Veredicto(Decision.denegar, f"Railspec: {motivo} {_ESCAPE}")
 
 
+def apagada() -> bool:
+    """La salida de emergencia (``RAILSPEC_GUARDIA=0``) está puesta en el entorno del arnés."""
+
+    return os.environ.get(ENV_GUARDIA, "").strip().lower() in ("0", "no", "false", "off")
+
+
 def evaluar_escritura(rutas: list[Path], cwd: Path) -> Veredicto:
     """Veredicto para una tool que escribe en ``rutas`` (relativas a ``cwd`` si no son absolutas)."""
 
-    if os.environ.get(ENV_GUARDIA, "").strip().lower() in ("0", "no", "false", "off"):
+    if apagada():
         return PERMITIR
     absolutas = [_real(r if r.is_absolute() else cwd / r) for r in rutas]
     principal = clon_principal(absolutas[0] if absolutas else cwd) or clon_principal(cwd)
@@ -210,26 +222,46 @@ def rutas_de_patch(texto: str) -> list[str]:
     return [m.group(1).strip() for m in _PATCH.finditer(texto)]
 
 
-def _ruta_tool(tool: str, args: dict[str, Any]) -> list[str] | None:
-    """Rutas que escribe una tool de edición; ``None`` si la tool no escribe archivos."""
+def _ruta_tool(tool: str, args: dict[str, Any] | str) -> list[str] | None:
+    """Rutas que escribe una tool de edición; ``None`` si la tool no escribe archivos.
+
+    ``args`` es un objeto, salvo el parche de ``apply_patch`` en Copilot, que llega como texto.
+    """
 
     nombre = tool.lower()
-    if nombre in ("write", "edit", "multiedit", "notebookedit"):
-        ruta = args.get("file_path") or args.get("filePath") or args.get("notebook_path")
+    if nombre in ("write", "edit", "multiedit", "notebookedit", "create"):
+        if not isinstance(args, dict):
+            return []
+        # `path` es el de `create` y `edit` de Copilot.
+        ruta = args.get("file_path") or args.get("filePath") or args.get("notebook_path") or args.get("path")
         return [ruta] if isinstance(ruta, str) and ruta else []
     if nombre in ("patch", "apply_patch"):
-        texto = args.get("patchText") or args.get("patch") or args.get("input") or ""
+        # Codex: `{"command": parche}`; OpenCode: `{"patchText": parche}`; Copilot: el parche solo.
+        if isinstance(args, str):
+            texto: Any = args
+        else:
+            texto = args.get("patchText") or args.get("patch") or args.get("input") or args.get("command")
         return rutas_de_patch(texto) if isinstance(texto, str) else []
     return None
 
 
-def evaluar_tool(tool: str, args: dict[str, Any], cwd: Path) -> Veredicto:
+def _humana(tool: str) -> str | None:
+    """La tool del proxy que registra una decisión humana, con el nombre que le da cada arnés."""
+
+    # Claude Code y Codex: `mcp__railspec__unit_approve`; OpenCode: `railspec_unit_approve`;
+    # Copilot: `railspec-unit_approve`.
+    for humana in TOOLS_HUMANAS:
+        if tool in (f"mcp__railspec__{humana}", f"railspec_{humana}", f"railspec-{humana}"):
+            return humana
+    return None
+
+
+def evaluar_tool(tool: str, args: dict[str, Any] | str, cwd: Path) -> Veredicto:
     """Veredicto para una llamada a tool, con el nombre que le da el arnés."""
 
-    # Claude Code: `mcp__railspec__unit_approve`; OpenCode: `railspec_unit_approve`.
-    for humana in TOOLS_HUMANAS:
-        if tool in (f"mcp__railspec__{humana}", f"railspec_{humana}"):
-            return evaluar_tool_humana(humana)
+    humana = _humana(tool)
+    if humana is not None:
+        return evaluar_tool_humana(humana)
     rutas = _ruta_tool(tool, args)
     if rutas is None:
         return PERMITIR
@@ -238,13 +270,9 @@ def evaluar_tool(tool: str, args: dict[str, Any], cwd: Path) -> Veredicto:
     return evaluar_escritura([Path(r) for r in rutas], cwd)
 
 
-def hook_claude_code(entrada: dict[str, Any]) -> dict[str, Any] | None:
-    """Respuesta a un ``PreToolUse`` de Claude Code; ``None`` deja decidir al arnés."""
+def _salida_pretooluse(veredicto: Veredicto) -> dict[str, Any]:
+    """Formato de ``PreToolUse`` de Claude Code; Codex lo acepta igual (solo con ``deny``)."""
 
-    cwd = Path(entrada.get("cwd") or os.getcwd())
-    veredicto = evaluar_tool(entrada.get("tool_name", ""), entrada.get("tool_input") or {}, cwd)
-    if not veredicto.opina:
-        return None
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -252,6 +280,70 @@ def hook_claude_code(entrada: dict[str, Any]) -> dict[str, Any] | None:
             "permissionDecisionReason": veredicto.motivo,
         }
     }
+
+
+def hook_claude_code(entrada: dict[str, Any]) -> dict[str, Any] | None:
+    """Respuesta a un ``PreToolUse`` de Claude Code; ``None`` deja decidir al arnés."""
+
+    cwd = Path(entrada.get("cwd") or os.getcwd())
+    veredicto = evaluar_tool(entrada.get("tool_name", ""), entrada.get("tool_input") or {}, cwd)
+    return _salida_pretooluse(veredicto) if veredicto.opina else None
+
+
+#: Lo que Codex informa como ``permission_mode`` sin aprobaciones: ``approval_policy = "never"``, que es
+#: también ``--dangerously-bypass-approvals-and-sandbox``. Con cualquier otra política dice ``default``.
+SIN_APROBACIONES = "bypassPermissions"
+
+
+def hook_codex(entrada: dict[str, Any]) -> dict[str, Any] | None:
+    """Respuesta a un ``PreToolUse`` de Codex; ``None`` deja decidir al arnés.
+
+    El hook de Codex solo entiende ``deny``: un ``ask`` cuenta como error del hook y la tool corre.
+    Las tools que registran una decisión humana ya piden confirmación por su ``approval_mode = "prompt"``
+    (``.codex/config.toml``), así que el hook no opina… salvo sin aprobaciones, donde nadie puede
+    confirmar y lo que se queda sin confirmar se rechaza.
+    """
+
+    cwd = Path(entrada.get("cwd") or os.getcwd())
+    veredicto = evaluar_tool(entrada.get("tool_name", ""), entrada.get("tool_input") or {}, cwd)
+    if veredicto.decision == Decision.preguntar:
+        if apagada() or entrada.get("permission_mode") != SIN_APROBACIONES:
+            return None
+        veredicto = _rechazo(
+            f"{veredicto.motivo.removeprefix('Railspec: ')} Codex no puede pedirte confirmación sin "
+            "aprobaciones (approval_policy = never o --dangerously-bypass-approvals-and-sandbox): "
+            "relanza Codex con aprobaciones activas."
+        )
+    return _salida_pretooluse(veredicto) if veredicto.opina else None
+
+
+def _args_copilot(tool: str, args: Any) -> dict[str, Any] | str:
+    """``toolArgs`` de Copilot: un objeto (en versiones anteriores, texto JSON); el parche, texto plano."""
+
+    if isinstance(args, str):
+        try:
+            args = json.loads(args)
+        except json.JSONDecodeError:
+            return args if tool.lower() in ("apply_patch", "patch") else {}
+    if isinstance(args, dict):
+        return args
+    return args if isinstance(args, str) and tool.lower() in ("apply_patch", "patch") else {}
+
+
+def _salida_copilot(veredicto: Veredicto) -> dict[str, Any]:
+    return {"permissionDecision": veredicto.decision.value, "permissionDecisionReason": veredicto.motivo}
+
+
+def hook_copilot(entrada: dict[str, Any]) -> dict[str, Any] | None:
+    """Respuesta a un ``preToolUse`` de GitHub Copilot CLI; ``None`` deja decidir al arnés.
+
+    Copilot admite ``ask`` (en modo interactivo pregunta; en ``-p`` no hay a quién y rechaza).
+    """
+
+    cwd = Path(entrada.get("cwd") or os.getcwd())
+    tool = entrada.get("toolName", "")
+    veredicto = evaluar_tool(tool, _args_copilot(tool, entrada.get("toolArgs")), cwd)
+    return _salida_copilot(veredicto) if veredicto.opina else None
 
 
 def dir_worktrees(desde: Path) -> Path | None:
@@ -283,4 +375,18 @@ def hook_opencode(entrada: dict[str, Any]) -> dict[str, Any]:
     return {"decision": veredicto.decision.value, "motivo": veredicto.motivo}
 
 
-HOOKS = {"claude-code": hook_claude_code, "opencode": hook_opencode}
+HOOKS = {
+    "claude-code": hook_claude_code,
+    "codex": hook_codex,
+    "copilot": hook_copilot,
+    "opencode": hook_opencode,
+}
+
+
+def denegar(arnes: str, motivo: str) -> dict[str, Any]:
+    """Rechazo en el formato del arnés: lo que ``railspec hook`` responde si la guardia falla."""
+
+    veredicto = Veredicto(Decision.denegar, motivo)
+    if arnes == "opencode":
+        return {"decision": veredicto.decision.value, "motivo": motivo}
+    return _salida_copilot(veredicto) if arnes == "copilot" else _salida_pretooluse(veredicto)

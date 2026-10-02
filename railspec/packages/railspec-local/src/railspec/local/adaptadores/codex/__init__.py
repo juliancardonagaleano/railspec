@@ -12,6 +12,14 @@ Verificado con codex-cli 0.159.3:
   ``railspec`` (el humano escribe ``$railspec <petición>``) y el bucle, la skill
   ``railspec-bucle``, ambas en ``.agents/skills/`` (la carpeta común de skills).
 - Las reglas van en ``AGENTS.md``, el mismo bloque que OpenCode.
+- Reglas aplicadas con un hook ``PreToolUse`` en ``.codex/hooks.json`` (``railspec hook
+  codex``; mismo formato de archivo que los hooks de Claude Code). Codex no ejecuta un hook de
+  proyecto hasta que el humano lo revisa y confía (``/hooks`` en el TUI; la confianza queda en
+  ``~/.codex/config.toml``, por máquina y ligada al contenido del hook, así que cada cambio del
+  hook pide revisarlo de nuevo). Solo ``deny`` funciona: un ``ask`` cuenta como error y la tool
+  corre, así que la confirmación de las tools humanas sigue siendo ``approval_mode`` (ver
+  ``guardia.hook_codex``). Un hook que no llega a ejecutarse (``railspec`` fuera del PATH, tiempo
+  agotado) deja pasar la tool: no falla cerrado.
 
 El bloque TOML va entre comentarios marcadores al final del archivo y solo
 contiene tablas, así que no cambia el significado de lo que el humano tenga
@@ -26,13 +34,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...errores import ErrorRailspec
-from ..piezas import ArchivoPropio, BloqueReglas, Pieza
+from ..piezas import ArchivoPropio, BloqueReglas, EntradaHook, Pieza
 
 INICIO_TOML = "# railspec:inicio (generado por `railspec instalar`; no editar dentro)"
 FIN_TOML = "# railspec:fin"
 ARCHIVO_CONFIG = ".codex/config.toml"
 DIR_SKILLS = ".agents/skills"
 ARCHIVO_REGLAS = "AGENTS.md"
+ARCHIVO_HOOKS = ".codex/hooks.json"
 
 _PATRON = re.compile(r"\n?" + re.escape(INICIO_TOML) + r".*?" + re.escape(FIN_TOML) + r"\n?", re.DOTALL)
 
@@ -134,6 +143,7 @@ def piezas(
     comando_proxy: list[str],
     automaticas: tuple[str, ...],
     humanas: tuple[str, ...],
+    hook: dict,
 ) -> list[Pieza]:
     from ..arranque import skill_arranque
 
@@ -141,5 +151,6 @@ def piezas(
         ArchivoPropio(f"{DIR_SKILLS}/railspec/SKILL.md", skill_arranque(comando, "`$railspec`")),
         ArchivoPropio(f"{DIR_SKILLS}/railspec-bucle/SKILL.md", skill_bucle),
         BloqueToml(ARCHIVO_CONFIG, config_mcp(servidor, comando_proxy, automaticas, humanas), servidor),
+        EntradaHook(ARCHIVO_HOOKS, ("hooks", "PreToolUse"), hook, "railspec hook "),
         BloqueReglas(ARCHIVO_REGLAS, reglas),
     ]
