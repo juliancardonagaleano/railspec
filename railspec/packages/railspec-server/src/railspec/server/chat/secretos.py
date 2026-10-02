@@ -3,6 +3,14 @@
 ``railspec-server`` y ``railspec-local`` nunca se importan entre sí, así que la
 lista se copia de ``railspec/local/secretos.py``; una prueba compara ambas
 cuando los dos paquetes están instalados, para que no diverjan.
+
+Los cuantificadores que aceptan una corrida larga llevan cota (esquema, usuario
+y clave de ``cadena-conexion``; cabecera de ``jwt``): el texto lo manda el
+cliente y sin cota ``re`` reintenta el mismo tramo desde cada frontera de
+palabra, con costo cuadrático. Una cadena de conexión con esquema de más de 32
+caracteres, usuario de más de 128 o clave de más de 256 (o un ``jwt`` con
+cabecera de más de 256) ya no se detecta; todo lo demás, sí, con el criterio de
+antes. La suma de las cotas de ``cadena-conexion`` cabe en ``motor.escaneo.SOLAPE``.
 """
 
 from __future__ import annotations
@@ -22,8 +30,8 @@ PATRONES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         ("openai-key", r"\bsk-(?:proj-)?[A-Za-z0-9]{32,}\b"),
         ("azure-storage", r"AccountKey=[A-Za-z0-9+/=]{40,}"),
         ("azure-sas", r"[?&]sig=[A-Za-z0-9%+/=]{30,}"),
-        ("cadena-conexion", r"\b[a-z][a-z0-9+.-]*://[^\s:/@'\"]+:[^\s@'\"]{3,}@[^\s'\"]+"),
-        ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+        ("cadena-conexion", r"\b[a-z][a-z0-9+.-]{0,31}://[^\s:/@'\"]{1,128}:[^\s@'\"]{3,256}@[^\s'\"]+"),
+        ("jwt", r"\beyJ[A-Za-z0-9_-]{10,256}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
         (
             "asignacion-secreto",
             r"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|client[_-]?secret)"

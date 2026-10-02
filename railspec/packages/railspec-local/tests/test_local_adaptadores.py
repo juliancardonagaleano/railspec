@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 from railspec.contracts.comun import Arnes
@@ -177,6 +178,39 @@ def test_no_marca_codigo_normal(linea):
 def test_redacta_secretos_en_salida_libre():
     texto = secretos.redactar("fallo con AKIAABCDEFGHIJKLMNOP en el log")
     assert "AKIA" not in texto and "[secreto:aws-access-key]" in texto
+
+
+#: Líneas de unos 64 000 caracteres que hacían cuadráticas a ``cadena-conexion`` y a ``jwt``:
+#: antes de acotar los patrones, de 1,4 a 8,7 s cada una; ahora, de 20 a 110 ms.
+_LINEAS_PATOLOGICAS = {
+    "a.": "a." * 32_000,
+    "esquema-largo": "a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.://b:" * 1_700,
+    "usuario-sin-clave": "a://b:" * 10_600,
+    "cabecera-jwt": "eyJ-" * 16_000,
+}
+
+
+@pytest.mark.parametrize("nombre", sorted(_LINEAS_PATOLOGICAS))
+def test_una_linea_hecha_para_estancar_las_expresiones_regulares_no_estanca_al_proxy(nombre):
+    texto = _LINEAS_PATOLOGICAS[nombre]
+    inicio = time.perf_counter()
+    assert secretos.escanear("x.py", texto.encode()) == []
+    assert secretos.redactar(texto) == texto
+    assert time.perf_counter() - inicio < 1.0
+
+
+@pytest.mark.parametrize(
+    ("linea", "clave"),
+    [
+        ("mongodb+srv://root:hunter2hunter2@cluster0.mongodb.net/app?retryWrites=true", "hunter2hunter2"),
+        ("postgresql+asyncpg://app:p%40ssw0rd%21@db.internal:5432/app", "p%40ssw0rd%21"),
+        ("git clone https://x-access-token:ghs_notarealtoken@github.com/org/repo.git", "ghs_notarealtoken"),
+    ],
+)
+def test_las_cadenas_de_conexion_de_siempre_se_siguen_detectando_y_redactando(linea, clave):
+    assert [h.tipo for h in secretos.escanear("x.py", linea.encode())] == ["cadena-conexion"]
+    redactada = secretos.redactar(linea)
+    assert "[secreto:cadena-conexion]" in redactada and clave not in redactada
 
 
 # --- permisos, desinstalación y paso de instalación completo ------------------------------

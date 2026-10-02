@@ -75,11 +75,17 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   - El diff incluye las líneas borradas y el proxy solo escanea el árbol
     final: un cambio que retira un secreto ya commiteado se rechaza en
     `abierto` porque el diff lleva el valor viejo.
-  - Las líneas de más de 1024 caracteres se revisan por tramos solapados (un
-    secreto de hasta 512 caracteres cabe entero en alguno): el texto lo manda
-    el cliente y `cadena-conexion` es cuadrática en una corrida larga de
-    `[a-z0-9+.-]`; sin tramos, un diff de 2 MB hecho a propósito ocuparía el
-    servidor media hora y así ocupa unos 3 s.
+  - Ningún patrón cuesta más que lineal sobre el texto del cliente:
+    `cadena-conexion` (esquema de hasta 32 caracteres, usuario de hasta 128 y
+    clave de hasta 256) y `jwt` (cabecera de hasta 256) llevan cota en sus
+    cuantificadores, igual en el servidor y en el proxy. Sin ellas eran
+    cuadráticos en una corrida larga de `[a-z0-9+.-]` (`a.a.a.…`) y un diff de
+    2 MB hecho a propósito ocupaba el servidor media hora; ahora se revisa en
+    menos de un segundo. Una cadena de conexión que pase de esas cotas (o un
+    `jwt` con cabecera de más de 256) ya no se detecta.
+  - Como segunda barrera, las líneas de más de 1024 caracteres se revisan por
+    tramos solapados (un secreto de hasta 512 caracteres cabe entero en
+    alguno; la cadena de conexión más larga que detecta el patrón mide 422).
 - Sincronización (contrato 1.3): `sync.pull` pagina los eventos remoto→local;
   `sync.push` recibe la cola local→remoto del proxy, idempotente por id y sin
   huecos (`secuencia-con-hueco`). Esa dirección la numera solo el proxy: el

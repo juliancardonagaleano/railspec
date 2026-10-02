@@ -9,10 +9,12 @@ la ruta, nunca el valor.
 
 Un falso positivo se corrige en el patrón, en los dos lados; no hay bypass.
 
-El texto lo manda el cliente y ``cadena-conexion`` cuesta tiempo cuadrático en
-una corrida larga de ``[a-z0-9+.-]`` (64 000 caracteres: unos 2 s; un diff de
-2 MB: media hora). Por eso ninguna búsqueda ve más de ``VENTANA`` caracteres
-seguidos: las líneas más largas se revisan por tramos solapados.
+El texto lo manda el cliente, así que ningún patrón puede costar más que lineal
+en él. ``cadena-conexion`` y ``jwt`` lo eran (64 000 caracteres: de 1 a 9 s; un
+diff de 2 MB hecho a propósito: media hora) y ``chat.secretos`` ya acota sus
+cuantificadores. Como segunda barrera, por si algún patrón futuro no lo hace,
+ninguna búsqueda ve más de ``VENTANA`` caracteres seguidos: las líneas más
+largas se revisan por tramos solapados.
 """
 
 from __future__ import annotations

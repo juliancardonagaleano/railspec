@@ -289,14 +289,108 @@ def test_secreto_que_cabe_en_el_solape_no_se_pierde_en_el_corte_de_tramos():
 
 
 def test_un_diff_hecho_para_estancar_las_expresiones_regulares_no_estanca_el_servidor():
-    """``cadena-conexion`` es cuadrática en una corrida larga de ``[a-z0-9+.-]``: sin tramos,
-    un diff de 1 MB así tardaría unos 9 minutos y bloquearía el bucle de eventos."""
+    """Con las cotas de los patrones y los tramos de ``escaneo`` juntos, un diff de 2 MB hecho
+    a propósito se revisa en una fracción de segundo (antes de las cotas, ``cadena-conexion``
+    tardaba media hora y los tramos lo dejaban en unos 3 s)."""
 
-    diff = "+" + "a." * 500_000 + "\n"
+    diff = "+" + "a." * 999_000 + "\n"
     snapshot = _snapshot(_ORDEN_SUELTA, NivelCodigo.abierto, diff=diff)
     inicio = time.perf_counter()
     assert hallazgos_de_secretos(snapshot) == []
-    assert time.perf_counter() - inicio < 30
+    assert time.perf_counter() - inicio < 5
+
+
+LARGO_PATOLOGICO = 64_000
+
+
+def _repetido(unidad: str) -> str:
+    return unidad * (LARGO_PATOLOGICO // len(unidad))
+
+
+#: Texto de unos 64 000 caracteres que hacía cuadráticas a ``cadena-conexion`` (corridas de
+#: ``[a-z0-9+.-]`` con muchas fronteras de palabra, ``://`` repetidos) y a ``jwt`` (``eyJ-``).
+_ENTRADAS_PATOLOGICAS = {
+    "a.": _repetido("a."),
+    "a-corrida-y-a.a.a.": "a" * LARGO_PATOLOGICO + "a.a.a.",
+    "esquema-largo": _repetido("a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.://b:"),
+    "usuario-sin-clave": _repetido("a://b:"),
+    "usuario-con-clave-larga": "a://" + _repetido("b:"),
+    "cabecera-jwt": _repetido("eyJ-"),
+    "payload-jwt": "eyJ-" * 60 + "aaaaaaaaaa.eyJ" + "a" * LARGO_PATOLOGICO,
+    "asignacion": _repetido("password="),
+    "token": "ghp_" + "a" * LARGO_PATOLOGICO + "_",
+    "slack": "xoxb-" + "-" * LARGO_PATOLOGICO,
+}
+#: Holgura de más de 10 veces sobre el peor caso medido; el patrón sin cotas tardaba entre 1 y 7 s.
+PRESUPUESTO_BUSQUEDA = 0.5
+
+
+@pytest.mark.parametrize("entrada", sorted(_ENTRADAS_PATOLOGICAS))
+def test_ningun_patron_es_cuadratico_en_texto_hecho_para_estancarlo(entrada):
+    texto = _ENTRADAS_PATOLOGICAS[entrada]
+    assert len(texto) >= LARGO_PATOLOGICO - 100
+    lentos = []
+    for nombre, patron in secretos.PATRONES:
+        inicio = time.perf_counter()
+        patron.search(texto)
+        duracion = time.perf_counter() - inicio
+        if duracion > PRESUPUESTO_BUSQUEDA:
+            lentos.append(f"{nombre}: {duracion:.2f} s")
+    assert not lentos, lentos
+
+
+def _cadena(esquema=7, usuario=5, clave=12):
+    return f"{'a' * esquema}://{'u' * usuario}:{'p' * clave}@db:27017"
+
+
+@pytest.mark.parametrize(
+    "linea",
+    [
+        pytest.param("mongodb://admin:s3cr3tpass@db:27017", id="mongodb"),
+        pytest.param(
+            "mongodb+srv://root:hunter2hunter2@cluster0.mongodb.net/app?retryWrites=true", id="mongodb-srv"
+        ),
+        pytest.param("postgresql+asyncpg://app:p%40ssw0rd%21@db.internal:5432/app", id="postgresql-asyncpg"),
+        pytest.param(
+            "git clone https://x-access-token:ghs_notarealtoken@github.com/org/repo.git", id="https"
+        ),
+        pytest.param("DATABASE_URL=redis://cache:c0ntr4senia@redis.svc:6379/0", id="redis"),
+        pytest.param(_cadena(32, 128, 256), id="en-el-limite"),
+        pytest.param(_cadena(1, 1, 3), id="minima"),
+    ],
+)
+def test_las_cadenas_de_conexion_de_siempre_se_siguen_detectando(linea):
+    assert secretos.detectar(linea) == ["cadena-conexion"]
+
+
+@pytest.mark.parametrize(
+    ("linea", "detectada"),
+    [
+        pytest.param(_cadena(esquema=32), True, id="esquema-32"),
+        pytest.param(_cadena(esquema=33), False, id="esquema-33"),
+        pytest.param(_cadena(usuario=128), True, id="usuario-128"),
+        pytest.param(_cadena(usuario=129), False, id="usuario-129"),
+        pytest.param(_cadena(clave=256), True, id="clave-256"),
+        pytest.param(_cadena(clave=257), False, id="clave-257"),
+        pytest.param("eyJ" + "a" * 256 + ".eyJ" + "b" * 12 + "." + "c" * 12, True, id="jwt-cabecera-256"),
+        pytest.param("eyJ" + "a" * 257 + ".eyJ" + "b" * 12 + "." + "c" * 12, False, id="jwt-cabecera-257"),
+    ],
+)
+def test_las_cotas_de_cadena_conexion_y_jwt_son_las_documentadas(linea, detectada):
+    assert bool(secretos.detectar(linea)) is detectada
+
+
+def test_la_cadena_de_conexion_mas_larga_que_se_detecta_cabe_en_el_solape():
+    """Un secreto de hasta ``SOLAPE`` caracteres no se pierde en el corte de tramos de ``escaneo``."""
+
+    secreto = _cadena(32, 128, 256).removesuffix(":27017")  # esquema, usuario, clave y un carácter de host
+    assert len(secreto) < SOLAPE
+    paso = VENTANA - SOLAPE
+    for corte in range(paso - len(secreto), paso + 1, 11):
+        linea = "x " * 2_000
+        linea = linea[:corte] + " " + secreto + " " + linea[corte:]
+        snapshot = _snapshot(_ORDEN_SUELTA, NivelCodigo.interno, fragmentos=[_fragmento(linea)])
+        assert hallazgos_de_secretos(snapshot) == [f"cadena-conexion en el fragmento {RUTA}"], corte
 
 
 def test_resumen_acota_los_hallazgos_informados():
