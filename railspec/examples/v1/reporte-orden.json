@@ -66,7 +66,7 @@
       "unidad": "0001-emitir-pdf",
       "workspace": "certificados"
     },
-    "version_contrato": "1.4"
+    "version_contrato": "1.5"
   },
   "tareas_completadas": [
     "T-01"
@@ -83,5 +83,5 @@
     "recortada": false,
     "salida": "3 passed"
   },
-  "version_contrato": "1.4"
+  "version_contrato": "1.5"
 }

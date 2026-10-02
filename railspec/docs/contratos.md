@@ -132,6 +132,18 @@ su prueba negativa.
   `distancia` >= 1 y `relacion`, todos con `riesgo`) y `trace` (por `criterio`,
   que exige `unidad`, devuelve `RefSimbolo`; por `simbolo` devuelve
   `RefCriterio`). Los resultados admiten `RefCriterio`.
+- **Cobertura del índice (1.5).** `graph.index` añade `commits_cubiertos`:
+  los commits de la rama por defecto que el índice incorpora al canónico
+  (`git rev-list --first-parent`, los más recientes primero, a lo sumo
+  `MAX_COMMITS_CUBIERTOS` = 1000; puede incluir el propio `commit`). El
+  servidor no tiene git: con la lista retira, al avanzar el canónico, solo las
+  superposiciones retenidas de unidades integradas en el commit del índice o
+  en alguno de ellos. Vacía = no cubre más que el commit del índice; ausente
+  (cliente 1.4) = las integradas en el commit del índice y, con índice
+  completo, todas. Es un campo de entrada opcional y la salida no cambia: un
+  servidor 1.5 acepta mensajes 1.4 y les responde con su `version_contrato`;
+  uno 1.4 rechaza el campo con 422 (`reindexar.py` reintenta sin él). Orden de
+  despliegue: servidor primero, luego el workflow.
 - **Portabilidad (1.4).** `unit.import` crea una unidad nueva desde un
   paquete `railspec.unidad/v1`. Los artefactos presentes forman un prefijo
   (spec, plan, tasks) y `fase_retomar` es la primera fase sin artefacto, o
@@ -162,7 +174,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.4`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.5`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -184,7 +196,10 @@ su prueba negativa.
   `railspec.unidad/v1`, la causa de escalado `importado` y
   `commit_integrado` opcional en `unit.integrate`, para conservar la
   superposición de la unidad en el grafo hasta que el canónico alcance ese
-  commit.
+  commit; `1.5` añade `commits_cubiertos` opcional en `graph.index`, con el
+  que CI declara los commits que cada índice incorpora y el servidor retira
+  solo las superposiciones de unidades integradas en ellos. La salida de
+  `graph.index` no cambia. Sin el campo (clientes 1.4) rige la regla de 1.4.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

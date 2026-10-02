@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from local_fabricas import ServidorDoble, crear_proxy
+from railspec.contracts import VERSION_CONTRATO
 from railspec.contracts.comun import Fase, Perfil, Riesgo
 from railspec.contracts.orden import Artefacto
 from railspec.local import cli, portabilidad
@@ -207,7 +208,7 @@ def test_exportar_escribe_el_paquete_de_unit_export(tmp_path):
         "unit.export",
         {
             "unidad": {"org": "acme", "workspace": "certificados", "unidad": "0001-sumar"},
-            "version_contrato": "1.4",
+            "version_contrato": VERSION_CONTRATO,
         },
     )
     assert resultado["artefactos"] == ["spec", "plan", "tasks"]
