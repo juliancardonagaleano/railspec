@@ -60,7 +60,9 @@ class Meta:
 
     ``borrados`` y ``aristas_borradas`` son las lápidas de una superposición o
     lo que un índice incremental borra; ``base``, ``lotes`` y ``recibidos``
-    solo los usa el grafo de preparación de ``graph.index``.
+    solo los usa el grafo de preparación de ``graph.index``. ``integrado`` lo
+    pone ``unit.integrate`` en la superposición de una unidad ya integrada: el
+    commit que el índice canónico debe alcanzar para que pueda retirarse.
     """
 
     commit: str | None = None
@@ -70,6 +72,7 @@ class Meta:
     base: str | None = None
     lotes: int | None = None
     recibidos: list[int] = field(default_factory=list)
+    integrado: str | None = None
 
 
 @runtime_checkable

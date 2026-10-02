@@ -9,6 +9,9 @@
   como lápidas que ocultan el canónico.
 - Una consulta con ``unidad`` ve canónico + superposición; sin ella, solo
   el canónico.
+- Al integrar una unidad su superposición se retiene (marcada con el commit
+  integrado) hasta que ``graph.index`` lleva el canónico a ese commit; sin
+  commit se descarta al momento.
 - La comparación base contra snapshot (``impacto``) parte de lo que la
   superposición toca y recorre el canónico aguas arriba; el gate de código y
   el verbo ``impact`` de ``graph.query`` (1.4) la usan.
@@ -276,6 +279,45 @@ class AlmacenGrafo:
         """La unidad se integró en ``hasta``; el canónico la cubre cuando el indexador llegue a ese commit."""
 
         self._acceso.espacio(alcance, unidad).borrar()
+
+    def retener_superposicion(self, alcance: AlcanceRepositorio, unidad: str, integrado: str) -> bool:
+        """La unidad se integró en ``integrado``: su superposición sigue visible a las consultas
+        con ``unidad`` hasta que el canónico alcance ese commit.
+
+        Devuelve si queda retenida. Si el canónico ya está en ``integrado`` la superposición
+        sobra y se borra al momento; si no tiene superposición no hay nada que retener. La
+        retira ``retirar_superposiciones`` cuando ``IndexadorCanonico`` aplica un índice."""
+
+        sup = self._acceso.espacio(alcance, unidad)
+        if not sup.existe():
+            return False
+        if self._acceso.espacio(alcance).meta().commit == integrado:
+            sup.borrar()
+            return False
+        meta = sup.meta()
+        meta.integrado = integrado
+        sup.fijar_meta(meta)
+        return True
+
+    def retirar_superposiciones(
+        self, alcance: AlcanceRepositorio, aplicado: str, completo: bool
+    ) -> list[str]:
+        """El canónico acaba de avanzar a ``aplicado``: borra las retenidas que ese commit cubre.
+
+        Cubre las integradas en ``aplicado`` y, con un índice ``completo`` (CI perdió la cadena de
+        deltas: corridas saltadas o fallidas entre dos commits), todas las retenidas. El servidor no
+        tiene git, así que no puede ordenar un commit anterior de otro; el índice completo es lo
+        único con lo que CI declara que re-afirma la rama entera. Las superposiciones sin
+        ``integrado`` son de unidades en curso y no se tocan. Devuelve las unidades retiradas."""
+
+        retiradas = []
+        for unidad in self._acceso.superposiciones(alcance):
+            sup = self._acceso.espacio(alcance, unidad)
+            integrado = sup.meta().integrado
+            if integrado is not None and (completo or integrado == aplicado):
+                sup.borrar()
+                retiradas.append(unidad)
+        return retiradas
 
     def borrar_repositorio(self, alcance: AlcanceRepositorio) -> None:
         self._acceso.borrar_repositorio(alcance)

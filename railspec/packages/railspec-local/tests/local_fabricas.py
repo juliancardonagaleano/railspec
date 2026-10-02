@@ -24,18 +24,22 @@ from railspec.contracts.comun import (
     Criterio,
     EstadoFase,
     Fase,
+    GateFase,
     GobernanzaConsultada,
     Modo,
     NivelCodigo,
     Perfil,
     Riesgo,
     RolRepositorio,
+    Veredicto,
 )
 from railspec.contracts.estado import (
     Checkpoint,
     ConversionModo,
     EstadoUnidad,
+    Integracion,
     RepositorioUnidad,
+    ResultadoGate,
     TipoCheckpoint,
 )
 from railspec.contracts.eventos import Direccion, EventoSync, OrdenEmitida
@@ -72,6 +76,7 @@ from railspec.contracts.tools import (
     UnitExportSalida,
     UnitImportEntrada,
     UnitImportSalida,
+    UnitIntegrateEntrada,
     UnitReportSalida,
     UnitSetModeEntrada,
     UnitStartEntrada,
@@ -148,6 +153,7 @@ class ServidorDoble:
         self.rechazar_con: CodigoError | None = None
         self.checkpoint: Checkpoint | None = None
         self.resoluciones: list[UnitApproveEntrada] = []
+        self.integraciones: list[UnitIntegrateEntrada] = []
         self.consultas_grafo: list[GraphQueryEntrada] = []
         self.eventos_subidos: list[EventoSync] = []
         self.eventos_remotos: list[EventoSync] = []
@@ -362,6 +368,26 @@ class ServidorDoble:
         self.resoluciones.append(entrada)
         self.checkpoint = None
         self._actualizar(checkpoint_pendiente=None)
+        assert self.estado is not None
+        return EstadoSalida(estado=self.estado)
+
+    def _unit_integrate(self, args: dict[str, Any]) -> EstadoSalida:
+        entrada = UnitIntegrateEntrada.model_validate(args)
+        self.integraciones.append(entrada)
+        gate = ResultadoGate(
+            veredicto=Veredicto.aprobado,
+            iteraciones=0,
+            gobernanza_consultada=GobernanzaConsultada.si,
+            cerrado_en=T0,
+        )
+        self._actualizar(
+            fase=Fase.done,
+            estado=EstadoFase.completado,
+            gates={**self.estado.gates, GateFase.codigo: gate},
+            integracion=Integracion(
+                actor=JULIAN, en=T0, especificacion_viva=entrada.especificacion_viva, pr_url=entrada.pr_url
+            ),
+        )
         assert self.estado is not None
         return EstadoSalida(estado=self.estado)
 

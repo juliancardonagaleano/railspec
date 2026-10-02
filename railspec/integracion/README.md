@@ -8,7 +8,8 @@ FalkorDB reales.
 ```
 unit.start → orden redactar spec → unit.report → checkpoint (formulario) → plan → checkpoint
   → tasks → implementar (snapshot + delta del índice) → validar → cierre
-  → commit empujado (sync.push) → unit.integrate → sync.pull
+  → commit empujado (sync.push) → merge del PR → unit.integrate → sync.pull
+  → CI reindexa el merge (graph.index) → la superposición de la unidad se retira
 ```
 
 Todo en nivel `restringido`: las pruebas buscan una marca que solo existe en
@@ -23,6 +24,7 @@ FalkorDB.
 | `docker-compose.yml` | Mongo 7, FalkorDB y `railspec-server` (imagen de `Dockerfile.servidor`). |
 | `railspec_e2e/servidor.py` | El servidor real (`ensamblar`) con dos dobles: proveedor de modelo guionado (los críticos responden sin hallazgos) y gobernanza fija. Siembra el vínculo del repositorio en `restringido` y el rol del usuario de desarrollo. No necesita credenciales de Foundry ni de PCE. |
 | `railspec_e2e/arnes.py` | Arnés simulado: cliente MCP por stdio que escribe artefactos y código en el worktree, responde los checkpoints por *elicitation* y sigue `unit_advance` hasta `cerrada`. |
+| `railspec_e2e/ci.py` | El job `railspec-reindexar`: `railspec/deploy/ci/reindexar.py` real (indexador y HTTP reales) contra el servidor, con un emisor OIDC local en loopback (`RAILSPEC_OIDC_*` del subproceso) en lugar del de GitHub Actions. Con `RAILSPEC_E2E_URL` el servidor no lo conoce y esas pruebas se saltan. |
 | `tests/` | El recorrido, una vez por módulo, y una prueba por cada parte que comprueba. |
 
 ## Correr las pruebas

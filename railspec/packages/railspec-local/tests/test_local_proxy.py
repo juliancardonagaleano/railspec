@@ -258,6 +258,72 @@ def test_rama_empujada_se_avisa_una_vez_como_commit_empujado(tmp_path):
     assert evento.carga.rama == "railspec/0001-sumar" and evento.secuencia == 1
 
 
+def _con_remoto(tmp_path, worktree) -> Path:
+    """Un remoto con ``main`` publicado desde el clon; devuelve su ruta."""
+
+    remoto = tmp_path / "remoto.git"
+    sh(tmp_path, "init", "-q", "--bare", "-b", "main", str(remoto))
+    sh(worktree, "remote", "add", "origin", str(remoto))
+    sh(worktree, "push", "-q", "origin", "main:refs/heads/main")
+    return remoto
+
+
+def test_integrar_manda_la_punta_de_la_rama_por_defecto_del_remoto(tmp_path):
+    servidor = ServidorDoble()
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    remoto = _con_remoto(tmp_path, worktree)
+    # Otro desarrollador mergea el PR de la unidad: el clon local aún no lo ha traído.
+    otro = tmp_path / "otro"
+    sh(tmp_path, "clone", "-q", str(remoto), str(otro))
+    sh(otro, "config", "user.email", "otro@example.com")
+    sh(otro, "config", "user.name", "Otro")
+    (otro / "src" / "calc.py").write_text(CORREGIDO, encoding="utf-8")
+    sh(otro, "commit", "-q", "-am", "merge de la unidad")
+    sh(otro, "push", "-q", "origin", "main")
+    integrado = sh(otro, "rev-parse", "HEAD").strip()
+    assert sh(worktree, "rev-parse", "origin/main").strip() != integrado
+
+    salida = correr(proxy.integrar(None, "specs/suma.md", "https://github.com/acme/certificados-api/pull/1"))
+    assert salida["integrada"] is True and salida["commit_integrado"] == integrado
+    (entrada,) = servidor.integraciones
+    assert entrada.commit_integrado == integrado
+    assert entrada.especificacion_viva == "specs/suma.md" and entrada.pr_url.endswith("/pull/1")
+
+
+def test_integrar_con_commit_explicito_no_consulta_el_remoto(tmp_path):
+    servidor = ServidorDoble()
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    _con_remoto(tmp_path, worktree)
+    squash = "5" * 40
+
+    salida = correr(proxy.integrar(None, "specs/suma.md", commit_integrado=squash))
+    assert salida["commit_integrado"] == squash
+    assert servidor.integraciones[0].commit_integrado == squash
+
+
+def test_integrar_sin_remoto_no_manda_commit_y_el_servidor_descarta(tmp_path):
+    servidor = ServidorDoble()
+    proxy, _, _ = arrancar(tmp_path, servidor)
+
+    salida = correr(proxy.integrar(None, "specs/suma.md"))
+    assert salida["integrada"] is True and salida["commit_integrado"] is None
+    assert servidor.integraciones[0].commit_integrado is None
+
+
+def test_integrar_sin_red_no_manda_una_referencia_vieja(tmp_path):
+    """Sin traer la rama no se sabe si el commit local sigue siendo el que indexará CI."""
+
+    servidor = ServidorDoble()
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    remoto = _con_remoto(tmp_path, worktree)
+    assert sh(worktree, "rev-parse", "origin/main").strip()  # hay una referencia conocida
+    remoto.rename(tmp_path / "remoto-caido.git")  # el fetch falla; no se pide credencial ni se espera
+
+    salida = correr(proxy.integrar(None, "specs/suma.md"))
+    assert salida["integrada"] is True and salida["commit_integrado"] is None
+    assert servidor.integraciones[0].commit_integrado is None
+
+
 def test_un_rechazo_del_servidor_gana_y_se_informa(tmp_path):
     servidor = ServidorDoble([orden_implementar])
     proxy, worktree, _ = arrancar(tmp_path, servidor)
