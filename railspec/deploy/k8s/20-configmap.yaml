@@ -34,6 +34,10 @@ data:
   RAILSPEC_OIDC_AUDIENCIA: "${RAILSPEC_OIDC_AUDIENCIA}"
   RAILSPEC_OIDC_EMISOR: "${RAILSPEC_OIDC_EMISOR}"
   RAILSPEC_OIDC_REPOSITORIOS: "${RAILSPEC_OIDC_REPOSITORIOS}"
+  # Cuándo caduca lo que deja a medias graph.index (superposiciones de unidades sin actividad y
+  # preparaciones de índices que no completaron); 0 = nunca. Ver railspec/docs/grafo.md.
+  RAILSPEC_GRAFO_SUPERPOSICION_DIAS: "${RAILSPEC_GRAFO_SUPERPOSICION_DIAS}"
+  RAILSPEC_GRAFO_INDEXADO_HORAS: "${RAILSPEC_GRAFO_INDEXADO_HORAS}"
   # Consola web: base pública de la redirección de OAuth de la GitHub App y
   # administradores de la plataforma. Client id/secret de la App y
   # RAILSPEC_CONSOLA_SECRETO (obligatoria, mínimo 32 caracteres) van en el Secret (ver

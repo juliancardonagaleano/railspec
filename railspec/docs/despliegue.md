@@ -335,8 +335,11 @@ nada que limpiar a mano.
 - `0` desactiva cada una y admiten fracciones (`0.5`). El servidor las lee al
   arrancar: un valor que no es un número, negativo o desmesurado impide
   arrancar, con el nombre de la variable en el error.
-- Hoy no pasan por `renderizar.py` ni por el ConfigMap: con los valores por
-  defecto no hay nada que hacer.
+- Pasan por `renderizar.py` al ConfigMap con esos mismos defectos, así que
+  con ellos no hay nada que hacer. El renderizador solo admite decimales
+  (`7`, `0.5`; no `1e3`) y rechaza un valor negativo o desmesurado antes de
+  aplicar nada al clúster, porque el servidor no arrancaría con él. Vacía
+  vuelve al defecto, como en el servidor; `0` llega tal cual.
 - El barrido corre cuando llega un `graph.index` del repositorio (un índice
   aplicado, o el primer lote de un commit nuevo), así que un repositorio que
   no se indexa no se barre. Lo borrado queda en el log del servidor (INFO,

@@ -126,6 +126,71 @@ def test_render_oidc_exige_repositorios_y_una_audiencia_no_adivinable():
     assert mapa["RAILSPEC_OIDC_REPOSITORIOS"] == "acme/api,acme/web"
 
 
+GRAFO = DEPLOY.parent / "packages" / "railspec-graph" / "src" / "railspec" / "graph" / "indexado.py"
+
+
+def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_paquete_graph():
+    # Los defectos del renderizador son los del paquete; se leen del fuente porque este job no instala
+    # railspec-graph.
+    fuente = GRAFO.read_text(encoding="utf-8")
+    defectos = {
+        "RAILSPEC_GRAFO_SUPERPOSICION_DIAS": float(
+            re.search(r"^SUPERPOSICION_DIAS = ([\d.]+)$", fuente, re.M)[1]
+        ),
+        "RAILSPEC_GRAFO_INDEXADO_HORAS": float(re.search(r"^INDEXADO_HORAS = ([\d.]+)$", fuente, re.M)[1]),
+    }
+    mapa = _configmap({})
+    for nombre, defecto in defectos.items():
+        assert float(renderizar.VARIABLES[nombre][0]) == defecto
+        assert float(mapa[nombre]) == defecto
+    # Vacía vuelve al defecto (como el servidor); "0" (nunca caduca) y las fracciones llegan tal cual.
+    assert _configmap({"RAILSPEC_GRAFO_INDEXADO_HORAS": ""})["RAILSPEC_GRAFO_INDEXADO_HORAS"] == "24"
+    mapa = _configmap({"RAILSPEC_GRAFO_SUPERPOSICION_DIAS": "0", "RAILSPEC_GRAFO_INDEXADO_HORAS": "0.5"})
+    assert mapa["RAILSPEC_GRAFO_SUPERPOSICION_DIAS"] == "0"
+    assert mapa["RAILSPEC_GRAFO_INDEXADO_HORAS"] == "0.5"
+
+
+#: Valores que el servidor no acepta (impiden arrancar) o que el renderizador no admite por estrictez.
+PLAZOS_RECHAZADOS = [
+    "-1",
+    "-0.5",
+    "una semana",
+    "inf",
+    "nan",
+    "1e3",
+    "1_0",
+    " 5",
+    "1,5",
+    'x"\n  X: "y',
+    "9" * 400,
+]
+
+
+@pytest.mark.parametrize("variable", ["RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "RAILSPEC_GRAFO_INDEXADO_HORAS"])
+@pytest.mark.parametrize("valor", [*PLAZOS_RECHAZADOS, "99999999999999"], ids=lambda v: repr(v)[:20])
+def test_render_rechaza_plazos_del_grafo_que_impedirian_arrancar_al_servidor(variable, valor):
+    with pytest.raises(renderizar.ErrorRender, match=variable):
+        renderizar.renderizar({**MINIMO, variable: valor})
+
+
+@pytest.mark.parametrize(
+    ("variable", "unidad"),
+    [("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"), ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours")],
+)
+def test_el_renderizador_no_admite_un_plazo_que_el_servidor_rechace(variable, unidad, monkeypatch):
+    """Todo lo que ``valores`` deja pasar lo acepta ``railspec.graph.indexado``. Al revés no hace falta:
+    ``1e3`` lo acepta el servidor y el renderizador pide el decimal."""
+
+    indexado = pytest.importorskip("railspec.graph.indexado")
+    for valor in [*PLAZOS_RECHAZADOS, "0", "0.0", "0.5", "7", "24", "999999999", "999999999.5"]:
+        try:
+            renderizar.valores({**MINIMO, variable: valor})
+        except renderizar.ErrorRender:
+            continue
+        monkeypatch.setenv(variable, valor)
+        indexado._plazo(None, variable, 1.0, unidad)  # ValueError = el servidor no arrancaría
+
+
 def test_deployment_apaga_el_modo_desarrollo_por_encima_del_secret():
     """M4: ``env`` gana a ``envFrom``: una clave sobrante en el Secret no activa los tokens de desarrollo."""
 
@@ -650,8 +715,16 @@ FUERA_DEL_CONFIGMAP = {
 
 
 def _variables_del_servidor() -> set[str]:
+    """Las que lee la imagen del servidor: su fuente y el de railspec-graph, que ``app.py`` carga y que
+    lee su propio entorno (``indexado.py``). railspec-contracts y railspec-local no van en la imagen."""
+
     patron = re.compile(r"\bRAILSPEC_[A-Z0-9]+(?:_[A-Z0-9]+)*\b")
-    fuentes = (RAIZ / "packages" / "railspec-server" / "src").rglob("*.py")
+    fuentes = [
+        f
+        for paquete in ("railspec-server", "railspec-graph")
+        for f in (RAIZ / "packages" / paquete / "src").rglob("*.py")
+    ]
+    assert fuentes, "no encontré el fuente del servidor: ¿cambió la ruta de los paquetes?"
     return {nombre for f in fuentes for nombre in patron.findall(f.read_text(encoding="utf-8"))}
 
 
