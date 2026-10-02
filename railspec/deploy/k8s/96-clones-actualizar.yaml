@@ -1,0 +1,92 @@
+# Mantiene los clones del chat (RAILSPEC_CLONES_ACTUALIZAR=true): un clon --bare por repositorio
+# de RAILSPEC_CLONES_REPOSITORIOS en <owner>/<repo> dentro del PVC de RAILSPEC_CHAT_CLONES_PVC, con la
+# misma imagen del servidor (trae git y corre como 10001). Clona lo que falta, actualiza con fetch a
+# refs/heads/*, poda las ramas borradas y un repositorio que falla no detiene a los demás (el trabajo
+# termina en error al final). El token de solo lectura (clave GITHUB_TOKEN del Secret
+# ${RAILSPEC_CLONES_SECRETO}) se pasa por la configuración de git, no por la URL ni los argumentos.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: railspec-clones
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-clones
+    app.kubernetes.io/part-of: railspec
+spec:
+  schedule: "${RAILSPEC_CLONES_CRON}"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 900
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3000
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: railspec-clones
+            app.kubernetes.io/part-of: railspec
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: actualizar
+              image: ${RAILSPEC_IMAGEN}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-ceu"]
+              args:
+                - |
+                  fallo=0
+                  export GIT_CONFIG_COUNT=1
+                  export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+                  export GIT_CONFIG_VALUE_0="Authorization: Basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+                  cd /clones
+                  for repo in $REPOSITORIOS; do
+                    if [ -d "$repo" ]; then
+                      git -C "$repo" fetch --quiet --prune origin '+refs/heads/*:refs/heads/*'
+                    else
+                      mkdir -p "$(dirname "$repo")" && rm -rf "$repo.tmp" &&
+                        git clone --quiet --bare "https://github.com/$repo.git" "$repo.tmp" && mv "$repo.tmp" "$repo"
+                    fi || { echo "falló $repo" >&2; fallo=1; }
+                  done
+                  exit $fallo
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: REPOSITORIOS
+                  value: "${RAILSPEC_CLONES_REPOSITORIOS_LISTA}"
+                - name: GITHUB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${RAILSPEC_CLONES_SECRETO}
+                      key: GITHUB_TOKEN
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: clones
+                  mountPath: /clones
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: clones
+              persistentVolumeClaim:
+                claimName: ${RAILSPEC_CHAT_CLONES_PVC}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi

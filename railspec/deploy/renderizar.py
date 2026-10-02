@@ -5,7 +5,8 @@
 
 Solo sustituye ``${VARIABLE}`` de la tabla ``VARIABLES``; cualquier otro
 ``${...}`` que quede es un error. Falla si falta una variable obligatoria.
-Sin dependencias fuera de la biblioteca estándar.
+Los manifiestos de ``OPCIONALES`` (bases de datos, políticas de red, respaldos y clones) solo
+salen con su bandera en ``true``. Sin dependencias fuera de la biblioteca estándar.
 """
 
 from __future__ import annotations
@@ -20,6 +21,39 @@ DIRECTORIO = Path(__file__).resolve().parent / "k8s"
 
 #: Dónde monta el Deployment los clones del chat; ``RAILSPEC_CHAT_CLONES`` apunta aquí.
 RUTA_CLONES = "/var/lib/railspec/clones"
+
+#: Imágenes de las bases, fijadas por versión y por digest del índice multiarquitectura. Las mismas
+#: cadenas van en ``railspec-ci.yml`` y en ``integracion/docker-compose.yml``: una prueba comprueba que
+#: no se separen. Para subir de versión, cambiar las tres y pasar las suites contra la nueva.
+IMAGEN_MONGO = "mongo:7.0.43@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca"
+IMAGEN_FALKORDB = (
+    "falkordb/falkordb:6.0.1@sha256:e2765e207e5ba4ee90e47ed31eb7491ad6dd3d42241c326e429375c02ad9882f"
+)
+
+#: Banderas que activan manifiestos opcionales (valores ``true`` o ``false``).
+BANDERAS = (
+    "RAILSPEC_MONGO_INTERNO",
+    "RAILSPEC_FALKORDB_INTERNO",
+    "RAILSPEC_RED_POLITICAS",
+    "RAILSPEC_RESPALDO",
+    "RAILSPEC_CLONES_CREAR_PVC",
+    "RAILSPEC_CLONES_ACTUALIZAR",
+)
+
+#: Archivo de ``k8s/`` -> banderas que deben estar en ``true`` para renderizarlo. Los que no figuran
+#: salen siempre.
+OPCIONALES: dict[str, tuple[str, ...]] = {
+    "70-mongo.yaml": ("RAILSPEC_MONGO_INTERNO",),
+    "71-falkordb.yaml": ("RAILSPEC_FALKORDB_INTERNO",),
+    "80-red-servidor.yaml": ("RAILSPEC_RED_POLITICAS",),
+    "81-red-mongo.yaml": ("RAILSPEC_RED_POLITICAS", "RAILSPEC_MONGO_INTERNO"),
+    "82-red-falkordb.yaml": ("RAILSPEC_RED_POLITICAS", "RAILSPEC_FALKORDB_INTERNO"),
+    "90-respaldo-volumen.yaml": ("RAILSPEC_RESPALDO",),
+    "91-respaldo-mongo.yaml": ("RAILSPEC_RESPALDO", "RAILSPEC_MONGO_INTERNO"),
+    "92-respaldo-falkordb.yaml": ("RAILSPEC_RESPALDO", "RAILSPEC_FALKORDB_INTERNO"),
+    "95-clones-volumen.yaml": ("RAILSPEC_CLONES_CREAR_PVC",),
+    "96-clones-actualizar.yaml": ("RAILSPEC_CLONES_ACTUALIZAR",),
+}
 
 #: nombre -> (valor por defecto o None si es obligatoria, descripción)
 VARIABLES: dict[str, tuple[str | None, str]] = {
@@ -94,8 +128,66 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
         "PersistentVolumeClaim con un clon por repositorio (<owner>/<repo>), que se monta de solo lectura "
         "en " + RUTA_CLONES + ". Vacío = el chat responde sin leer código.",
     ),
+    "RAILSPEC_DATOS_SECRETO": (
+        "railspec-datos",
+        "Secret con las credenciales de Mongo y FalkorDB internos (se crea aparte; ver despliegue-datos.md).",
+    ),
+    "RAILSPEC_DATOS_CLASE": (
+        "managed-csi",
+        "StorageClass de los volúmenes de Mongo y FalkorDB (ReadWriteOnce).",
+    ),
+    "RAILSPEC_ARCHIVOS_CLASE": (
+        "azurefile-csi",
+        "StorageClass con ReadWriteMany de los volúmenes de respaldos y clones.",
+    ),
+    "RAILSPEC_MONGO_INTERNO": ("false", "true despliega Mongo 7 en el clúster (un nodo, con volumen)."),
+    "RAILSPEC_MONGO_IMAGEN": (IMAGEN_MONGO, "Imagen de Mongo, fijada por versión y digest."),
+    "RAILSPEC_MONGO_TAMANO": ("20Gi", "Tamaño del volumen de Mongo."),
+    "RAILSPEC_MONGO_MEMORIA": ("2Gi", "Memoria solicitada y límite de Mongo."),
+    "RAILSPEC_FALKORDB_INTERNO": ("false", "true despliega FalkorDB en el clúster (un nodo, con volumen)."),
+    "RAILSPEC_FALKORDB_IMAGEN": (IMAGEN_FALKORDB, "Imagen de FalkorDB, fijada por versión y digest."),
+    "RAILSPEC_FALKORDB_TAMANO": ("10Gi", "Tamaño del volumen de FalkorDB."),
+    "RAILSPEC_FALKORDB_MEMORIA": ("2Gi", "Memoria solicitada y límite de FalkorDB."),
+    "RAILSPEC_RED_POLITICAS": (
+        "false",
+        "true añade NetworkPolicy: el servidor solo desde el ingress y las bases solo desde el servidor.",
+    ),
+    "RAILSPEC_RED_INGRESS_NAMESPACE": (
+        "app-routing-system",
+        "Namespace del controlador de ingress (ingress-nginx con ingress-nginx).",
+    ),
+    "RAILSPEC_RESPALDO": ("false", "true añade CronJobs de respaldo de las bases internas y su volumen."),
+    "RAILSPEC_RESPALDO_CRON": ("17 3 * * *", "Horario (UTC) de los respaldos, en formato cron."),
+    "RAILSPEC_RESPALDO_RETENCION_DIAS": ("7", "Días que se conserva cada respaldo."),
+    "RAILSPEC_RESPALDO_TAMANO": ("20Gi", "Tamaño del volumen de respaldos."),
+    "RAILSPEC_CLONES_CREAR_PVC": (
+        "false",
+        "true crea el PVC de RAILSPEC_CHAT_CLONES_PVC (si no, lo trae quien despliega).",
+    ),
+    "RAILSPEC_CLONES_TAMANO": ("10Gi", "Tamaño del PVC de clones, si se crea."),
+    "RAILSPEC_CLONES_ACTUALIZAR": (
+        "false",
+        "true añade el CronJob que clona y actualiza los repositorios de RAILSPEC_CLONES_REPOSITORIOS.",
+    ),
+    "RAILSPEC_CLONES_REPOSITORIOS": (
+        "",
+        "owner/repo (coma o espacio) que mantiene el CronJob de clones. Obligatoria al actualizar.",
+    ),
+    "RAILSPEC_CLONES_CRON": ("*/15 * * * *", "Horario del CronJob de clones, en formato cron."),
+    "RAILSPEC_CLONES_SECRETO": (
+        "railspec-clones",
+        "Secret con la clave GITHUB_TOKEN (solo lectura) del CronJob de clones.",
+    ),
 }
 _MARCA = re.compile(r"\$\{([A-Z0-9_]+)\}")
+_REGION_CHAT = r"(?:zona-(?:us|eu)|[a-z0-9]+)"
+_NOMBRE_K8S = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
+_ETIQUETA_K8S = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+_CANTIDAD = re.compile(r"[1-9][0-9]*(Mi|Gi|Ti)")
+_CRON = re.compile(r"[0-9*/,-]+( +[0-9*/,-]+){4}")
+# owner de GitHub (letras, dígitos y guiones) y repositorio sin ``.`` ni ``..``: va a un ``cd`` y un
+# ``mkdir`` del CronJob, así que no puede salirse del volumen de clones.
+_REPOSITORIO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/(?!\.{1,2}$)[A-Za-z0-9_.-]+")
 
 
 class ErrorRender(ValueError):
@@ -136,6 +228,7 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     _validar_oidc(salida)
     _validar_consola(salida)
     _validar_chat(salida)
+    _validar_datos(salida)
     salida["RAILSPEC_WORKLOAD_IDENTITY"] = "true" if salida["RAILSPEC_AZURE_CLIENT_ID"] else "false"
     # Derivadas: el volumen de clones solo existe con PVC; sin él el servidor no recibe ruta y no
     # registra ``code.read`` (el chat responde sin leer código).
@@ -146,6 +239,9 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
     if pvc:
         volumen = f"persistentVolumeClaim: {{claimName: {pvc}, readOnly: true}}"
     salida["RAILSPEC_CHAT_CLONES_VOLUMEN"] = volumen
+    salida["RAILSPEC_CLONES_REPOSITORIOS_LISTA"] = " ".join(
+        _repositorios(salida["RAILSPEC_CLONES_REPOSITORIOS"])
+    )
     return salida
 
 
@@ -170,17 +266,73 @@ def _validar_consola(salida: Mapping[str, str]) -> None:
 
 def _validar_chat(salida: Mapping[str, str]) -> None:
     # El servidor compara cada región con la del despliegue tal cual (minúsculas): una mayúscula
-    # no falla al arrancar, hace que el chat se niegue en silencio.
-    if not re.fullmatch(r"[a-z0-9]+(\s*,\s*[a-z0-9]+)*|", salida["RAILSPEC_CHAT_ZONA_DATOS"]):
+    # no falla al arrancar, hace que el chat se niegue en silencio. La región de un SKU DataZone no es
+    # de Azure sino ``zona-<zona del recurso>``: de ahí ``zona-us`` y ``zona-eu``.
+    if not re.fullmatch(rf"{_REGION_CHAT}(\s*,\s*{_REGION_CHAT})*|", salida["RAILSPEC_CHAT_ZONA_DATOS"]):
         raise ErrorRender(
             "RAILSPEC_CHAT_ZONA_DATOS espera regiones de Azure en minúsculas separadas por comas "
-            "(p. ej. eastus2,swedencentral)"
+            "(p. ej. eastus2,swedencentral) o zona-us / zona-eu para un despliegue DataZone"
         )
     if not re.fullmatch(r"[A-Za-z0-9._:-]*", salida["RAILSPEC_CHAT_MODELO"]):
         raise ErrorRender("RAILSPEC_CHAT_MODELO solo admite letras, dígitos y . _ : -")
     pvc = salida["RAILSPEC_CHAT_CLONES_PVC"]
     if pvc and not re.fullmatch(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?", pvc):
         raise ErrorRender("RAILSPEC_CHAT_CLONES_PVC debe ser un nombre de PersistentVolumeClaim válido")
+
+
+def _repositorios(texto: str) -> list[str]:
+    return [r for r in re.split(r"[\s,]+", texto) if r]
+
+
+def _validar_datos(salida: Mapping[str, str]) -> None:
+    """Bases internas, políticas de red, respaldos y clones: lo que llega a un manifiesto o a un script."""
+
+    for nombre in BANDERAS:
+        if salida[nombre] not in ("true", "false"):
+            raise ErrorRender(f"{nombre} debe ser true o false")
+    for nombre in (
+        "RAILSPEC_DATOS_SECRETO",
+        "RAILSPEC_CLONES_SECRETO",
+        "RAILSPEC_DATOS_CLASE",
+        "RAILSPEC_ARCHIVOS_CLASE",
+    ):
+        if not _NOMBRE_K8S.fullmatch(salida[nombre]):
+            raise ErrorRender(f"{nombre} debe ser un nombre de Kubernetes válido")
+    if not _ETIQUETA_K8S.fullmatch(salida["RAILSPEC_RED_INGRESS_NAMESPACE"]):
+        raise ErrorRender("RAILSPEC_RED_INGRESS_NAMESPACE debe ser un nombre de namespace válido")
+    for nombre in ("RAILSPEC_MONGO_IMAGEN", "RAILSPEC_FALKORDB_IMAGEN"):
+        if re.search(r"[\s\"'$]", salida[nombre]):
+            raise ErrorRender(f"{nombre} tiene caracteres no válidos")
+    for nombre in (
+        "RAILSPEC_MONGO_TAMANO",
+        "RAILSPEC_MONGO_MEMORIA",
+        "RAILSPEC_FALKORDB_TAMANO",
+        "RAILSPEC_FALKORDB_MEMORIA",
+        "RAILSPEC_RESPALDO_TAMANO",
+        "RAILSPEC_CLONES_TAMANO",
+    ):
+        if not _CANTIDAD.fullmatch(salida[nombre]):
+            raise ErrorRender(f"{nombre} debe ser una cantidad entera en Mi, Gi o Ti (p. ej. 20Gi)")
+    for nombre in ("RAILSPEC_RESPALDO_CRON", "RAILSPEC_CLONES_CRON"):
+        if not _CRON.fullmatch(salida[nombre]):
+            raise ErrorRender(f"{nombre} debe ser un horario cron de cinco campos (p. ej. 17 3 * * *)")
+    _entero(salida, "RAILSPEC_RESPALDO_RETENCION_DIAS", 1)
+    internas = salida["RAILSPEC_MONGO_INTERNO"] == "true" or salida["RAILSPEC_FALKORDB_INTERNO"] == "true"
+    if salida["RAILSPEC_RESPALDO"] == "true" and not internas:
+        raise ErrorRender(
+            "RAILSPEC_RESPALDO respalda las bases del clúster: activa RAILSPEC_MONGO_INTERNO o "
+            "RAILSPEC_FALKORDB_INTERNO (un Mongo externo se respalda donde esté)"
+        )
+    pvc = salida["RAILSPEC_CHAT_CLONES_PVC"]
+    for nombre in ("RAILSPEC_CLONES_CREAR_PVC", "RAILSPEC_CLONES_ACTUALIZAR"):
+        if salida[nombre] == "true" and not pvc:
+            raise ErrorRender(f"{nombre} exige RAILSPEC_CHAT_CLONES_PVC (el nombre del volumen de clones)")
+    repositorios = _repositorios(salida["RAILSPEC_CLONES_REPOSITORIOS"])
+    if salida["RAILSPEC_CLONES_ACTUALIZAR"] == "true" and not repositorios:
+        raise ErrorRender("RAILSPEC_CLONES_ACTUALIZAR exige RAILSPEC_CLONES_REPOSITORIOS (owner/repo)")
+    for repo in repositorios:
+        if not _REPOSITORIO.fullmatch(repo):
+            raise ErrorRender(f"RAILSPEC_CLONES_REPOSITORIOS: {repo!r} no es un owner/repo válido")
 
 
 def avisos(entorno: Mapping[str, str]) -> list[str]:
@@ -195,6 +347,20 @@ def avisos(entorno: Mapping[str, str]) -> list[str]:
         )
     if not tabla["RAILSPEC_CHAT_CLONES_PVC"]:
         salida.append("RAILSPEC_CHAT_CLONES_PVC está vacía: el chat responderá sin leer código")
+    zona_recurso = tabla["RAILSPEC_FOUNDRY_ZONA_DATOS"].strip().lower()
+    for region in (r.strip() for r in tabla["RAILSPEC_CHAT_ZONA_DATOS"].split(",")):
+        if region.startswith("zona-") and region != f"zona-{zona_recurso}":
+            salida.append(
+                f"RAILSPEC_CHAT_ZONA_DATOS incluye {region} pero RAILSPEC_FOUNDRY_ZONA_DATOS es "
+                f"{zona_recurso or 'vacía'}: ningún despliegue DataZone del recurso tendrá esa región"
+            )
+    if (tabla["RAILSPEC_MONGO_INTERNO"] == "true" or tabla["RAILSPEC_FALKORDB_INTERNO"] == "true") and tabla[
+        "RAILSPEC_RESPALDO"
+    ] != "true":
+        salida.append(
+            "hay bases dentro del clúster y RAILSPEC_RESPALDO es false: sin copias, perder el volumen "
+            "es perder el estado (ver railspec/docs/despliegue-datos.md)"
+        )
     return salida
 
 
@@ -227,6 +393,8 @@ def renderizar(entorno: Mapping[str, str], directorio: Path = DIRECTORIO) -> str
     tabla = valores(entorno)
     documentos = []
     for archivo in sorted(directorio.glob("*.yaml")):
+        if not all(tabla[b] == "true" for b in OPCIONALES.get(archivo.name, ())):
+            continue
         texto = archivo.read_text(encoding="utf-8")
 
         def sustituir(m: re.Match[str], archivo: Path = archivo) -> str:

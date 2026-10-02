@@ -1,0 +1,40 @@
+# NetworkPolicy de FalkorDB (RAILSPEC_RED_POLITICAS y RAILSPEC_FALKORDB_INTERNO): solo el servidor y
+# el trabajo de respaldo llegan al puerto 6379, y FalkorDB no sale a ninguna parte salvo al DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: railspec-falkordb
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-falkordb
+    app.kubernetes.io/component: datos
+    app.kubernetes.io/part-of: railspec
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: railspec-falkordb
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: railspec-server
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: railspec-respaldo
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

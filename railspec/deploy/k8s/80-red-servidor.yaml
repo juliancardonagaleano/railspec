@@ -1,0 +1,26 @@
+# NetworkPolicy del servidor (RAILSPEC_RED_POLITICAS=true): solo el controlador de ingress llega a
+# su puerto. Las salidas quedan abiertas a propósito: dependen del despliegue (Foundry, la
+# gobernanza, GitHub y su JWKS de OIDC, Entra ID, un Mongo externo) y cerrarlas sin conocerlas
+# rompería el servicio. Hace falta un motor de políticas en el clúster (en AKS, Azure Network
+# Policy Manager, Calico o Cilium elegido al crearlo); sin él, Kubernetes las acepta y no las aplica.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: railspec-server
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-server
+    app.kubernetes.io/part-of: railspec
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: railspec-server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ${RAILSPEC_RED_INGRESS_NAMESPACE}
+      ports:
+        - protocol: TCP
+          port: 8080
