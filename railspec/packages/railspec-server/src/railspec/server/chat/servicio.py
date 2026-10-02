@@ -213,9 +213,10 @@ class ServicioChat:
         return vinculos
 
     def _propia(self, actor: Actor, id_: UUID) -> tuple[Conversacion, dict[str, Any]]:
-        encontrada = self.chat.conversacion(id_)
-        # Una conversación ajena se responde igual que una inexistente: no se revela que existe.
-        if encontrada is None or encontrada[1]["autor"] != actor.github_id:
+        # Una conversación ajena se responde igual que una inexistente: no se revela que existe
+        # (el almacén ya no la devuelve: la lectura por id va acotada por la persona).
+        encontrada = self.chat.conversacion(id_, actor.github_id)
+        if encontrada is None:
             raise ErrorChat(CodigoError.no_encontrado.value, "conversación no encontrada", 404)
         conv, meta = encontrada
         self._exigir_rol(actor, conv.alcance)
@@ -297,11 +298,11 @@ class ServicioChat:
 
     def obtener(self, actor: Actor, id_: UUID) -> tuple[Conversacion, list[MensajeChat]]:
         conv, _ = self._propia(actor, id_)
-        return conv, self.chat.mensajes(id_)
+        return conv, self.chat.mensajes(conv.alcance, id_)
 
     def marcar(self, actor: Actor, id_: UUID, mensaje_id: UUID, conservar: bool) -> MensajeChat:
-        self._propia(actor, id_)
-        m = next((m for m in self.chat.mensajes(id_) if m.id == mensaje_id), None)
+        conv, _ = self._propia(actor, id_)
+        m = next((m for m in self.chat.mensajes(conv.alcance, id_) if m.id == mensaje_id), None)
         if m is None:
             raise ErrorChat(CodigoError.no_encontrado.value, "mensaje no encontrado", 404)
         if m.rol != RolMensaje.asistente or (conservar and not m.veredicto_gate.permitido):
@@ -453,14 +454,14 @@ class ServicioChat:
                         sha256_enviado=_sha(texto),
                         detalle={"tool": tool.nombre, "caracteres": len(texto)},
                     )
-                self.chat.agregar_huellas(conv.id, nuevas, conv.expira_en)
+                self.chat.agregar_huellas(conv.alcance, conv.id, nuevas, conv.expira_en)
                 huellas.unir([nuevas])
                 fragmentos = len(textos)
             commits = r.cuerpo.get("commits") if tool.nombre == "graph.query" else None
             if tool.nombre == "code.read":
                 commits = {args["alcance"]["repositorio"]: r.cuerpo["commit"]}
             if commits:
-                self.chat.actualizar_commits(conv.id, commits)
+                self.chat.actualizar_commits(conv.alcance, conv.id, commits)
                 for repo, commit in commits.items():
                     meta["commits"].setdefault(repo, commit)
         registro = LlamadaTool(
@@ -502,7 +503,7 @@ class ServicioChat:
         vinculos = self._vinculos(conv)
         nivel, politica, restricciones = politica_efectiva(vinculos)
         proveedor, modelo, extra = await self._elegir(conv.alcance.org, nivel, restricciones)
-        previos = self.chat.mensajes(id_)
+        previos = self.chat.mensajes(conv.alcance, id_)
         m_usuario = MensajeChat(
             id=self.nuevo_id(),
             conversacion=conv.id,
@@ -536,7 +537,7 @@ class ServicioChat:
         extra: dict[str, Any] | None = None,
     ) -> AsyncIterator[Evento]:
         prompt_sistema = sistema(self.tools)
-        huellas = self.chat.huellas(conv.id)
+        huellas = self.chat.huellas(conv.alcance, conv.id)
         resultados: list[str] = []
         llamadas: list[LlamadaTool] = []
         crudo: dict[str, Any] | None = None
@@ -685,7 +686,7 @@ class ServicioChat:
         conv, meta = self._propia(actor, id_)
         conservados = [
             m
-            for m in self.chat.mensajes(id_)
+            for m in self.chat.mensajes(conv.alcance, id_)
             if m.rol == RolMensaje.asistente and m.conservar_en_insumo and m.respuesta is not None
         ]
         if not conservados:
@@ -720,7 +721,7 @@ class ServicioChat:
         )
         resultado = gate_salida.evaluar(
             candidato,
-            huellas=self.chat.huellas(id_),
+            huellas=self.chat.huellas(conv.alcance, id_),
             politica=politica,
             visibilidad=gate_salida.Visibilidad(
                 conv.alcance.org, conv.alcance.workspace, frozenset(conv.repositorios)

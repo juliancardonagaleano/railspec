@@ -1,10 +1,25 @@
 """Persistencia del chat en Mongo: conversaciones, mensajes, huellas, consumo de fuga e insumos.
 
 Todo documento lleva el espacio de nombres del workspace y toda consulta lo
-exige (misma regla que ``estado/mongo.py``). Conversaciones, mensajes y
-huellas caducan con el TTL de la conversación (``_expira``); los fragmentos
-de código leídos nunca se guardan, solo sus huellas. Los insumos no caducan:
-los consumen unidades que pueden arrancar días después.
+exige (misma regla que ``estado/mongo.py``), también las lecturas y los
+reemplazos por ``_id``: un id que existe en otro workspace no se lee ni se
+pisa (un ``replace_one`` con upsert sobre él lanza ``DuplicateKeyError``).
+Conversaciones, mensajes y huellas caducan con el TTL de la conversación
+(``_expira``); los fragmentos de código leídos nunca se guardan, solo sus
+huellas. Los insumos no caducan: los consumen unidades que pueden arrancar
+días después.
+
+Excepciones, a propósito:
+
+* ``conversacion(id_, autor_id)`` es la puerta de entrada por id: las rutas
+  ``/v1/chat/conversaciones/{id}`` no llevan org ni workspace, así que el
+  workspace se conoce al leer el documento. Se acota por la persona
+  (``_autor``) y quien llama exige el rol sobre ``conv.alcance`` antes de
+  hacer nada más; todo lo demás (mensajes, huellas, commits) se acota con el
+  alcance de esa conversación.
+* El consumo de fuga por persona y día (``chat_fuga_usuario``) es de la
+  organización: su ``_id`` es ``org/github_id/día`` y el tope diario se
+  comparte entre todos los workspaces de la persona.
 """
 
 from __future__ import annotations
@@ -54,7 +69,7 @@ class AlmacenChat:
         self, c: Conversacion, *, n_tokens: int, commits: dict[str, str], autor_id: int
     ) -> None:
         self.db.chat_conversaciones.replace_one(
-            {"_id": str(c.id)},
+            {"_id": str(c.id), **_ws(c.alcance)},
             {
                 "_id": str(c.id),
                 "_expira": c.expira_en.astimezone(UTC),
@@ -66,10 +81,14 @@ class AlmacenChat:
             upsert=True,
         )
 
-    def conversacion(self, id_: UUID) -> tuple[Conversacion, dict[str, Any]] | None:
-        """La conversación y sus metadatos internos (``n_tokens``, ``commits``, ``autor``)."""
+    def conversacion(self, id_: UUID, autor_id: int) -> tuple[Conversacion, dict[str, Any]] | None:
+        """La conversación de ``autor_id`` y sus metadatos internos (``n_tokens``, ``commits``, ``autor``).
 
-        doc = self.db.chat_conversaciones.find_one({"_id": str(id_)})
+        Es la única lectura por id sin org ni workspace (ver el docstring del módulo): la de otra
+        persona no sale de Mongo, y quien llama exige el rol sobre ``conv.alcance`` antes de seguir.
+        """
+
+        doc = self.db.chat_conversaciones.find_one({"_id": str(id_), "_autor": autor_id})
         if doc is None:
             return None
         meta = {
@@ -98,19 +117,21 @@ class AlmacenChat:
         encontradas.sort(key=lambda c: c.creada_en, reverse=True)
         return encontradas[:limite]
 
-    def actualizar_commits(self, id_: UUID, commits: dict[str, str]) -> None:
+    def actualizar_commits(self, alcance: AlcanceWorkspace, id_: UUID, commits: dict[str, str]) -> None:
         """Fija el commit visto de cada repositorio la primera vez que aparece (nunca lo cambia)."""
 
         for repo, commit in commits.items():
             self.db.chat_conversaciones.update_one(
-                {"_id": str(id_), f"_commits.{repo}": {"$exists": False}},
+                {"_id": str(id_), **_ws(alcance), f"_commits.{repo}": {"$exists": False}},
                 {"$set": {f"_commits.{repo}": commit}},
             )
 
     # --- mensajes -----------------------------------------------------------------------------
 
     def agregar_mensaje(self, m: MensajeChat, expira: datetime) -> None:
-        orden = self.db.chat_mensajes.count_documents({"_conversacion": str(m.conversacion)})
+        orden = self.db.chat_mensajes.count_documents(
+            {"_conversacion": str(m.conversacion), **_ws(m.alcance)}
+        )
         self.db.chat_mensajes.insert_one(
             {
                 "_id": str(m.id),
@@ -126,17 +147,22 @@ class AlmacenChat:
             {"_id": str(m.id), "_conversacion": str(m.conversacion), **_ws(m.alcance)}, {"$set": _doc(m)}
         )
 
-    def mensajes(self, conversacion: UUID) -> list[MensajeChat]:
-        cursor = self.db.chat_mensajes.find({"_conversacion": str(conversacion)}).sort("_orden", ASCENDING)
+    def mensajes(self, alcance: AlcanceWorkspace, conversacion: UUID) -> list[MensajeChat]:
+        cursor = self.db.chat_mensajes.find({"_conversacion": str(conversacion), **_ws(alcance)}).sort(
+            "_orden", ASCENDING
+        )
         return [
             MensajeChat.model_validate({k: v for k, v in d.items() if not k.startswith("_")}) for d in cursor
         ]
 
     # --- huellas --------------------------------------------------------------------------------
 
-    def agregar_huellas(self, conversacion: UUID, h: HuellasContexto, expira: datetime) -> None:
+    def agregar_huellas(
+        self, alcance: AlcanceWorkspace, conversacion: UUID, h: HuellasContexto, expira: datetime
+    ) -> None:
         self.db.chat_huellas.insert_one(
             {
+                "alcance": {"org": alcance.org, "workspace": alcance.workspace},
                 "_conversacion": str(conversacion),
                 "_expira": expira.astimezone(UTC),
                 "tokens": sorted(h.tokens),
@@ -145,9 +171,9 @@ class AlmacenChat:
             }
         )
 
-    def huellas(self, conversacion: UUID) -> HuellasContexto:
+    def huellas(self, alcance: AlcanceWorkspace, conversacion: UUID) -> HuellasContexto:
         total = HuellasContexto()
-        for d in self.db.chat_huellas.find({"_conversacion": str(conversacion)}):
+        for d in self.db.chat_huellas.find({"_conversacion": str(conversacion), **_ws(alcance)}):
             total.unir([HuellasContexto(set(d["tokens"]), set(d["caracteres"]), set(d["identificadores"]))])
         return total
 
