@@ -147,6 +147,7 @@ def ensamblar(
         tokens_desarrollo=tokens_desarrollo,
         grafo=grafo,
         acceso_grafo=acceso,
+        fuente_codigo=fuente_codigo,
         catalogo=catalogo,
         abierto=config.modo_memoria,
     )

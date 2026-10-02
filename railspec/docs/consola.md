@@ -333,12 +333,39 @@ resolución que llegue por cualquier canal y la segunda recibe
 `checkpoint-ya-resuelto` (409). Integrar (`unit.integrate`) solo existe tras
 el cierre y no lo condiciona. El estado registra el canal `consola`.
 
-El diálogo de integrar pide la especificación viva y admite la URL del PR y,
-opcional, el `commit_integrado` (sha completo del commit resultante en la rama
-por defecto, contrato 1.4). Con él el servidor retiene la superposición de la
+El diálogo de integrar pide la especificación viva, admite la URL del PR y
+pide el `commit_integrado` (sha completo del commit resultante en la rama por
+defecto, contrato 1.4). Con él el servidor retiene la superposición de la
 unidad en el grafo hasta que el índice canónico llegue a ese commit (ver
 `grafo.md`, «Superposición de una unidad integrada»); sin él la descarta al
-integrar. El proxy local lo calcula solo; en la consola lo escribe quien integra.
+integrar y las consultas de la unidad dejan de ver su código hasta el
+siguiente índice.
+
+Como omitirlo en silencio anulaba esa retención, el diálogo no lo deja pasar:
+
+- Al abrirse pide a `GET …/unidades/{u}/commit-integrable` la **punta de la
+  rama por defecto del repositorio primario** en el clon canónico del servidor
+  (`RAILSPEC_CHAT_CLONES`, el mismo que lee `code.read`) y la deja escrita en el
+  campo, editable. La respuesta lleva `repositorio`, `rama`, `commit`,
+  `commit_indexado` (hasta dónde llegó el índice del grafo, si se puede leer) y
+  `motivo` cuando no hay `commit` (`sin-clones`: el servidor no tiene carpeta de
+  clones; `sin-clon`: no hay clon de ese repositorio o no se pudo leer;
+  `sin-vinculo`).
+- Es una **sugerencia, no una verdad**: el CronJob de clones la actualiza cada
+  cierto tiempo y puede ir por detrás del merge. Un commit anterior al merge
+  libera la superposición antes de tiempo, o la deja retenida si el índice ya lo
+  pasó (límite conocido de `grafo.md`). Por eso el texto de ayuda pide
+  confirmarla solo si ya incluye el merge, o pegar el sha del merge o squash. El
+  proxy local, que sí hace `git fetch`, sigue calculándolo solo.
+- Sin commit (sin clon, sugerencia borrada o consulta fallida) el botón queda
+  bloqueado hasta pegar uno o marcar «Integrar sin conservar el grafo de la
+  unidad»: renunciar es una decisión explícita y entonces no viaja
+  `commit_integrado`. Marcarlo no cambia lo que hace el servidor (descartar al
+  integrar); solo evita que ocurra sin que nadie lo haya elegido.
+
+La integración por la API (`POST /tools/unit.integrate`) no cambia: el
+servidor sigue aceptando la tool sin `commit_integrado` (el contrato lo declara
+opcional) y la sugerencia solo la usa el diálogo.
 
 ## Auditoría
 
@@ -410,6 +437,7 @@ que se cierran y se vuelven a abrir.
 | `GET /orgs/{org}/workspaces/{ws}/unidades/{u}` | Estado (sin evidencia ni propuesta de los hallazgos) y resumen de la orden vigente. |
 | `GET …/unidades/{u}/linea-de-tiempo` | Eventos de sincronización y resumen de órdenes con su reporte (archivos tocados, tareas completadas). |
 | `GET …/unidades/{u}/trazabilidad` | CA-NN → tareas → archivos → símbolos → hallazgos (de órdenes, reportes y snapshots). |
+| `GET …/unidades/{u}/commit-integrable` | Sugerencia de `commit_integrado` al integrar: punta de la rama por defecto del repositorio primario en el clon canónico del servidor (`commit`, `rama`, `commit_indexado`; `motivo` si no hay). Lector; solo lee un sha, nunca código. Ver «Aprobaciones e integración». |
 | `GET …/unidades/{u}/eventos` | SSE (R8): `event: sync` con el `EventoSync`, `event: estado` cuando cambia la versión. `id` = `<secuencia remoto→local>:<secuencia local→remoto>`, así que `Last-Event-ID` retoma sin repetir (un valor inválido se ignora y empieza desde el principio). Tope por persona y global (429 con `Retry-After`), consulta en un executor propio y revalida el rol `lector` cada `RAILSPEC_CONSOLA_SSE_REVALIDAR_S`: si se revoca, el flujo se corta en ese plazo (no hasta los 300 s). Los topes son por réplica. |
 | `GET /orgs/{org}/workspaces/{ws}/grafo/repositorios` | Repositorios vinculados con nivel, rol y commit canónico del grafo. |
 
