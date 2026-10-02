@@ -32,6 +32,14 @@ class ClienteServidor:
     def __init__(self, transporte: Transporte) -> None:
         self.transporte = transporte
 
+    async def herramientas(self) -> list[str] | None:
+        """Nombres de las tools que publica el servidor, sin llamar a ninguna (``railspec doctor``).
+
+        ``None`` si el transporte no sabe listarlas."""
+
+        listar = getattr(self.transporte, "herramientas", None)
+        return None if listar is None else await listar()
+
     async def llamar(self, tool: str, entrada: BaseModel, salida: type[S]) -> S:
         definicion = TOOLS[tool]
         if Superficie.mcp not in definicion.superficies:

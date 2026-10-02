@@ -8,7 +8,10 @@ Markdown de instrucciones. Lo demás de cada archivo se conserva siempre.
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -51,6 +54,30 @@ def _leer_objeto_o_vacio(ruta: Path) -> dict[str, Any]:
         return {}
 
 
+def _escribir_texto(ruta: Path, contenido: str) -> None:
+    """Escribe un archivo que ya puede existir sin dejarlo a medias si algo falla.
+
+    Si existe se reemplaza de forma atómica (temporal en la misma carpeta + ``replace``), con el mismo
+    modo y siguiendo un enlace simbólico (los dotfiles se enlazan): un archivo del usuario como
+    ``~/.claude.json``, que el arnés reescribe sin parar, no puede quedar truncado."""
+
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    if not ruta.exists():
+        ruta.write_text(contenido, encoding="utf-8")
+        return
+    destino = ruta.resolve()
+    modo = stat.S_IMODE(destino.stat().st_mode)
+    fd, temporal = tempfile.mkstemp(dir=destino.parent, prefix=f".{destino.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(contenido)
+        os.chmod(temporal, modo)
+        os.replace(temporal, destino)
+    except BaseException:
+        Path(temporal).unlink(missing_ok=True)
+        raise
+
+
 def _escribir_objeto(raiz: Path, ruta: Path, datos: dict[str, Any], vacio: dict[str, Any]) -> None:
     """Escribe el JSON; si solo queda lo que el adaptador pondría en un archivo nuevo, lo borra."""
 
@@ -58,8 +85,7 @@ def _escribir_objeto(raiz: Path, ruta: Path, datos: dict[str, Any], vacio: dict[
         ruta.unlink(missing_ok=True)
         _quitar_vacios(ruta, raiz)
         return
-    ruta.parent.mkdir(parents=True, exist_ok=True)
-    ruta.write_text(json.dumps(datos, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _escribir_texto(ruta, json.dumps(datos, indent=2, ensure_ascii=False) + "\n")
 
 
 def _obtener(datos: dict[str, Any], claves: tuple[str, ...]) -> Any:
@@ -342,7 +368,7 @@ class BloqueReglas:
             nuevo = actual + separador + self.bloque
         if nuevo == actual:
             return False
-        ruta.write_text(nuevo, encoding="utf-8")
+        _escribir_texto(ruta, nuevo)
         return True
 
     def instalada(self, raiz: Path) -> bool:
@@ -366,5 +392,5 @@ class BloqueReglas:
         if not nuevo:
             ruta.unlink()
         else:
-            ruta.write_text(nuevo, encoding="utf-8")
+            _escribir_texto(ruta, nuevo)
         return True

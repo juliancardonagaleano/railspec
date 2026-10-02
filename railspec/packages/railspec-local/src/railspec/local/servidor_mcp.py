@@ -100,7 +100,8 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
     @_errores
     async def unit_advance(unidad: str | None = None) -> dict[str, Any]:
         """Pide al servidor lo siguiente: una orden de trabajo, un checkpoint humano, una espera o el
-        cierre. Primero envía lo que haya en cola sin conexión."""
+        cierre. Primero envía lo que haya en cola sin conexión. Si la orden parte de otro commit base,
+        rebasa el worktree (solo limpio); un conflicto o cambios sin commit se informan y no se toca nada."""
         respuesta = await proxy().avanzar(unidad)
         if respuesta.get("tipo") == "checkpoint":
             respuesta["como_resolver"] = (
@@ -207,7 +208,8 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
     ) -> dict[str, Any]:
         """Consulta el grafo de código del workspace. `consulta` lleva `verbo`
         (resolve, search, traverse, related, impact, trace) y sus campos. Devuelve referencias,
-        nunca código: resuélvelas leyendo el clon."""
+        nunca código: resuélvelas leyendo el clon. Si una búsqueda semántica no lleva vector de
+        consulta, la respuesta trae `avisos`: no es por similitud."""
         return await proxy().consultar_grafo(consulta, repositorios, unidad, limite)
 
     @_errores

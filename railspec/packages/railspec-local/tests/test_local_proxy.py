@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 from pathlib import Path
 
@@ -408,6 +409,54 @@ def test_busqueda_semantica_lleva_el_vector_calculado_en_local(tmp_path):
     assert indexador.consultas == ["firmar pdf"]
     correr(proxy.consultar_grafo({"verbo": "search", "texto": "firmar pdf"}))
     assert servidor.consultas_grafo[-1].consulta.vector_b64 is None
+
+
+def test_busqueda_semantica_sin_indexador_avisa_de_que_no_lleva_vector(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+
+    respuesta = correr(proxy.consultar_grafo({"verbo": "search", "texto": "firmar pdf", "semantica": True}))
+
+    assert servidor.consultas_grafo[-1].consulta.vector_b64 is None  # la búsqueda sigue, sin vector
+    (aviso,) = respuesta["avisos"]
+    assert "no lleva vector de consulta" in aviso and "no hay indexador local" in aviso
+    assert "por texto" in aviso and "resolve" in aviso
+    assert respuesta["resultados"] == []  # el resto de la respuesta del servidor llega igual
+
+
+def test_busqueda_semantica_con_indexador_sin_embeddings_avisa(tmp_path):
+    class SinVector(IndexadorDoble):
+        def embedding_consulta(self, texto):
+            return None
+
+    proxy = crear_proxy(tmp_path, ServidorDoble(), indexador=SinVector())
+
+    respuesta = correr(proxy.consultar_grafo({"verbo": "search", "texto": "firmar pdf", "semantica": True}))
+
+    (aviso,) = respuesta["avisos"]
+    assert "el indexador local no calcula embeddings de consulta" in aviso
+
+
+def test_con_vector_u_otra_consulta_no_hay_aviso(tmp_path):
+    proxy = crear_proxy(tmp_path, ServidorDoble(), indexador=IndexadorDoble())
+    sin_indexador = crear_proxy(tmp_path / "otro", ServidorDoble())
+
+    con_vector = correr(proxy.consultar_grafo({"verbo": "search", "texto": "x", "semantica": True}))
+    por_texto = correr(sin_indexador.consultar_grafo({"verbo": "search", "texto": "x"}))
+    por_nombre = correr(sin_indexador.consultar_grafo({"verbo": "resolve", "nombre": "suma"}))
+    con_su_vector = correr(
+        proxy.consultar_grafo(
+            {
+                "verbo": "search",
+                "texto": "x",
+                "semantica": True,
+                "vector_b64": base64.b64encode(bytes(768)).decode(),
+                "modelo_embedding": "nomic-embed-code",
+            }
+        )
+    )
+
+    assert all("avisos" not in r for r in (con_vector, por_texto, por_nombre, con_su_vector))
 
 
 def test_insumo_pull_escribe_markdown_sin_codigo(tmp_path):

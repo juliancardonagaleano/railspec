@@ -79,7 +79,7 @@ class TransporteMcpHttp:
                 await fin.wait()
         except Exception as exc:
             if not listo.done():
-                listo.set_exception(SinConexion(f"No se pudo conectar con {self.url}: {exc}"))
+                listo.set_exception(SinConexion(f"No se pudo conectar con {self.url}: {_causa(exc)}"))
         finally:
             if self._listo is listo:
                 self._cliente = None
@@ -94,6 +94,23 @@ class TransporteMcpHttp:
             fin.set()
             with contextlib.suppress(Exception):
                 await tarea
+
+    async def herramientas(self) -> list[str]:
+        """Nombres de las tools que publica el servidor; no exige sesión ni cambia nada."""
+
+        cliente = await self._abrir()
+        nombres: list[str] = []
+        cursor: str | None = None
+        try:
+            while True:
+                pagina = await cliente.list_tools(cursor=cursor)
+                nombres += [t.name for t in pagina.tools]
+                cursor = pagina.next_cursor
+                if not cursor:
+                    return nombres
+        except (httpx2.TransportError, OSError, ConnectionError) as exc:
+            await self.cerrar()
+            raise SinConexion(f"Se perdió la conexión con {self.url}: {exc}") from exc
 
     async def llamar(self, tool: str, argumentos: dict[str, Any]) -> dict[str, Any]:
         cliente = await self._abrir()
@@ -114,6 +131,15 @@ class TransporteMcpHttp:
         if not isinstance(datos, dict):
             raise RespuestaInvalida(f"{tool}: el servidor no devolvió un objeto JSON")
         return datos
+
+
+def _causa(exc: BaseException) -> str:
+    """El error de fondo de una conexión fallida: anyio lo envuelve en un grupo sin texto útil."""
+
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    texto = str(exc)
+    return f"{type(exc).__name__}: {texto}" if texto else type(exc).__name__
 
 
 def _texto_de_contenido(contenido: list[Any]) -> str:

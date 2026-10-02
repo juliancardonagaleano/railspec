@@ -16,6 +16,7 @@ from local_fabricas import ServidorDoble, crear_proxy, orden_implementar, sh
 from railspec.contracts.tools import CodigoError
 from railspec.local import cli
 from railspec.local.almacen import Almacen
+from railspec.local.errores import ServidorRechazo
 
 
 def correr(coro):
@@ -194,3 +195,41 @@ def test_insumo_pull_con_error_del_servidor_sale_con_1_sin_escribir(en_cli, caps
     assert codigo == 1 and salida == ""
     assert "no-encontrado" in error and "no existe ese insumo" in error
     assert not (proxy.raiz / ".railspec" / "insumos").exists()
+
+
+@pytest.mark.parametrize("id_malo", ["no-es-un-uuid", "123", "", "00000000-0000-4000-9000-00000000000g"])
+def test_insumo_pull_con_un_id_invalido_sale_en_una_linea_sin_traza(en_cli, capsys, id_malo):
+    servidor = ServidorDoble()
+    proxy, _ = en_cli(servidor, iniciar=False)
+
+    codigo, salida, error = ejecutar(proxy, capsys, "insumo", "pull", id_malo)
+
+    assert codigo == 1 and salida == ""
+    assert error.count("\n") == 1 and error.startswith("railspec: ")
+    assert f"«{id_malo}» no es un id de insumo" in error and "Traceback" not in error
+    assert servidor.llamadas == []  # ni se intentó hablar con el servidor
+    assert not (proxy.raiz / ".railspec" / "insumos").exists()
+
+
+def test_insumo_pull_rechazado_por_la_identidad_sale_en_una_linea_sin_traza(en_cli, capsys):
+    servidor = ServidorDoble()
+    servidor.fallos["insumo.get"] = ServidorRechazo(
+        "insumo.get", "el token venció", "Ejecuta `railspec login`."
+    )
+    proxy, _ = en_cli(servidor, iniciar=False)
+
+    codigo, salida, error = ejecutar(proxy, capsys, "insumo", "pull", str(insumo().id))
+
+    assert codigo == 1 and salida == ""
+    assert error.count("\n") == 1 and "el token venció" in error and "railspec login" in error
+    assert "Traceback" not in error
+
+
+def test_insumo_pull_sin_conexion_sale_en_una_linea_sin_traza(en_cli, capsys):
+    servidor = ServidorDoble()
+    proxy, _ = en_cli(servidor, iniciar=False)
+    servidor.conectado = False
+
+    codigo, salida, error = ejecutar(proxy, capsys, "insumo", "pull", str(insumo().id))
+
+    assert codigo == 1 and salida == "" and error.count("\n") == 1 and "desconectado" in error

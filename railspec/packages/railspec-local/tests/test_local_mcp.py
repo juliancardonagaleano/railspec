@@ -200,3 +200,59 @@ def test_transporte_explica_un_rechazo_de_identidad_en_vez_de_una_respuesta_inva
     resultados.append(types.CallToolResult(content=[], structured_content=cuerpo, is_error=True))
     with pytest.raises(ErrorServidor, match="tienes lector"):
         asyncio.run(transporte.llamar("unit.start", {}))
+
+
+def test_transporte_lista_las_tools_del_servidor_paginando():
+    from railspec.local.cliente import ClienteServidor
+    from railspec.local.transporte_mcp import TransporteMcpHttp
+
+    paginas = {
+        None: types.ListToolsResult(
+            tools=[
+                types.Tool(name="unit_start", input_schema={}),
+                types.Tool(name="unit_list", input_schema={}),
+            ],
+            next_cursor="p2",
+        ),
+        "p2": types.ListToolsResult(tools=[types.Tool(name="graph_query", input_schema={})]),
+    }
+
+    class ClienteFalso:
+        async def list_tools(self, *, cursor=None):
+            return paginas[cursor]
+
+    transporte = TransporteMcpHttp("http://railspec.invalid/mcp", "token")
+
+    async def abrir():
+        return ClienteFalso()
+
+    transporte._abrir = abrir
+    assert asyncio.run(ClienteServidor(transporte).herramientas()) == [
+        "unit_start",
+        "unit_list",
+        "graph_query",
+    ]
+
+
+def test_transporte_sin_listado_de_tools_responde_none_en_el_cliente():
+    from railspec.local.cliente import ClienteServidor
+
+    class SinListado:
+        async def llamar(self, tool, argumentos):
+            return {}
+
+    assert asyncio.run(ClienteServidor(SinListado()).herramientas()) is None
+
+
+def test_un_servidor_caido_se_explica_sin_el_ruido_del_grupo_de_tareas():
+    from railspec.local.errores import SinConexion
+    from railspec.local.transporte_mcp import TransporteMcpHttp
+
+    transporte = TransporteMcpHttp("http://127.0.0.1:1/mcp", "token")  # nadie escucha en el puerto 1
+
+    with pytest.raises(SinConexion) as exc:
+        asyncio.run(transporte.herramientas())
+
+    texto = str(exc.value)
+    assert "No se pudo conectar con http://127.0.0.1:1/mcp: " in texto
+    assert "TaskGroup" not in texto and "Error" in texto

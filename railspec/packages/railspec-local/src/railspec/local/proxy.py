@@ -24,7 +24,7 @@ from railspec.contracts._base import VERSION_CONTRATO, VERSION_MAYOR
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, Modo, Perfil, Riesgo
 from railspec.contracts.estado import Checkpoint, Decision, EstadoLocal, EstadoUnidad
 from railspec.contracts.eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
-from railspec.contracts.orden import OrdenImplementar, OrdenRedactar, OrdenRefinar
+from railspec.contracts.orden import OrdenDeTrabajo, OrdenImplementar, OrdenRedactar, OrdenRefinar
 from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, UsoModeloArnes
 from railspec.contracts.snapshot import EMBEDDING_MODELO
 from railspec.contracts.tools import (
@@ -66,6 +66,7 @@ from .config import Config
 from .errores import ErrorRailspec, ErrorServidor, FueraDeAlcance, SinConexion
 from .indice import Indexador
 from .politica import construir_snapshot
+from .rebase import rebasar_unidad
 from .rutas import coincide
 
 Json = dict[str, Any]
@@ -221,10 +222,10 @@ class ProxyLocal:
             if isinstance(avance, AvanceOrden):
                 orden = avance.orden
                 if orden.base_commit != estado.base_commit:
-                    raise ErrorRailspec(
-                        f"La orden parte de {orden.base_commit[:12]} y el worktree de "
-                        f"{estado.base_commit[:12]}; hay que rebasar la unidad antes de seguir."
-                    )
+                    estado, rebase, avisos = await self._rebasar(almacen, estado, orden)
+                    respuesta["rebase"] = rebase
+                    if avisos:
+                        respuesta["avisos"] = avisos
                 estado = estado.model_copy(update={"orden_en_curso": orden})
                 respuesta |= {"tipo": "orden", "orden": _json(orden), "como_ejecutar": _como_ejecutar(orden)}
             else:
@@ -244,6 +245,36 @@ class ProxyLocal:
                     respuesta |= {"tipo": "cerrada"}
             almacen.escribir(estado)
             return respuesta
+
+    async def _rebasar(
+        self, almacen: Almacen, estado: EstadoLocal, orden: OrdenDeTrabajo
+    ) -> tuple[EstadoLocal, Json, list[str]]:
+        """Lleva el worktree al ``base_commit`` de la orden (la base de la unidad avanzó).
+
+        ``rebasar_unidad`` se niega con cambios sin commit y aborta ante un conflicto: en los dos
+        casos el error llega al arnés y nada de aquí se escribe. Tras un rebase sin error el
+        ``base_commit`` nuevo se guarda ya, junto con la orden: git se movió y lo que quede en disco
+        no puede seguir diciendo la base anterior. El worktree se toca fuera del bucle de eventos
+        porque ``rebasar_unidad`` puede esperar a un ``git fetch``."""
+
+        resultado = await asyncio.to_thread(
+            rebasar_unidad, Path(estado.worktree), estado.rama, estado.base_commit, orden.base_commit
+        )
+        estado = estado.model_copy(update={"base_commit": orden.base_commit, "orden_en_curso": orden})
+        almacen.escribir(estado)
+        avisos = []
+        if resultado.forzar_empuje:
+            avisos.append(
+                f"El rebase reescribió la rama {estado.rama}, que ya estaba en el remoto: el próximo "
+                f"push exige `git -C {estado.worktree} push --force-with-lease` (nunca `--force`)."
+            )
+        rebase: Json = {
+            "base_anterior": resultado.base_anterior,
+            "base_nueva": resultado.base_nueva,
+            "reaplicados": resultado.reaplicados,
+            "movido": resultado.movido,
+        }
+        return estado, rebase, avisos
 
     def _respuesta_sin_conexion(self, estado: EstadoLocal, exc: SinConexion) -> Json:
         respuesta: Json = {
@@ -676,34 +707,50 @@ class ProxyLocal:
         unidad: str | None = None,
         limite: int = 25,
     ) -> Json:
+        preparada, avisos = self._preparar_consulta_grafo(consulta)
         entrada = GraphQueryEntrada(
             alcance=self._alcance_ws(),
             repositorios=repositorios or [],
             unidad=unidad,
-            consulta=self._preparar_consulta_grafo(consulta),
+            consulta=preparada,
             limite=limite,
         )
         salida = await self.cliente.llamar("graph.query", entrada, GraphQuerySalida)
-        return _json(salida)
+        respuesta: Json = _json(salida)
+        if avisos:
+            respuesta["avisos"] = avisos
+        return respuesta
 
-    def _preparar_consulta_grafo(self, consulta: Json) -> Json:
+    def _preparar_consulta_grafo(self, consulta: Json) -> tuple[Json, list[str]]:
         """En una búsqueda semántica el vector de la consulta se calcula en local (contrato 1.1):
-        el texto de la consulta no necesita salir para que el servidor compare vectores."""
+        el texto de la consulta no necesita salir para que el servidor compare vectores.
 
-        if (
-            consulta.get("verbo") == "search"
-            and consulta.get("semantica")
-            and "vector_b64" not in consulta
-            and self.indexador is not None
+        Si no hay vector la búsqueda sigue, pero el servidor solo puede resolverla por texto: se
+        avisa al arnés en vez de dejarle creer que los resultados son por similitud."""
+
+        if not (
+            consulta.get("verbo") == "search" and consulta.get("semantica") and "vector_b64" not in consulta
         ):
-            vector = self.indexador.embedding_consulta(consulta.get("texto", ""))
-            if vector is not None:
-                consulta = {
-                    **consulta,
-                    "vector_b64": base64.b64encode(vector).decode(),
-                    "modelo_embedding": EMBEDDING_MODELO,
-                }
-        return consulta
+            return consulta, []
+        vector = (
+            None if self.indexador is None else self.indexador.embedding_consulta(consulta.get("texto", ""))
+        )
+        if vector is not None:
+            return {
+                **consulta,
+                "vector_b64": base64.b64encode(vector).decode(),
+                "modelo_embedding": EMBEDDING_MODELO,
+            }, []
+        causa = (
+            "no hay indexador local que calcule el vector"
+            if self.indexador is None
+            else "el indexador local no calcula embeddings de consulta"
+        )
+        return consulta, [
+            f"La búsqueda semántica no lleva vector de consulta ({causa}): sin él el servidor busca por "
+            "texto (salvo que tenga su propio codificador), así que los resultados pueden no ser por "
+            "similitud. Busca por nombre (`resolve`) o con texto literal."
+        ]
 
     async def traer_insumo(self, insumo_id: UUID, unidad: str | None = None) -> Json:
         """``railspec insumo pull``: escribe el insumo en el worktree de la unidad (o en la raíz)."""

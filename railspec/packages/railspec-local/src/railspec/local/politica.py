@@ -6,12 +6,14 @@ Lo que viaja depende del nivel del vínculo del repositorio:
 ========== ================================================================
 Nivel      Qué viaja además de rutas, hashes de archivo y delta del índice
 ========== ================================================================
-restringido nada (ni diff ni fragmentos); embeddings calculados en local
+restringido nada (ni diff ni fragmentos)
 interno    fragmentos acotados a los símbolos tocados por la unidad
 abierto    diff unificado base..árbol (sin archivos excluidos), si cabe
 ========== ================================================================
 
-Sin indexador local el snapshot va en ``solo-hashes`` en cualquier nivel.
+Los embeddings, si el indexador los trae, solo se calculan en local; el indexador incluido
+(``codebase-memory-mcp``) no los calcula y el delta viaja sin ellos. Sin indexador local el snapshot va en
+``solo-hashes`` en cualquier nivel.
 """
 
 from __future__ import annotations
