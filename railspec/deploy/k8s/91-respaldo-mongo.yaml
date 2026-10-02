@@ -1,0 +1,99 @@
+# Respaldo de Mongo (RAILSPEC_RESPALDO y RAILSPEC_MONGO_INTERNO): mongodump de la base de la
+# aplicación a /respaldo/mongo, comprimido, con las credenciales raíz por referencia al Secret.
+# Escribe a un archivo temporal, comprueba el gzip y solo entonces lo renombra; borra los de más de
+# RAILSPEC_RESPALDO_RETENCION_DIAS días. Restaurar: railspec/docs/despliegue-datos.md. Corre con el mismo
+# uid (10002) que el de FalkorDB para que ambos escriban en el volumen compartido sin pelearse por permisos.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: railspec-respaldo-mongo
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-respaldo
+    app.kubernetes.io/component: datos
+    app.kubernetes.io/part-of: railspec
+spec:
+  schedule: "${RAILSPEC_RESPALDO_CRON}"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: railspec-respaldo
+            app.kubernetes.io/component: datos
+            app.kubernetes.io/part-of: railspec
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10002
+            runAsGroup: 10002
+            fsGroup: 10002
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: mongodump
+              image: ${RAILSPEC_MONGO_IMAGEN}
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-ceu"]
+              args:
+                - |
+                  destino=/respaldo/mongo
+                  mkdir -p "$destino"
+                  archivo="$destino/railspec-$(date -u +%Y%m%dT%H%M%SZ).archive.gz"
+                  mongodump --host railspec-mongo --port 27017 \
+                    --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" \
+                    --authenticationDatabase admin --db "$RAILSPEC_MONGO_DB" \
+                    --archive="$archivo.tmp" --gzip
+                  gzip -t "$archivo.tmp"
+                  mv "$archivo.tmp" "$archivo"
+                  find "$destino" -name 'railspec-*.archive.gz.tmp' -mtime +1 -delete
+                  find "$destino" -name 'railspec-*.archive.gz' -mtime +"$RETENCION_DIAS" -delete
+                  ls -l "$archivo"
+              env:
+                - name: HOME
+                  value: /tmp
+                - name: RAILSPEC_MONGO_DB
+                  value: "${RAILSPEC_MONGO_DB}"
+                - name: RETENCION_DIAS
+                  value: "${RAILSPEC_RESPALDO_RETENCION_DIAS}"
+                - name: MONGO_INITDB_ROOT_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${RAILSPEC_DATOS_SECRETO}
+                      key: MONGO_INITDB_ROOT_USERNAME
+                - name: MONGO_INITDB_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: ${RAILSPEC_DATOS_SECRETO}
+                      key: MONGO_INITDB_ROOT_PASSWORD
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: respaldo
+                  mountPath: /respaldo
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: respaldo
+              persistentVolumeClaim:
+                claimName: railspec-respaldo
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi

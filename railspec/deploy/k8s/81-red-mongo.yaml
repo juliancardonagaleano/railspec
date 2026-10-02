@@ -1,0 +1,40 @@
+# NetworkPolicy de Mongo (RAILSPEC_RED_POLITICAS y RAILSPEC_MONGO_INTERNO): solo el servidor y el
+# trabajo de respaldo llegan al puerto 27017, y Mongo no sale a ninguna parte salvo al DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: railspec-mongo
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-mongo
+    app.kubernetes.io/component: datos
+    app.kubernetes.io/part-of: railspec
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: railspec-mongo
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: railspec-server
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: railspec-respaldo
+      ports:
+        - protocol: TCP
+          port: 27017
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

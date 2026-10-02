@@ -1,0 +1,17 @@
+# PVC de los clones del chat (RAILSPEC_CLONES_CREAR_PVC=true), con el nombre de
+# RAILSPEC_CHAT_CLONES_PVC. ReadWriteMany: lo monta de solo lectura cada réplica del servidor y de
+# escritura el CronJob que los actualiza. Sin esta bandera el PVC lo trae quien despliega.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${RAILSPEC_CHAT_CLONES_PVC}
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-clones
+    app.kubernetes.io/part-of: railspec
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ${RAILSPEC_ARCHIVOS_CLASE}
+  resources:
+    requests:
+      storage: ${RAILSPEC_CLONES_TAMANO}

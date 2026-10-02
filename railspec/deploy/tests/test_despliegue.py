@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -264,6 +265,368 @@ def test_avisos_cuando_el_chat_quedaria_sin_responder_o_sin_codigo():
     assert len(solo_zona) == 1 and "sin leer código" in solo_zona[0]
 
 
+# --- bases de datos, red, respaldos y clones (opcionales) -----------------------------
+
+CON_PVC = {"RAILSPEC_CHAT_CLONES_PVC": "railspec-clones"}
+TODO = {
+    "RAILSPEC_MONGO_INTERNO": "true",
+    "RAILSPEC_FALKORDB_INTERNO": "true",
+    "RAILSPEC_RED_POLITICAS": "true",
+    "RAILSPEC_RESPALDO": "true",
+    "RAILSPEC_CLONES_CREAR_PVC": "true",
+    "RAILSPEC_CLONES_ACTUALIZAR": "true",
+    "RAILSPEC_CLONES_REPOSITORIOS": "acme/api, acme/web",
+    **CON_PVC,
+}
+BASE_CI = DEPLOY.parents[1]
+
+
+def _por_nombre(entorno: dict[str, str]) -> dict[tuple[str, str], dict]:
+    return {(d["kind"], d["metadata"]["name"]): d for d in _documentos(entorno)}
+
+
+def _plantilla(documento: dict) -> dict:
+    """``spec`` del pod, sea Deployment, StatefulSet o CronJob."""
+
+    spec = documento["spec"]
+    if documento["kind"] == "CronJob":
+        return spec["jobTemplate"]["spec"]["template"]
+    return spec["template"]
+
+
+def test_lo_opcional_no_sale_por_defecto_y_sale_entero_con_las_banderas():
+    por_defecto = {(d["kind"], d["metadata"]["name"]) for d in _documentos({})}
+    assert not {n for _, n in por_defecto} & {
+        "railspec-mongo",
+        "railspec-falkordb",
+        "railspec-respaldo",
+        "railspec-respaldo-mongo",
+        "railspec-respaldo-falkordb",
+        "railspec-clones",
+    }
+    todo = _por_nombre(TODO)
+    assert set(todo) - por_defecto == {
+        ("ConfigMap", "railspec-mongo-init"),
+        ("Service", "railspec-mongo"),
+        ("StatefulSet", "railspec-mongo"),
+        ("Service", "railspec-falkordb"),
+        ("StatefulSet", "railspec-falkordb"),
+        ("NetworkPolicy", "railspec-server"),
+        ("NetworkPolicy", "railspec-mongo"),
+        ("NetworkPolicy", "railspec-falkordb"),
+        ("PersistentVolumeClaim", "railspec-respaldo"),
+        ("CronJob", "railspec-respaldo-mongo"),
+        ("CronJob", "railspec-respaldo-falkordb"),
+        ("PersistentVolumeClaim", "railspec-clones"),
+        ("CronJob", "railspec-clones"),
+    }
+    # Cada archivo opcional existe y cada entrada de OPCIONALES apunta a uno real.
+    assert set(renderizar.OPCIONALES) <= {f.name for f in (DEPLOY / "k8s").glob("*.yaml")}
+    assert set(renderizar.BANDERAS) == {b for bs in renderizar.OPCIONALES.values() for b in bs}
+
+
+def test_cada_base_depende_solo_de_su_bandera():
+    solo_mongo = _por_nombre({"RAILSPEC_MONGO_INTERNO": "true", "RAILSPEC_RED_POLITICAS": "true"})
+    assert ("StatefulSet", "railspec-mongo") in solo_mongo and (
+        "NetworkPolicy",
+        "railspec-mongo",
+    ) in solo_mongo
+    assert not any(n == "railspec-falkordb" for _, n in solo_mongo)
+    solo_falkor = _por_nombre({"RAILSPEC_FALKORDB_INTERNO": "true", "RAILSPEC_RESPALDO": "true"})
+    assert ("CronJob", "railspec-respaldo-falkordb") in solo_falkor
+    assert not any(n in ("railspec-mongo", "railspec-respaldo-mongo") for _, n in solo_falkor)
+    # La política del servidor no depende de que haya bases dentro.
+    assert ("NetworkPolicy", "railspec-server") in _por_nombre({"RAILSPEC_RED_POLITICAS": "true"})
+
+
+@pytest.mark.parametrize("nombre", ["railspec-mongo", "railspec-falkordb"])
+def test_las_bases_son_un_nodo_con_volumen_imagen_fija_y_credenciales_por_referencia(nombre):
+    base = _por_nombre(TODO)[("StatefulSet", nombre)]
+    assert base["spec"]["replicas"] == 1 and base["spec"]["serviceName"] == nombre
+    plantilla = _plantilla(base)["spec"]
+    contenedor = plantilla["containers"][0]
+    # Versión y digest, nunca ``latest`` ni una etiqueta móvil.
+    assert re.fullmatch(r"[\w./-]+:\d+(\.\d+)+@sha256:[0-9a-f]{64}", contenedor["image"])
+    # Sin privilegios: uid fijo distinto de root, raíz de solo lectura y sin capacidades.
+    assert (
+        plantilla["securityContext"]["runAsNonRoot"] is True and plantilla["securityContext"]["runAsUser"] > 0
+    )
+    assert contenedor["securityContext"]["readOnlyRootFilesystem"] is True
+    assert contenedor["securityContext"]["capabilities"] == {"drop": ["ALL"]}
+    assert contenedor["securityContext"]["allowPrivilegeEscalation"] is False
+    # Persistencia activa en un PVC propio; el límite de memoria iguala a la solicitud.
+    (plantilla_pvc,) = base["spec"]["volumeClaimTemplates"]
+    assert plantilla_pvc["spec"]["accessModes"] == ["ReadWriteOnce"]
+    assert plantilla_pvc["spec"]["storageClassName"] == "managed-csi"
+    assert any(m["name"] == "data" for m in contenedor["volumeMounts"])
+    assert contenedor["resources"]["limits"]["memory"] == contenedor["resources"]["requests"]["memory"]
+    # Las credenciales salen de un Secret por referencia: ningún valor secreto en el manifiesto.
+    for env in contenedor["env"]:
+        if any(p in env["name"] for p in ("PASSWORD", "CLAVE", "AUTH")):
+            assert "value" not in env and env["valueFrom"]["secretKeyRef"]["name"] == "railspec-datos"
+    for sonda in ("startupProbe", "readinessProbe", "livenessProbe"):
+        assert contenedor[sonda]["exec"]["command"]
+
+
+def test_mongo_crea_un_usuario_de_aplicacion_sin_mas_permisos_que_su_base():
+    por_nombre = _por_nombre({**TODO, "RAILSPEC_MONGO_DB": "datos"})
+    guion = por_nombre[("ConfigMap", "railspec-mongo-init")]["data"]["10-usuario-aplicacion.js"]
+    assert 'roles: [{ role: "readWrite", db: bd }]' in guion and "process.env.RAILSPEC_MONGO_CLAVE" in guion
+    assert "root" not in guion and "dbOwner" not in guion
+    contenedor = _plantilla(por_nombre[("StatefulSet", "railspec-mongo")])["spec"]["containers"][0]
+    env = {e["name"]: e for e in contenedor["env"]}
+    assert env["RAILSPEC_MONGO_DB"]["value"] == "datos"
+    assert {"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "RAILSPEC_MONGO_CLAVE"} <= set(env)
+    assert "--auth" in contenedor["args"]
+    montaje = next(m for m in contenedor["volumeMounts"] if m["name"] == "init")
+    assert montaje["mountPath"] == "/docker-entrypoint-initdb.d" and montaje["readOnly"] is True
+
+
+def test_falkordb_exige_contrasena_persiste_y_apaga_el_navegador():
+    contenedor = _plantilla(_por_nombre(TODO)[("StatefulSet", "railspec-falkordb")])["spec"]["containers"][0]
+    env = {e["name"]: e for e in contenedor["env"]}
+    assert env["BROWSER"]["value"] == "0"
+    argumentos = env["REDIS_ARGS"]["value"]
+    assert "--requirepass $(FALKORDB_PASSWORD)" in argumentos and "--appendonly yes" in argumentos
+    # $(VAR) solo se expande con la variable definida antes en la lista.
+    nombres = [e["name"] for e in contenedor["env"]]
+    assert nombres.index("FALKORDB_PASSWORD") < nombres.index("REDIS_ARGS")
+    assert env["REDISCLI_AUTH"]["valueFrom"]["secretKeyRef"]["key"] == "FALKORDB_PASSWORD"
+    assert any(m["mountPath"] == "/var/lib/falkordb/data" for m in contenedor["volumeMounts"])
+
+
+def test_las_politicas_de_red_solo_dejan_pasar_al_servidor_y_al_respaldo():
+    por_nombre = _por_nombre({**TODO, "RAILSPEC_RED_INGRESS_NAMESPACE": "ingress-nginx"})
+    servidor = por_nombre[("NetworkPolicy", "railspec-server")]["spec"]
+    assert servidor["policyTypes"] == ["Ingress"]  # las salidas del servidor quedan abiertas a propósito
+    (regla,) = servidor["ingress"]
+    assert regla["from"] == [
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "ingress-nginx"}}}
+    ]
+    puerto = _plantilla(por_nombre[("Deployment", "railspec-server")])["spec"]["containers"][0]["ports"][0]
+    assert regla["ports"] == [{"protocol": "TCP", "port": puerto["containerPort"]}]
+    for nombre, puerto_base in (("railspec-mongo", 27017), ("railspec-falkordb", 6379)):
+        politica = por_nombre[("NetworkPolicy", nombre)]["spec"]
+        assert politica["podSelector"]["matchLabels"] == {"app.kubernetes.io/name": nombre}
+        assert politica["policyTypes"] == ["Ingress", "Egress"]
+        (entrada,) = politica["ingress"]
+        origenes = {o["podSelector"]["matchLabels"]["app.kubernetes.io/name"] for o in entrada["from"]}
+        assert origenes == {"railspec-server", "railspec-respaldo"}
+        assert all("namespaceSelector" not in o for o in entrada["from"])  # solo pods del mismo namespace
+        assert entrada["ports"] == [{"protocol": "TCP", "port": puerto_base}]
+        # Sin salida salvo el DNS del clúster.
+        (salida,) = politica["egress"]
+        assert {p["port"] for p in salida["ports"]} == {53}
+        base = _plantilla(por_nombre[("StatefulSet", nombre)])["spec"]["containers"][0]
+        assert base["ports"][0]["containerPort"] == puerto_base
+
+
+def test_las_etiquetas_que_las_politicas_seleccionan_existen_en_los_pods():
+    """Una errata en una etiqueta dejaría un pod sin acceso (o una política sin efecto) sin avisar."""
+
+    por_nombre = _por_nombre(TODO)
+    etiquetas = {
+        "railspec-server": _plantilla(por_nombre[("Deployment", "railspec-server")]),
+        "railspec-respaldo": _plantilla(por_nombre[("CronJob", "railspec-respaldo-mongo")]),
+    }
+    etiquetas_falkor = _plantilla(por_nombre[("CronJob", "railspec-respaldo-falkordb")])
+    for nombre, plantilla in etiquetas.items():
+        assert plantilla["metadata"]["labels"]["app.kubernetes.io/name"] == nombre
+    assert etiquetas_falkor["metadata"]["labels"]["app.kubernetes.io/name"] == "railspec-respaldo"
+    for base in ("railspec-mongo", "railspec-falkordb"):
+        plantilla = _plantilla(por_nombre[("StatefulSet", base)])
+        assert plantilla["metadata"]["labels"]["app.kubernetes.io/name"] == base
+        assert por_nombre[("Service", base)]["spec"]["selector"] == {"app.kubernetes.io/name": base}
+
+
+def test_respaldos_horario_retencion_y_credenciales_por_referencia():
+    por_nombre = _por_nombre(
+        {
+            **TODO,
+            "RAILSPEC_RESPALDO_CRON": "30 2 * * 0",
+            "RAILSPEC_RESPALDO_RETENCION_DIAS": "14",
+            "RAILSPEC_DATOS_SECRETO": "mis-datos",
+        }
+    )
+    volumen = por_nombre[("PersistentVolumeClaim", "railspec-respaldo")]["spec"]
+    assert volumen["accessModes"] == ["ReadWriteMany"] and volumen["storageClassName"] == "azurefile-csi"
+    for nombre, esperado in (
+        ("railspec-respaldo-mongo", "mongodump"),
+        ("railspec-respaldo-falkordb", "--rdb"),
+    ):
+        trabajo = por_nombre[("CronJob", nombre)]
+        assert trabajo["spec"]["schedule"] == "30 2 * * 0"
+        assert trabajo["spec"]["concurrencyPolicy"] == "Forbid"
+        contenedor = _plantilla(trabajo)["spec"]["containers"][0]
+        assert esperado in contenedor["args"][0]
+        env = {e["name"]: e for e in contenedor["env"]}
+        assert env["RETENCION_DIAS"]["value"] == "14"
+        secretos = {e["valueFrom"]["secretKeyRef"]["name"] for e in contenedor["env"] if "valueFrom" in e}
+        assert secretos == {"mis-datos"}
+        assert _plantilla(trabajo)["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == (
+            "railspec-respaldo"
+        )
+        # Primero un temporal y solo después el nombre final: un respaldo a medias nunca parece completo.
+        assert ".tmp" in contenedor["args"][0] and 'mv "$archivo.tmp" "$archivo"' in contenedor["args"][0]
+    # Los dos trabajos escriben en el mismo volumen: mismo uid, o uno no podría crear su carpeta.
+    uids = {
+        _plantilla(por_nombre[("CronJob", n)])["spec"]["securityContext"]["runAsUser"]
+        for n in ("railspec-respaldo-mongo", "railspec-respaldo-falkordb")
+    }
+    assert len(uids) == 1
+
+
+def test_el_respaldo_exige_una_base_interna():
+    with pytest.raises(renderizar.ErrorRender, match="RAILSPEC_RESPALDO"):
+        renderizar.renderizar({**MINIMO, "RAILSPEC_RESPALDO": "true"})
+    renderizar.renderizar({**MINIMO, "RAILSPEC_RESPALDO": "true", "RAILSPEC_FALKORDB_INTERNO": "true"})
+
+
+def test_clones_el_cronjob_usa_el_pvc_del_chat_la_misma_imagen_y_el_token_por_referencia():
+    por_nombre = _por_nombre(
+        {**TODO, "RAILSPEC_CLONES_SECRETO": "token-clones", "RAILSPEC_CLONES_CRON": "5 * * * *"}
+    )
+    trabajo = por_nombre[("CronJob", "railspec-clones")]
+    assert trabajo["spec"]["schedule"] == "5 * * * *"
+    contenedor = _plantilla(trabajo)["spec"]["containers"][0]
+    assert contenedor["image"] == MINIMO["RAILSPEC_IMAGEN"] or contenedor["image"].startswith("registro.")
+    assert (
+        contenedor["image"]
+        == _plantilla(por_nombre[("Deployment", "railspec-server")])["spec"]["containers"][0]["image"]
+    )
+    env = {e["name"]: e for e in contenedor["env"]}
+    assert env["REPOSITORIOS"]["value"] == "acme/api acme/web"  # la coma se vuelve espacio
+    assert env["GITHUB_TOKEN"]["valueFrom"]["secretKeyRef"] == {"name": "token-clones", "key": "GITHUB_TOKEN"}
+    assert (
+        _plantilla(trabajo)["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "railspec-clones"
+    )
+    # El PVC creado es el mismo que el servidor monta de solo lectura.
+    pvc = por_nombre[("PersistentVolumeClaim", "railspec-clones")]
+    assert pvc["spec"]["accessModes"] == ["ReadWriteMany"]
+    volumenes = _plantilla(por_nombre[("Deployment", "railspec-server")])["spec"]["volumes"]
+    assert (
+        next(v for v in volumenes if v["name"] == "clones")["persistentVolumeClaim"]["claimName"]
+        == (pvc["metadata"]["name"])
+    )
+    # El token no viaja en la línea de comandos ni en la URL.
+    assert "GITHUB_TOKEN" in contenedor["args"][0] and "x-access-token:" in contenedor["args"][0]
+    assert "https://$GITHUB_TOKEN" not in contenedor["args"][0]
+
+
+@pytest.mark.parametrize(
+    ("entorno", "texto"),
+    [
+        ({"RAILSPEC_MONGO_INTERNO": "si"}, "RAILSPEC_MONGO_INTERNO debe ser true o false"),
+        ({"RAILSPEC_RED_POLITICAS": "True"}, "RAILSPEC_RED_POLITICAS debe ser true o false"),
+        ({"RAILSPEC_CLONES_ACTUALIZAR": "true"}, "exige RAILSPEC_CHAT_CLONES_PVC"),
+        ({"RAILSPEC_CLONES_CREAR_PVC": "true"}, "exige RAILSPEC_CHAT_CLONES_PVC"),
+        ({**CON_PVC, "RAILSPEC_CLONES_ACTUALIZAR": "true"}, "exige RAILSPEC_CLONES_REPOSITORIOS"),
+        (
+            {**CON_PVC, "RAILSPEC_CLONES_ACTUALIZAR": "true", "RAILSPEC_CLONES_REPOSITORIOS": "../x"},
+            "no es un owner/repo válido",
+        ),
+        (
+            {
+                **CON_PVC,
+                "RAILSPEC_CLONES_ACTUALIZAR": "true",
+                "RAILSPEC_CLONES_REPOSITORIOS": "a/b; rm -rf /",
+            },
+            "no es un owner/repo válido",
+        ),
+        ({"RAILSPEC_CLONES_REPOSITORIOS": "acme/.."}, "no es un owner/repo válido"),
+        ({"RAILSPEC_MONGO_TAMANO": "20GB"}, "RAILSPEC_MONGO_TAMANO"),
+        ({"RAILSPEC_FALKORDB_MEMORIA": "2G"}, "RAILSPEC_FALKORDB_MEMORIA"),
+        ({"RAILSPEC_RESPALDO_CRON": "cada noche"}, "RAILSPEC_RESPALDO_CRON"),
+        ({"RAILSPEC_CLONES_CRON": '* * * * *"\n  x: "y'}, "RAILSPEC_CLONES_CRON"),
+        ({"RAILSPEC_RESPALDO_RETENCION_DIAS": "0"}, "RETENCION_DIAS"),
+        ({"RAILSPEC_DATOS_SECRETO": "Mi Secreto"}, "RAILSPEC_DATOS_SECRETO"),
+        ({"RAILSPEC_DATOS_CLASE": "x\n  y: z"}, "RAILSPEC_DATOS_CLASE"),
+        ({"RAILSPEC_RED_INGRESS_NAMESPACE": "a.b"}, "RAILSPEC_RED_INGRESS_NAMESPACE"),
+        ({"RAILSPEC_MONGO_IMAGEN": "mongo:7 latest"}, "RAILSPEC_MONGO_IMAGEN"),
+    ],
+)
+def test_render_rechaza_valores_de_datos_que_romperian_el_manifiesto(entorno, texto):
+    with pytest.raises(renderizar.ErrorRender, match=texto):
+        renderizar.renderizar({**MINIMO, **entorno})
+
+
+def test_zona_de_datos_del_chat_acepta_la_region_de_un_despliegue_datazone():
+    """``renderizar.py`` rechazaba ``zona-us``: un despliegue DataZone no servía al chat en restringido."""
+
+    for valor in ("zona-us", "zona-eu", "zona-us, eastus2", "eastus2,zona-eu", "swedencentral"):
+        assert _configmap({"RAILSPEC_CHAT_ZONA_DATOS": valor})["RAILSPEC_CHAT_ZONA_DATOS"] == valor
+    for valor in (
+        "zona-xx",
+        "zona-",
+        "Zona-us",
+        "zona-US",
+        "zona_us",
+        "zona-us,",
+        "zona-us zona-eu",
+        "zona-usa",
+    ):
+        with pytest.raises(renderizar.ErrorRender, match="zona-us"):
+            renderizar.renderizar({**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": valor})
+
+
+def test_aviso_si_la_zona_del_chat_no_es_la_del_recurso():
+    coincide = {"RAILSPEC_CHAT_ZONA_DATOS": "zona-us", "RAILSPEC_FOUNDRY_ZONA_DATOS": "us", **CON_PVC}
+    assert renderizar.avisos({**MINIMO, **coincide}) == []
+    otra = renderizar.avisos({**MINIMO, **coincide, "RAILSPEC_FOUNDRY_ZONA_DATOS": "eu"})
+    assert len(otra) == 1 and "zona-us" in otra[0] and "RAILSPEC_FOUNDRY_ZONA_DATOS" in otra[0]
+    sin_zona = renderizar.avisos({**MINIMO, **coincide, "RAILSPEC_FOUNDRY_ZONA_DATOS": ""})
+    assert len(sin_zona) == 1 and "vacía" in sin_zona[0]
+    # Una región de Azure ordinaria no se compara con la zona del recurso.
+    assert renderizar.avisos({**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": "eastus2", **CON_PVC}) == []
+
+
+def test_aviso_de_bases_internas_sin_respaldo():
+    sin = renderizar.avisos({**MINIMO, "RAILSPEC_MONGO_INTERNO": "true"})
+    assert any("RAILSPEC_RESPALDO" in a for a in sin)
+    con = renderizar.avisos({**MINIMO, "RAILSPEC_MONGO_INTERNO": "true", "RAILSPEC_RESPALDO": "true"})
+    assert not any("RAILSPEC_RESPALDO" in a for a in con)
+    assert not any("RAILSPEC_RESPALDO" in a for a in renderizar.avisos(MINIMO))
+
+
+def test_las_versiones_de_las_bases_son_las_mismas_en_manifiestos_ci_y_compose_y_ninguna_es_latest():
+    ci = (BASE_CI / ".github" / "workflows" / "railspec-ci.yml").read_text(encoding="utf-8")
+    compose = (RAIZ / "integracion" / "docker-compose.yml").read_text(encoding="utf-8")
+    for imagen in (renderizar.IMAGEN_MONGO, renderizar.IMAGEN_FALKORDB):
+        assert re.fullmatch(r"[\w./-]+:\d+(\.\d+)+@sha256:[0-9a-f]{64}", imagen)
+        assert f"image: {imagen}" in ci and f"image: {imagen}" in compose
+        assert (
+            renderizar.VARIABLES[
+                "RAILSPEC_MONGO_IMAGEN" if "mongo" in imagen.split(":")[0] else "RAILSPEC_FALKORDB_IMAGEN"
+            ][0]
+            == imagen
+        )
+    # Toda ``image:`` de lo que levanta bases (CI, compose, manifiestos con valor literal) lleva versión
+    # exacta y digest: ni ``latest`` ni una etiqueta móvil como ``7``.
+    for nombre, texto in (
+        ("railspec-ci.yml", ci),
+        ("docker-compose.yml", compose),
+        *((f.name, f.read_text(encoding="utf-8")) for f in (DEPLOY / "k8s").glob("*.yaml")),
+    ):
+        for imagen in re.findall(r"^\s*image:\s*(\S+)\s*$", texto, re.M):
+            if "${" not in imagen:
+                assert re.fullmatch(r"[\w./-]+:\d+(\.\d+)+@sha256:[0-9a-f]{64}", imagen), (
+                    f"{nombre}: imagen sin versión y digest: {imagen}"
+                )
+
+
+@pytest.mark.skipif(shutil.which("kubeconform") is None, reason="kubeconform no está instalado")
+@pytest.mark.parametrize("entorno", [{}, TODO], ids=["defecto", "todo-activado"])
+def test_los_manifiestos_validan_contra_el_esquema_de_kubernetes_1_31(entorno, tmp_path):
+    archivo = tmp_path / "railspec.yaml"
+    archivo.write_text(renderizar.renderizar({**MINIMO, **entorno}), encoding="utf-8")
+    salida = subprocess.run(
+        ["kubeconform", "-strict", "-summary", "-kubernetes-version", "1.31.0", str(archivo)],
+        capture_output=True,
+        text=True,
+    )
+    assert salida.returncode == 0, salida.stdout + salida.stderr
+
+
 # --- cobertura: ninguna variable del servidor puede quedarse fuera del despliegue ------
 
 RAIZ = DEPLOY.parent
@@ -316,9 +679,13 @@ def test_toda_variable_que_lee_el_servidor_esta_en_el_despliegue_o_declarada_fue
 
 
 def test_despliegue_md_documenta_cada_variable():
-    doc = (RAIZ / "docs" / "despliegue.md").read_text(encoding="utf-8")
+    # Las variables de las bases, la red, los respaldos y los clones viven en despliegue-datos.md.
+    doc = "".join(
+        (RAIZ / "docs" / nombre).read_text(encoding="utf-8")
+        for nombre in ("despliegue.md", "despliegue-datos.md")
+    )
     sin_fila = [n for n in renderizar.VARIABLES if f"| `{n}` |" not in doc]
-    assert not sin_fila, f"faltan en la tabla de despliegue.md: {sin_fila}"
+    assert not sin_fila, f"faltan en la tabla de despliegue.md o despliegue-datos.md: {sin_fila}"
     docs = "".join(f.read_text(encoding="utf-8") for f in (RAIZ / "docs").glob("*.md"))
     sin_doc = [n for n in sorted(CLAVES_DEL_SECRET | set(FUERA_DEL_CONFIGMAP)) if n not in docs]
     assert not sin_doc, f"sin documentar en railspec/docs: {sin_doc}"

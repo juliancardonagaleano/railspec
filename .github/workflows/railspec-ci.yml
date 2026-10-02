@@ -61,7 +61,8 @@ jobs:
             falkordb: false
     services:
       falkordb:
-        image: falkordb/falkordb:latest
+        # Misma versión y digest que railspec/deploy/renderizar.py (IMAGEN_FALKORDB).
+        image: falkordb/falkordb:6.0.1@sha256:e2765e207e5ba4ee90e47ed31eb7491ad6dd3d42241c326e429375c02ad9882f
         ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +80,52 @@ jobs:
         env:
           RAILSPEC_FALKORDB_URL: ${{ matrix.falkordb && 'redis://localhost:6379' || '' }}
         run: python -m pytest -c railspec/pyproject.toml --rootdir railspec ${{ matrix.pruebas }}
+
+  integracion:
+    name: integración extremo a extremo
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Recorrido completo de railspec/integracion contra Mongo y FalkorDB reales, con el servidor en un
+    # subproceso. Las imágenes son las de railspec/deploy/renderizar.py (IMAGEN_MONGO e IMAGEN_FALKORDB).
+    services:
+      mongo:
+        image: mongo:7.0.43@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 1"
+          --health-interval 5s --health-timeout 10s --health-retries 20
+      falkordb:
+        image: falkordb/falkordb:6.0.1@sha256:e2765e207e5ba4ee90e47ed31eb7491ad6dd3d42241c326e429375c02ad9882f
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar
+        run: >-
+          python -m pip install
+          -e "railspec/packages/railspec-contracts[test]" -e railspec/packages/railspec-local
+          -e "railspec/packages/railspec-graph[falkordb]"
+          -e "railspec/packages/railspec-server[motor,grafo]"
+          pytest pyyaml codebase-memory-mcp
+      - name: Configurar git para las pruebas que crean repositorios
+        run: |
+          git config --global user.email "ci@railspec.invalid"
+          git config --global user.name "railspec-ci"
+          git config --global init.defaultBranch master
+      - name: Probar
+        run: |
+          set -o pipefail
+          python -m pytest -c railspec/pyproject.toml --rootdir railspec -rs railspec/integracion | tee "$RUNNER_TEMP/e2e.txt"
+          # Sin bases las pruebas se saltan en silencio y el job saldría en verde sin probar nada.
+          if grep -q "no responde en" "$RUNNER_TEMP/e2e.txt"; then
+            echo "::error::Mongo o FalkorDB no respondieron: la integración se saltó"
+            exit 1
+          fi
 
   consola:
     runs-on: ubuntu-latest
@@ -115,3 +162,21 @@ jobs:
         run: |
           python3 railspec/deploy/renderizar.py > "$RUNNER_TEMP/railspec.yaml"
           kubeconform -strict -summary -kubernetes-version 1.31.0 "$RUNNER_TEMP/railspec.yaml"
+      - name: Renderizar con todo lo opcional activado (bases, red, respaldos y clones)
+        env:
+          RAILSPEC_IMAGEN: registro.azurecr.io/railspec-server:ci
+          RAILSPEC_DOMINIO: railspec.example.com
+          RAILSPEC_TLS_SECRETO: railspec-tls
+          RAILSPEC_MONGO_INTERNO: "true"
+          RAILSPEC_FALKORDB_INTERNO: "true"
+          RAILSPEC_RED_POLITICAS: "true"
+          RAILSPEC_RESPALDO: "true"
+          RAILSPEC_CHAT_CLONES_PVC: railspec-clones
+          RAILSPEC_CLONES_CREAR_PVC: "true"
+          RAILSPEC_CLONES_ACTUALIZAR: "true"
+          RAILSPEC_CLONES_REPOSITORIOS: acme/api acme/web
+          RAILSPEC_FOUNDRY_ZONA_DATOS: us
+          RAILSPEC_CHAT_ZONA_DATOS: zona-us
+        run: |
+          python3 railspec/deploy/renderizar.py > "$RUNNER_TEMP/railspec-todo.yaml"
+          kubeconform -strict -summary -kubernetes-version 1.31.0 "$RUNNER_TEMP/railspec-todo.yaml"

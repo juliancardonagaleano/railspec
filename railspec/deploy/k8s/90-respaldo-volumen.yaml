@@ -1,0 +1,18 @@
+# Volumen de los respaldos (RAILSPEC_RESPALDO=true). ReadWriteMany porque los dos trabajos de respaldo
+# pueden coincidir en nodos distintos. Los respaldos viven en el mismo clúster: protegen de borrados y
+# corrupción de datos, no de perder el clúster ni la cuenta de Azure (ver railspec/docs/despliegue-datos.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: railspec-respaldo
+  namespace: ${RAILSPEC_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: railspec-respaldo
+    app.kubernetes.io/component: datos
+    app.kubernetes.io/part-of: railspec
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ${RAILSPEC_ARCHIVOS_CLASE}
+  resources:
+    requests:
+      storage: ${RAILSPEC_RESPALDO_TAMANO}
