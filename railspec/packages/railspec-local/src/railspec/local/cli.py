@@ -1,8 +1,10 @@
 """Comando ``railspec``.
 
 - ``railspec mcp``: servidor MCP por stdio para el arnés (lo lanza el arnés).
-- ``railspec instalar``: configura el repositorio y los adaptadores de arnés.
+- ``railspec instalar``: configura el repositorio y los adaptadores de arnés; con ``--alcance usuario``,
+  los adaptadores en la configuración del usuario (Claude Code y OpenCode) para todos los repositorios.
 - ``railspec desinstalar``: quita los adaptadores (y, si se pide, la configuración).
+- ``railspec doctor``: diagnóstico de solo lectura; sale con 1 si algo falla.
 - ``railspec login``, ``logout`` y ``whoami``: sesión del desarrollador con GitHub (device flow) en
   vez de exportar ``RAILSPEC_TOKEN`` a mano.
 - ``railspec insumo pull <id>``: trae un insumo del chat de la consola.
@@ -28,7 +30,8 @@ from uuid import UUID
 
 from railspec.contracts.comun import Arnes, NivelCodigo
 
-from . import __version__, adaptadores, config, credenciales, dispositivo, git, guardia
+from . import __version__, adaptadores, config, credenciales, dispositivo, doctor, git, guardia
+from .adaptadores import usuario
 from .almacen import EXCLUIR_DE_GIT
 from .cliente import ClienteServidor
 from .errores import ConfigInvalida, CredencialesInvalidas, ErrorRailspec, LoginFallido
@@ -36,19 +39,30 @@ from .indice import cargar_indexador
 from .proxy import ProxyLocal
 
 
+def crear_cliente(url: str, fuente: credenciales.FuenteToken) -> ClienteServidor:
+    from .transporte_mcp import TransporteMcpHttp
+
+    return ClienteServidor(TransporteMcpHttp(url, fuente))
+
+
 def crear_proxy(raiz: Path) -> ProxyLocal:
     cfg = config.cargar(raiz)
     if not cfg.url:
         raise ConfigInvalida(f"Falta {config.ENV_URL}: el endpoint MCP de railspec-server.")
-    from .transporte_mcp import TransporteMcpHttp
-
     # RAILSPEC_TOKEN manda; sin él, la sesión de `railspec login`, releída en cada petición.
     fuente = credenciales.FuenteToken(cfg.url, cfg.token, credenciales.AlmacenCredenciales())
-    return ProxyLocal(cfg, ClienteServidor(TransporteMcpHttp(cfg.url, fuente)), cargar_indexador())
+    return ProxyLocal(cfg, crear_cliente(cfg.url, fuente), cargar_indexador())
 
 
 def _raiz(desde: str | None) -> Path:
-    return git.raiz_repositorio(Path(desde or ".").resolve())
+    ruta = Path(desde or ".").resolve()
+    try:
+        return git.raiz_repositorio(ruta)
+    except git.ErrorGit:
+        raise ConfigInvalida(
+            f"{ruta} no está dentro de un repositorio git: ejecuta railspec en el clon donde trabajas "
+            "(o pasa --repo <ruta>)."
+        ) from None
 
 
 def _imprimir(datos: Any) -> None:
@@ -58,8 +72,10 @@ def _imprimir(datos: Any) -> None:
 def _cmd_mcp(args: argparse.Namespace) -> int:
     from .servidor_mcp import servir
 
-    raiz = _raiz(args.repo)
-    servir(lambda: crear_proxy(raiz))
+    # El repositorio se busca al primer uso, no al arrancar: instalado con `--alcance usuario`, el arnés
+    # lanza este servidor en cualquier carpeta y fuera de un repositorio de Railspec debe conectar igual
+    # (la tool responde qué falta) en vez de caerse al arrancar.
+    servir(lambda: crear_proxy(_raiz(args.repo)))
     return 0
 
 
@@ -72,6 +88,8 @@ EXCLUIR_ADAPTADORES = ["/.claude/settings.local.json"]
 
 
 def _cmd_instalar(args: argparse.Namespace) -> int:
+    if args.alcance == ALCANCE_USUARIO:
+        return _instalar_usuario(args)
     raiz = _raiz(args.repo)
     arneses = [Arnes(a) for a in (args.arnes or [])]
     worktrees = _dir_worktrees(raiz)
@@ -122,14 +140,85 @@ def _cmd_instalar(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Dónde vale lo que instala `railspec instalar`: este repositorio o la configuración del usuario.
+ALCANCE_REPOSITORIO = "repositorio"
+ALCANCE_USUARIO = "usuario"
+
+
+def _aviso_comando() -> str | None:
+    if shutil.which(adaptadores.COMANDO_PROXY[0]) is not None:
+        return None
+    return (
+        f"`{adaptadores.COMANDO_PROXY[0]}` no está en el PATH: el arnés no podrá lanzar el proxy. "
+        "Pon el binario de la release en un PATH que vea el arnés (~/.local/bin/railspec) o instala "
+        "railspec-local con pipx; ver railspec/docs/proxy-local.md."
+    )
+
+
+def _arneses_de_usuario(args: argparse.Namespace) -> list[Arnes]:
+    """Valida ``--arnes`` para el alcance de usuario antes de escribir nada."""
+
+    arneses = [Arnes(a) for a in (args.arnes or [])]
+    for arnes in arneses:
+        usuario.comprobar(arnes)
+    return arneses
+
+
+def _instalar_usuario(args: argparse.Namespace) -> int:
+    propios = [
+        f
+        for f, v in (
+            ("--org", args.org),
+            ("--workspace", args.workspace),
+            ("--repositorio", args.repositorio),
+            ("--nivel", args.nivel),
+        )
+        if v
+    ]
+    if propios:
+        raise ConfigInvalida(
+            f"{', '.join(propios)} son del repositorio, no del usuario: escribe esa configuración en cada "
+            "clon con `railspec instalar --org … --workspace … --repositorio …` (sin --alcance ni --arnes)."
+        )
+    arneses = _arneses_de_usuario(args)
+    if not arneses:
+        raise ConfigInvalida(
+            "Con --alcance usuario indica el arnés: "
+            f"{', '.join(f'--arnes {a.value}' for a in usuario.ARNESES)}."
+        )
+    worktrees = os.environ.get(config.ENV_WORKTREES)
+    carpeta = Path(worktrees) if worktrees else None
+    if args.verificar:
+        deriva = {a.value: usuario.verificar(a, carpeta) for a in arneses}
+        _imprimir({"alcance": ALCANCE_USUARIO, "deriva": deriva})
+        return 1 if any(deriva.values()) else 0
+    cambios = {a.value: usuario.instalar(a, carpeta) for a in arneses}
+    salida: dict[str, Any] = {
+        "alcance": ALCANCE_USUARIO,
+        "cambios": cambios,
+        "siguiente": (
+            "en cada repositorio, `railspec instalar --org … --workspace … --repositorio …` (sin --arnes) "
+            f"escribe su .railspec/config.json; exporta {config.ENV_URL}, inicia sesión con `railspec login` "
+            "y reinicia el arnés"
+        ),
+    }
+    avisos = [a for a in (_aviso_comando(),) if a]
+    if Arnes.claude_code in arneses and carpeta is None:
+        avisos.append(
+            "Claude Code pedirá permiso la primera vez que edite en la carpeta de worktrees de cada "
+            "repositorio (<repo>.railspec). Para abrirla de una vez, fija "
+            f"{config.ENV_WORKTREES} a una carpeta común y repite este comando."
+        )
+    if avisos:
+        salida["avisos"] = avisos
+    _imprimir(salida)
+    return 0
+
+
 def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
     avisos = []
-    if arneses and shutil.which(adaptadores.COMANDO_PROXY[0]) is None:
-        avisos.append(
-            f"`{adaptadores.COMANDO_PROXY[0]}` no está en el PATH: el arnés no podrá lanzar el proxy. "
-            "Pon el binario de la release en un PATH que vea el arnés (~/.local/bin/railspec) o instala "
-            "railspec-local con pipx; ver railspec/docs/proxy-local.md."
-        )
+    if arneses and (aviso := _aviso_comando()):
+        avisos.append(aviso)
     if Arnes.codex in arneses:
         avisos.append(
             "Codex solo carga .codex/config.toml (y con él el servidor railspec) en proyectos de confianza: "
@@ -152,7 +241,22 @@ def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
     return avisos
 
 
+def _desinstalar_usuario(args: argparse.Namespace) -> int:
+    if args.config:
+        raise ConfigInvalida(
+            "--config borra el .railspec/config.json del repositorio; con --alcance usuario no hay "
+            "configuración de repositorio que borrar."
+        )
+    arneses = _arneses_de_usuario(args) or usuario.instalados()
+    worktrees = os.environ.get(config.ENV_WORKTREES)
+    cambios = {a.value: usuario.desinstalar(a, Path(worktrees) if worktrees else None) for a in arneses}
+    _imprimir({"alcance": ALCANCE_USUARIO, "cambios": cambios})
+    return 0
+
+
 def _cmd_desinstalar(args: argparse.Namespace) -> int:
+    if args.alcance == ALCANCE_USUARIO:
+        return _desinstalar_usuario(args)
     raiz = _raiz(args.repo)
     arneses = [Arnes(a) for a in args.arnes] if args.arnes else adaptadores.instalados(raiz)
     worktrees = _dir_worktrees(raiz)
@@ -319,8 +423,14 @@ def _cmd_whoami(args: argparse.Namespace) -> int:
 
 
 def _cmd_insumo(args: argparse.Namespace) -> int:
+    try:
+        insumo = UUID(args.id)
+    except ValueError:
+        raise ConfigInvalida(
+            f"«{args.id}» no es un id de insumo (un UUID, como el que muestra el chat de la consola)."
+        ) from None
     proxy = crear_proxy(_raiz(args.repo))
-    _imprimir(asyncio.run(proxy.traer_insumo(UUID(args.id), args.unidad)))
+    _imprimir(asyncio.run(proxy.traer_insumo(insumo, args.unidad)))
     return 0
 
 
@@ -372,6 +482,22 @@ def _cmd_sync(args: argparse.Namespace) -> int:
     return 0 if not resultado["pendientes"] else 2
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    desde = Path(args.repo or ".").resolve()
+    comprobaciones = asyncio.run(doctor.diagnosticar(desde, crear_cliente))
+    if args.json:
+        _imprimir(
+            {
+                "ok": not doctor.hay_fallos(comprobaciones),
+                "resumen": doctor.resumen(comprobaciones),
+                "comprobaciones": [c.como_json() for c in comprobaciones],
+            }
+        )
+    else:
+        print(doctor.formatear(comprobaciones))
+    return 1 if doctor.hay_fallos(comprobaciones) else 0
+
+
 def _cmd_hook(args: argparse.Namespace) -> int:
     """Lee la entrada del hook por stdin y responde por stdout; ante un fallo, rechaza.
 
@@ -407,6 +533,15 @@ def parser() -> argparse.ArgumentParser:
         "--arnes", action="append", choices=[a.value for a in adaptadores.ADAPTADORES], help="Repetible."
     )
     inst.add_argument("--verificar", action="store_true", help="Solo informa deriva; no escribe.")
+    inst.add_argument(
+        "--alcance",
+        choices=[ALCANCE_REPOSITORIO, ALCANCE_USUARIO],
+        default=ALCANCE_REPOSITORIO,
+        help=(
+            "repositorio (por defecto): este clon. usuario: la configuración del usuario del arnés, para "
+            "todos los repositorios (solo claude-code y opencode)."
+        ),
+    )
     inst.set_defaults(fn=_cmd_instalar)
 
     des = sub.add_parser(
@@ -419,7 +554,20 @@ def parser() -> argparse.ArgumentParser:
         help="Repetible. Por defecto, todos los que estén instalados.",
     )
     des.add_argument("--config", action="store_true", help=f"Borra también {config.ARCHIVO_CONFIG}.")
+    des.add_argument(
+        "--alcance",
+        choices=[ALCANCE_REPOSITORIO, ALCANCE_USUARIO],
+        default=ALCANCE_REPOSITORIO,
+        help="Dónde quitarlos: este repositorio (por defecto) o la configuración del usuario.",
+    )
     des.set_defaults(fn=_cmd_desinstalar)
+
+    doc = sub.add_parser(
+        "doctor",
+        help="Diagnóstico de solo lectura (servidor, sesión, contrato, adaptadores, indexador, worktrees).",
+    )
+    doc.add_argument("--json", action="store_true", help="Salida en JSON en vez de texto.")
+    doc.set_defaults(fn=_cmd_doctor)
 
     login = sub.add_parser(
         "login", help="Inicia sesión con GitHub (device flow) y guarda tu token de usuario en este equipo."

@@ -8,6 +8,7 @@ el proxy solo conoce el contrato.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import subprocess
@@ -56,6 +57,7 @@ from railspec.contracts.portabilidad import ArtefactosPaquete, OrigenPaquete, Pa
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.snapshot import DeltaIndice, Embedding, MotorIndice, Simbolo, TipoSimbolo, id_simbolo
 from railspec.contracts.tools import (
+    TOOLS,
     AvanceCerrada,
     AvanceCheckpoint,
     AvanceOrden,
@@ -65,6 +67,7 @@ from railspec.contracts.tools import (
     GraphQueryEntrada,
     GraphQuerySalida,
     InsumoGetSalida,
+    Superficie,
     SyncPullEntrada,
     SyncPullSalida,
     SyncPushEntrada,
@@ -77,12 +80,14 @@ from railspec.contracts.tools import (
     UnitImportEntrada,
     UnitImportSalida,
     UnitIntegrateEntrada,
+    UnitListSalida,
     UnitReportSalida,
     UnitSetModeEntrada,
     UnitStartEntrada,
     UnitStartSalida,
     UnitStatusEntrada,
     UnitStatusSalida,
+    nombre_mcp,
 )
 from railspec.local import config
 from railspec.local.cliente import ClienteServidor
@@ -161,6 +166,12 @@ class ServidorDoble:
         self.reenvio_idempotente = True
         self._n = 100
         self.importadas: dict[tuple[str, str], Any] = {}
+        #: Excepción que lanza una tool concreta (rechazo de identidad, error de negocio…).
+        self.fallos: dict[str, Exception] = {}
+        #: Tools que publica el servidor (``railspec doctor``); ``None`` = todas las del contrato.
+        self.tools_publicadas: list[str] | None = None
+        #: Segundos que tarda en listar las tools (simula un servidor que no responde).
+        self.demora_herramientas_s = 0.0
 
     def _id(self) -> UUID:
         self._n += 1
@@ -180,10 +191,21 @@ class ServidorDoble:
     def _error(self, codigo: CodigoError, detalle: str) -> ErrorServidor:
         return ErrorServidor(ErrorTool(codigo=codigo, detalle=detalle))
 
+    async def herramientas(self) -> list[str]:
+        if not self.conectado:
+            raise SinConexion("servidor doble desconectado")
+        if self.demora_herramientas_s:
+            await asyncio.sleep(self.demora_herramientas_s)
+        if self.tools_publicadas is not None:
+            return list(self.tools_publicadas)
+        return [nombre_mcp(n) for n, d in TOOLS.items() if Superficie.mcp in d.superficies]
+
     async def llamar(self, tool: str, argumentos: dict[str, Any]) -> dict[str, Any]:
         self.llamadas.append((tool, argumentos))
         if not self.conectado:
             raise SinConexion("servidor doble desconectado")
+        if tool in self.fallos:
+            raise self.fallos[tool]
         salida = getattr(self, "_" + tool.replace(".", "_"))(argumentos)
         return salida.model_dump(mode="json")
 
@@ -355,6 +377,9 @@ class ServidorDoble:
             self.perder_respuesta_push = False
             raise SinConexion("respuesta de sync.push perdida")
         return SyncPushSalida(confirmada_hasta=ultima, duplicados=duplicados)
+
+    def _unit_list(self, args: dict[str, Any]) -> UnitListSalida:
+        return UnitListSalida(unidades=[])
 
     def _unit_status(self, args: dict[str, Any]) -> UnitStatusSalida:
         UnitStatusEntrada.model_validate(args)

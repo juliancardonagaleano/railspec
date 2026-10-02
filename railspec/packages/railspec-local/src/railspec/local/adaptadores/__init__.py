@@ -178,15 +178,7 @@ class Adaptador:
         local = ".claude/settings.local.json"
         piezas: list[Pieza] = [
             _entrada_mcp_json(),
-            ElementosLista(
-                compartido, ("permissions", "allow"), tuple(f"mcp__railspec__{t}" for t in TOOLS_AUTOMATICAS)
-            ),
-            # `ask` gana a `allow`: aunque alguien permita `mcp__railspec` entero, estas preguntan.
-            ElementosLista(
-                compartido, ("permissions", "ask"), tuple(f"mcp__railspec__{t}" for t in TOOLS_HUMANAS)
-            ),
-            # Reglas de conducta aplicadas: escrituras fuera de la orden y decisiones humanas.
-            EntradaHook(compartido, ("hooks", "PreToolUse"), HOOK_CLAUDE_CODE, "railspec hook "),
+            *piezas_ajustes_claude_code(compartido),
             # Por máquina: confiar en el `.mcp.json` del proyecto y abrir la carpeta de worktrees.
             ElementosLista(local, ("enabledMcpjsonServers",), (NOMBRE_SERVIDOR,)),
         ]
@@ -197,28 +189,7 @@ class Adaptador:
         return piezas
 
     def _piezas_opencode(self, raiz: Path) -> list[Pieza]:
-        archivo = self.archivo_mcp(raiz)
-        esquema = (("$schema", "https://opencode.ai/config.json"),)
-        piezas: list[Pieza] = [
-            EntradaJson(
-                archivo,
-                ("mcp", NOMBRE_SERVIDOR),
-                {"type": "local", "command": COMANDO_PROXY, "enabled": True},
-                vacio=esquema,
-            ),
-        ]
-        # OpenCode nombra las tools MCP `<servidor>_<tool>` y admite permisos por nombre de tool.
-        piezas += [
-            EntradaJson(
-                archivo,
-                ("permission", f"{NOMBRE_SERVIDOR}_{t}"),
-                "ask",
-                siempre_quitar=False,
-                vacio=esquema,
-                escalar_a="*",
-            )
-            for t in TOOLS_HUMANAS
-        ]
+        piezas = piezas_config_opencode(self.archivo_mcp(raiz))
         # Reglas de conducta aplicadas por plugin (`tool.execute.before`) y permiso de los worktrees.
         piezas.append(ArchivoPropio(".opencode/plugins/railspec.js", plantilla("plugin-opencode.js")))
         # Rutas de versiones anteriores del adaptador (carpetas en singular).
@@ -227,6 +198,47 @@ class Adaptador:
             ArchivoLegado(".opencode/skill/railspec-bucle/SKILL.md"),
         ]
         return piezas
+
+
+def piezas_ajustes_claude_code(archivo: str) -> list[Pieza]:
+    """Permisos y hook de la guardia en un ``settings.json`` de Claude Code (repositorio o usuario)."""
+
+    return [
+        ElementosLista(
+            archivo, ("permissions", "allow"), tuple(f"mcp__railspec__{t}" for t in TOOLS_AUTOMATICAS)
+        ),
+        # `ask` gana a `allow`: aunque alguien permita `mcp__railspec` entero, estas preguntan.
+        ElementosLista(archivo, ("permissions", "ask"), tuple(f"mcp__railspec__{t}" for t in TOOLS_HUMANAS)),
+        # Reglas de conducta aplicadas: escrituras fuera de la orden y decisiones humanas.
+        EntradaHook(archivo, ("hooks", "PreToolUse"), HOOK_CLAUDE_CODE, "railspec hook "),
+    ]
+
+
+def piezas_config_opencode(archivo: str) -> list[Pieza]:
+    """Servidor y permisos en el archivo de configuración de OpenCode (``opencode.json[c]``)."""
+
+    esquema = (("$schema", "https://opencode.ai/config.json"),)
+    piezas: list[Pieza] = [
+        EntradaJson(
+            archivo,
+            ("mcp", NOMBRE_SERVIDOR),
+            {"type": "local", "command": COMANDO_PROXY, "enabled": True},
+            vacio=esquema,
+        ),
+    ]
+    # OpenCode nombra las tools MCP `<servidor>_<tool>` y admite permisos por nombre de tool.
+    piezas += [
+        EntradaJson(
+            archivo,
+            ("permission", f"{NOMBRE_SERVIDOR}_{t}"),
+            "ask",
+            siempre_quitar=False,
+            vacio=esquema,
+            escalar_a="*",
+        )
+        for t in TOOLS_HUMANAS
+    ]
+    return piezas
 
 
 def _entrada_mcp_json() -> EntradaJson:

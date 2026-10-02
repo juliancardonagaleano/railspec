@@ -100,10 +100,18 @@ def _resumen(exc: Exception) -> str:
 class AlmacenCredenciales:
     """Archivo JSON por usuario con una credencial por servidor."""
 
-    def __init__(self, ruta: Path | None = None, entorno: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        ruta: Path | None = None,
+        entorno: Mapping[str, str] | None = None,
+        *,
+        cerrar_permisos: bool = True,
+    ) -> None:
         # La ruta se resuelve al usarla: quien usa RAILSPEC_TOKEN no necesita una carpeta personal.
         self._ruta = ruta
         self._entorno = entorno
+        # ``False`` para quien solo mira (``railspec doctor``): un archivo abierto se informa, no se corrige.
+        self._cerrar_permisos = cerrar_permisos
 
     @property
     def ruta(self) -> Path:
@@ -142,6 +150,11 @@ class AlmacenCredenciales:
         if not stat.S_ISREG(info.st_mode):
             raise CredencialesInvalidas(f"{self.ruta} no es un archivo normal.")
         modo = stat.S_IMODE(info.st_mode)
+        if modo & 0o077 and not self._cerrar_permisos:
+            raise CredencialesInvalidas(
+                f"{self.ruta} lo pueden leer otros usuarios (modo {modo:04o}). Ciérralo con "
+                f"`chmod 600 {self.ruta}`; cualquier otro comando de railspec lo hace solo."
+            )
         if modo & 0o077:
             # Como ssh con las claves: una credencial que otros pueden leer se cierra antes de usarla.
             try:

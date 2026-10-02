@@ -49,6 +49,12 @@ cada archivo como estaba; si un archivo queda vacío (o, en OpenCode, solo con
 las unidades: sus worktrees y su estado local siguen donde estaban y la salida
 los lista en `unidades_en_local`.
 
+Por defecto el adaptador se instala en el repositorio. Para dejarlo en la
+configuración de tu usuario (todos los repositorios, sin tocar cada clon) añade
+`--alcance usuario`: ver [Instalación por usuario](#instalación-por-usuario).
+Y si algo no funciona, `railspec doctor` lo diagnostica sin cambiar nada: ver
+[Diagnóstico](#diagnóstico-railspec-doctor).
+
 ## Iniciar sesión con GitHub
 
 El servidor identifica a cada persona con un **token de usuario de la GitHub App
@@ -208,6 +214,143 @@ verificar que el modelo invoque las tools y que Copilot aplique
 `allowed-tools` al invocar la skill (lo valida en ese momento). Los turnos con
 un modelo de pega que sí corrieron, para la guardia de hooks, están en
 «Reglas de conducta aplicadas con hooks».
+
+## Instalación por usuario
+
+`railspec instalar --alcance usuario --arnes <arnés>` deja el stack de tres
+piezas, el servidor MCP, los permisos y la guardia en la configuración que cada
+arnés lee para **cualquier** repositorio: se instala una vez por máquina y no hay
+que tocar cada clon. Sirve para Claude Code y OpenCode (Codex y Copilot,
+abajo).
+
+```
+railspec instalar --alcance usuario --arnes claude-code --arnes opencode
+railspec instalar --alcance usuario --arnes claude-code --verificar   # deriva, sin escribir; sale con 1 si la hay
+railspec desinstalar --alcance usuario --arnes opencode
+```
+
+| Pieza | Claude Code (`~` = tu carpeta personal) | OpenCode (`$XDG_CONFIG_HOME/opencode`, por defecto `~/.config/opencode`) |
+|---|---|---|
+| Registro del proxy | `~/.claude.json` → `mcpServers.railspec` (alcance *user*, la entrada de `claude mcp add --scope user`) | `opencode.json` u `opencode.jsonc` (el que exista) → `mcp.railspec` |
+| Comando de arranque `/railspec` | `~/.claude/commands/railspec.md` | `commands/railspec.md` |
+| Bucle de cliente | `~/.claude/skills/railspec-bucle/SKILL.md` | `skills/railspec-bucle/SKILL.md` |
+| Reglas de conducta | bloque delimitado en `~/.claude/CLAUDE.md` | bloque delimitado en `AGENTS.md` |
+| Reglas aplicadas (hooks) | `hooks.PreToolUse` en `~/.claude/settings.json` | plugin `plugins/railspec.js` |
+| Permisos | `~/.claude/settings.json` (`allow` y `ask`, los de la tabla de arriba) | `permission` del archivo de configuración |
+
+La fusión sigue las mismas reglas que por repositorio (solo la entrada
+`railspec`, los permisos que añade y el bloque entre marcadores; un JSON
+inválido no se pisa; los archivos se reescriben de forma atómica, conservando
+sus permisos y respetando un enlace simbólico). Las rutas se resuelven con el
+`HOME` del proceso, así que un `HOME` temporal sirve para probar sin tocar el
+tuyo.
+
+- **Lo del repositorio sigue siendo del repositorio.** El alcance de usuario no
+  escribe `.railspec/config.json` (org, workspace, slug y nivel son de cada
+  repositorio): ejecuta en cada clon `railspec instalar --org … --workspace …
+  --repositorio …` **sin** `--arnes` ni `--alcance`, que solo escribe esa
+  configuración. Con `--alcance usuario`, `--org`, `--workspace`,
+  `--repositorio` y `--nivel` se rechazan, y `desinstalar --alcance usuario`
+  rechaza `--config`.
+- **Las reglas de conducta de usuario** son las mismas con un encabezado que
+  dice que valen en los repositorios con `.railspec/config.json`: en cualquier
+  otro no piden nada.
+- **El servidor arranca en cualquier carpeta.** `railspec mcp` busca el
+  repositorio y su configuración al llamar una tool, no al arrancar: fuera de un
+  repositorio con Railspec el arnés ve las tools igual y la primera llamada
+  responde que falta `railspec instalar --org …` (o `--repo <ruta>`). Un
+  arranque que fallara a la entrada dejaría el servidor caído en cada carpeta
+  del usuario.
+- **Carpeta de worktrees.** La unidad trabaja en `<repo>.railspec/<unidad>`, que
+  queda fuera del repositorio. Por repositorio, `instalar` la abre en
+  `settings.local.json`; en alcance de usuario no puede, porque cambia con cada
+  repositorio, así que Claude Code pregunta la primera vez que edita en la
+  carpeta de worktrees de cada uno. Para abrirla de una vez, fija
+  `RAILSPEC_WORKTREES` a una carpeta común y repite el comando: va a
+  `permissions.additionalDirectories` de `~/.claude/settings.json` (y exporta la
+  misma variable en el entorno del arnés, para que el proxy cree ahí los
+  worktrees). Es una concesión: Claude Code edita sin preguntar en esa carpeta
+  para todos tus repositorios. En OpenCode no hace falta: el plugin abre la
+  carpeta al arrancar, como por repositorio.
+- **Los dos alcances a la vez** funcionan: en Claude Code el servidor aparece una
+  vez y el hook de la guardia corre una vez. `railspec doctor` revisa ambos.
+- **El comando en el `PATH`.** `instalar` avisa si `railspec` no está en el
+  `PATH` que ve el arnés; tras instalar, reinicia el arnés, exporta
+  `RAILSPEC_URL` y ejecuta `railspec login`.
+
+**Codex y GitHub Copilot CLI: no soportados.** `--alcance usuario --arnes codex`
+(o `copilot`) termina con un error que lo dice y manda a instalarlos por
+repositorio. No se verificó dónde cargan en la configuración del usuario los
+hooks, las skills y el servidor MCP de cada uno, y una ruta supuesta dejaría la
+guardia sin aplicar **sin ningún error** (en Codex ya ocurre con un hook sin
+confiar). Hasta verificarlo contra cada CLI, siguen siendo por repositorio.
+
+**Verificado de verdad** (2026-10-02, con un `HOME` temporal y el comando
+`railspec` real en el `PATH`):
+
+- Claude Code 2.1.287: desde una carpeta que no es un repositorio, `claude mcp
+  get railspec` informa «User config (available in all your projects)» y
+  «Connected»; el evento `init` de `claude -p` lista el comando `railspec`, la
+  skill `railspec-bucle`, el servidor con origen `user` y las doce tools
+  `mcp__railspec__*`; con un `railspec` de pega en el `PATH` que responde
+  `deny`, un `Write` del modelo se rechaza con el motivo (el hook corre una sola
+  vez, también con los dos alcances instalados). La entrada que escribe
+  `instalar` en `~/.claude.json` es la que produce `claude mcp add --scope user`.
+- OpenCode 1.18.34: `opencode mcp list` (servidor `railspec` conectado desde una
+  carpeta sin repositorio), `opencode debug config` (el servidor, los tres
+  `permission.railspec_<tool>: "ask"` y el plugin global) y `opencode debug
+  skill`; con un proveedor OpenAI-compatible de pega, la petición al modelo
+  lleva las doce tools `railspec_*` y el bloque de reglas del `AGENTS.md` global.
+
+**Sin verificar.** En OpenCode, que el plugin global rechace una escritura con
+una unidad en curso (por repositorio sí se probó, es el mismo archivo); ningún
+turno de modelo real con alcance de usuario; los dos alcances a la vez en
+OpenCode; Windows y macOS.
+
+## Diagnóstico: `railspec doctor`
+
+```
+railspec doctor           # informe para leer
+railspec doctor --json    # lo mismo, para otra herramienta
+railspec --repo ~/src/certificados-api doctor   # desde otra carpeta
+```
+
+Responde a «¿por qué no funciona?» en una pasada y **sin cambiar nada**: no
+escribe en el repositorio, en los worktrees ni en la configuración de ningún
+arnés, no corrige permisos (si `credenciales.json` está abierto lo dice, no lo
+cierra) y no cambia nada en el servidor: su única llamada es `unit.list`, de
+lectura. Cada comprobación termina en ✓ (bien), `!` (algo que mirar, no impide
+trabajar) o ✗ (roto, con el remedio debajo). **Sale con 1 si hay algún ✗** y con
+0 si solo hay avisos; el resumen final cuenta fallos, avisos y bien. En
+`--json`: `ok` (no hay ningún fallo), `resumen` y `comprobaciones` (cada una con
+`nombre`, `estado`, `detalle` y, si los hay, `remedio` e `items`).
+
+| Comprobación | Qué mira | Falla si… | Avisa si… |
+|---|---|---|---|
+| `repositorio` | Hay un clon y `.railspec/config.json` válido (org, workspace, repositorio, nivel) | no es un repositorio git o falta o es inválida la configuración | — |
+| `comando` | `railspec` en el `PATH` | no está: el arnés no puede lanzar el proxy ni la guardia | — |
+| `servidor` | `RAILSPEC_URL` responde (lista las tools por MCP; tope de 20 s) | falta `RAILSPEC_URL`, no responde, da error o agota el tiempo | — |
+| `sesion` | De dónde sale el token (`RAILSPEC_TOKEN` o `railspec login`) y que el servidor lo acepta (`unit.list`) | no hay sesión, venció, el archivo está dañado o abierto a otros usuarios, el servidor rechaza el token o el rol | no hay `RAILSPEC_URL`, no se pudo probar el token (sin conexión, o sin configuración del repositorio) o vence en menos de una hora |
+| `contrato` | El servidor publica las tools de este proxy (contrato 1.5) y su respuesta cumple el contrato. Solo si el servidor respondió | faltan tools (contrato anterior) o la respuesta de `unit.list` no valida | sobran tools (¿contrato más nuevo?) o el transporte no las lista |
+| `adaptadores` | Deriva de cada adaptador instalado, por repositorio y por usuario, respecto de esta versión | alguna pieza falta o no coincide (cada una, listada) | ningún arnés tiene el adaptador |
+| `codex` | Solo si el repositorio instaló Codex: hay confianza guardada para el hook de la guardia | el hook no está confiado (Codex no lo ejecuta y las ediciones pasan sin revisar) | no se pudo leer `~/.codex/config.toml` |
+| `indexador` | `codebase-memory-mcp` en el `PATH` y en la versión fijada | tiene otra versión (el delta no se garantiza) | no está instalado (los snapshots viajan solo con hashes; es opcional) |
+| `worktrees` | Los worktrees de unidades de este repositorio | — | huérfanos (git los registra y la carpeta no existe, o no tienen estado local, o hay una carpeta con estado que git no conoce) o un estado local que no se puede leer |
+
+- **El contrato no se negocia en `doctor`.** La versión se fija al arrancar una
+  unidad (`unit_start`), no al conectar; `doctor` comprueba lo observable: que el
+  servidor publica las tools que este proxy llama y que `unit.list` responde con
+  la forma del contrato. Lo dice en el detalle.
+- **Codex: la confianza no se puede validar del todo.** Codex guarda en
+  `~/.codex/config.toml` (o `$CODEX_HOME`) un `trusted_hash` por hook, ligado a su
+  contenido. `doctor` comprueba que hay una entrada para el hook de este
+  repositorio; no recalcula el hash, así que no detecta que `railspec instalar`
+  cambió el hook después de confiarlo (Codex lo pide de nuevo en `/hooks`). Lo
+  advierte en el detalle del ✓.
+- **Sin repositorio.** Fuera de un clon, `repositorio` falla, `codex` y
+  `worktrees` no aparecen, `sesion` avisa de que no probó el token contra el
+  servidor (la prueba usa el workspace del repositorio) y `adaptadores` mira solo
+  los de usuario; `comando`, `servidor` y el resto responden igual.
 
 ## Importar y exportar unidades
 
@@ -410,14 +553,14 @@ viaja: el servidor lo deriva del token.
 | Tool local | Tool del contrato | Qué añade el proxy |
 |---|---|---|
 | `unit_start` | `unit.start` | Base en HEAD del clon, rama `railspec/<unidad>`, worktree hermano |
-| `unit_advance` | `unit.advance` | Vacía la cola antes; sin red devuelve la orden en curso |
+| `unit_advance` | `unit.advance` | Vacía la cola antes; sin red devuelve la orden en curso; si la orden parte de otro commit base, rebasa el worktree (ver [Rebase](#cuando-la-base-de-la-unidad-avanza-rebase)) |
 | `unit_report` | `unit.report` | Snapshot, validación y artefacto construidos en local |
 | `unit_checkpoint` | `unit.approve` | Formulario al humano (elicitation) |
 | `unit_approve` | `unit.approve` | — |
 | `unit_set_mode` | `unit.set_mode` | Solo a petición del humano (1.2) |
 | `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
 | `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
-| `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1) |
+| `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1); si no hay con qué calcularlo, la respuesta trae `avisos` (ver [Indexador local](#indexador-local)) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |
 
@@ -439,6 +582,48 @@ Estado local en el worktree, siempre fuera de git (`info/exclude`):
 | `.railspec/ultimo-empuje` | Último commit de la rama avisado como `commit.empujado` |
 | `.railspec/validacion/<orden>.log` | Salida completa del comando de validación |
 | `.railspec/insumos/<id>.md` | Insumos traídos de la consola |
+
+### Cuando la base de la unidad avanza: rebase
+
+`unit_start` fija el `base_commit` (HEAD del clon) y el reporte lo lleva de
+vuelta: el servidor rechaza un reporte cuyo `base_commit` no es el de la orden
+vigente. Si la base avanzó y el servidor emite una orden con otro commit base,
+`unit_advance` lleva el worktree a ese commit **antes** de devolver la orden:
+
+```
+git -C <worktree> rebase --onto <base nueva> <base anterior>
+```
+
+- **Solo con el worktree limpio.** Un rebase reescribe la rama y no debe
+  llevarse trabajo sin commit. Con cambios sin commit, `unit_advance` falla sin
+  tocar nada y dice qué archivos son y cómo guardarlos (`git commit`, o `git
+  stash` y `git stash pop`). Los artefactos sin seguimiento de `.railspec/` no
+  cuentan.
+- **Un conflicto no deja nada a medias.** Si reaplicar los commits de la unidad
+  choca con la base nueva, el proxy aborta el rebase, el worktree queda como
+  estaba y el error lista los archivos en conflicto y el comando para rebasar a
+  mano. Tras resolverlo (`git add`, `git rebase --continue`), el siguiente
+  `unit_advance` ve que la rama ya parte de la base nueva (`movido: false`) y
+  sigue: es repetible.
+- **La base nueva se guarda después de rebasar, no antes.** El estado local
+  (`base_commit` y la orden en curso, que tienen que coincidir) se escribe solo
+  tras un rebase sin error; si falla, nada cambia y se reintenta.
+- **Si el commit no está en el clon**, el proxy lo trae con `git fetch` del
+  remoto `origin` (primero las ramas, luego el commit por su SHA) antes de
+  rebasar; si ni así existe, `unit_advance` falla diciéndolo y no inventa nada. Si la
+  rama ya no parte de ninguna de las dos bases, o hay un rebase a medias, o el
+  worktree está en otra rama, tampoco adivina: lo explica y no toca nada.
+- **El proxy no empuja.** Si la rama ya estaba en el remoto, el rebase la
+  reescribe y el push normal falla: la respuesta trae un aviso con el comando,
+  `git -C <worktree> push --force-with-lease` (nunca `--force`), y empujar sigue
+  siendo del desarrollador.
+
+La respuesta de `unit_advance` añade `rebase` cuando hubo orden con otra base:
+`base_anterior`, `base_nueva`, `reaplicados` (commits de la unidad que quedaron
+encima) y `movido` (`false` si la rama ya partía de la base nueva); y `avisos`
+cuando hay que forzar el push. Sin red `unit_advance` devuelve la orden en curso
+y no rebasa. El rebase no usa nada del servidor, solo el repositorio: se probó
+con repositorios temporales (limpio, sucio, en conflicto, con remoto).
 
 ## Snapshot y política de código
 
@@ -483,6 +668,15 @@ devuelve unas cien filas por página. Si la sesión no arranca, se vuelve al
 modo `cli`. Se usa la caché del usuario (`CBM_CACHE_DIR`): el binario tiene un
 demonio por cuenta y rechaza dos cachés distintas a la vez. Sin embeddings,
 como antes.
+
+**Búsqueda semántica sin vector.** `graph_query` con `verbo: "search"` y
+`semantica: true` lleva el vector que calcula el indexador local. Si no hay con
+qué calcularlo (no hay indexador, o el instalado no calcula embeddings de
+consulta, que es el caso de `codebase-memory-mcp`), la consulta sigue, pero el
+servidor solo puede buscar por texto (salvo que tenga su propio codificador) y el
+resultado puede no ser por similitud. Antes pasaba sin avisar; ahora la
+respuesta lleva en `avisos` la causa y la sugerencia de buscar por nombre
+(`resolve`) o con texto literal.
 
 ## Sincronización y cola sin conexión
 
@@ -636,15 +830,14 @@ mismo PR. Construir en local: `empaquetado/README.md`.
   activada, `railspec login` hay que repetirlo cada 8 horas. Renovarlo sin que
   el proxy conozca el client secret pide un endpoint del servidor que lo
   refresque con él (hoy el servidor solo verifica tokens); no se hizo.
-- **Instalación por usuario.** Los adaptadores se instalan por repositorio; un
-  alcance de usuario (`~/.claude`, `~/.config/opencode`) queda para otra
-  iteración.
+- **Instalación por usuario de Codex y Copilot.** Claude Code y OpenCode se
+  instalan por usuario; para Codex y Copilot falta verificar contra cada CLI
+  dónde cargan hooks, skills y servidor MCP en la configuración del usuario (ver
+  [Instalación por usuario](#instalación-por-usuario)).
 - **Binario firmado.** El binario de macOS no está notarizado (hay que quitar
   la cuarentena) y no hay binario para Windows (el proxy usa `fcntl`).
 
 - **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI y el
   servidor nunca calcula embeddings de código: el delta viaja sin ellos y la
-  búsqueda semántica sin vector hasta integrar un codificador local.
-- **Rebase de una unidad.** Si el servidor emite una orden con otro commit
-  base, el proxy se detiene y lo dice; rebasar el worktree queda para otra
-  iteración.
+  búsqueda semántica va sin vector (con el aviso de arriba) hasta integrar un
+  codificador local.
