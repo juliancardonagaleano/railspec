@@ -18,7 +18,10 @@ directorio del binario (como lo vería el arnés) y comprueba:
    un puerto cerrado) en vez de romperse por un módulo o un metadato que falte.
 4. ``railspec hook claude-code`` (si el binario tiene ese subcomando) acepta
    un evento por stdin y sale con 0 sin escribir nada.
-5. Con PyInstaller instalado: el archivo incluye las plantillas, los metadatos
+5. ``railspec whoami`` y ``railspec login`` sin sesión: salen con 1 y dicen qué
+   falta (``railspec login``, el client id) en vez de romperse por un módulo
+   que no llegó al archivo, y no crean el archivo de credenciales.
+6. Con PyInstaller instalado: el archivo incluye las plantillas, los metadatos
    de railspec-local con su entry point ``railspec.indexadores`` y el módulo
    del indexador, que nadie importa por nombre.
 """
@@ -68,12 +71,12 @@ def _entorno(binario: Path, casa: Path, **extra: str) -> dict[str, str]:
 
 
 def _correr(
-    args: list[str], env: dict[str, str], cwd: Path, entrada: str | None = None
+    args: list[str], env: dict[str, str], cwd: Path, entrada: str | None = None, codigo: int = 0
 ) -> subprocess.CompletedProcess:
     proc = subprocess.run(
         args, env=env, cwd=cwd, input=entrada, capture_output=True, text=True, timeout=TIMEOUT_S, check=False
     )
-    if proc.returncode != 0:
+    if proc.returncode != codigo:
         raise FalloHumo(f"{' '.join(args)} salió con {proc.returncode}:\n{proc.stdout}\n{proc.stderr}")
     return proc
 
@@ -217,6 +220,22 @@ def hook(binario: Path, env: dict[str, str], tmp: Path) -> None:
     print("ok  hook claude-code: 0 y sin salida")
 
 
+def sesion(binario: Path, env: dict[str, str], tmp: Path) -> None:
+    env = {**env, "RAILSPEC_URL": "https://railspec.invalid/mcp"}
+    proc = _correr([str(binario), "whoami"], env, tmp, codigo=1)
+    salida = json.loads(proc.stdout)
+    _comprobar(
+        salida["origen"] is None and "railspec login" in salida["siguiente"], f"whoami inesperado: {salida}"
+    )
+    proc = _correr([str(binario), "login"], env, tmp, codigo=1)
+    _comprobar(
+        "client id" in proc.stderr and "Traceback" not in proc.stderr, f"login inesperado: {proc.stderr}"
+    )
+    credenciales = Path(env["HOME"]) / ".config" / "railspec"
+    _comprobar(not credenciales.exists(), f"sin sesión se creó {credenciales}")
+    print("ok  whoami y login sin sesión: salen con 1 y dicen qué falta")
+
+
 def archivo(binario: Path) -> None:
     visor = shutil.which("pyi-archive_viewer") or shutil.which(
         "pyi-archive_viewer", path=str(Path(sys.executable).parent)
@@ -257,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
             instalar_y_desinstalar(binario, env, tmp)
             servidor_mcp(binario, env, tmp)
             hook(binario, env, tmp)
+            sesion(binario, env, tmp)
             archivo(binario)
         except FalloHumo as exc:
             print(f"FALLO {exc}", file=sys.stderr)

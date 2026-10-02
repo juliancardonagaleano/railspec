@@ -6,8 +6,10 @@ Dos fuentes, nunca mezcladas:
   secretos): a qué organización, workspace y repositorio pertenece el clon,
   el nivel de código y el arnés.
 - Variables de entorno para la conexión: ``RAILSPEC_URL`` (endpoint MCP del
-  servidor) y ``RAILSPEC_TOKEN`` (token OAuth de GitHub del desarrollador).
-  El token nunca se escribe en disco.
+  servidor) y ``RAILSPEC_TOKEN`` (token de usuario de la GitHub App de
+  Railspec). Sin ``RAILSPEC_TOKEN`` el proxy usa la sesión que guardó
+  ``railspec login`` (``credenciales.py``); el token no vive en este módulo
+  ni en el repositorio.
 """
 
 from __future__ import annotations
@@ -25,6 +27,10 @@ from .errores import ConfigInvalida
 ARCHIVO_CONFIG = Path(".railspec") / "config.json"
 ENV_URL = "RAILSPEC_URL"
 ENV_TOKEN = "RAILSPEC_TOKEN"
+#: Client id (público) de la GitHub App de Railspec, para ``railspec login``.
+ENV_GITHUB_CLIENT_ID = "RAILSPEC_GITHUB_CLIENT_ID"
+#: Ruta del archivo de credenciales por usuario; por defecto ``~/.config/railspec/credenciales.json``.
+ENV_CREDENCIALES = "RAILSPEC_CREDENCIALES"
 ENV_WORKTREES = "RAILSPEC_WORKTREES"
 
 #: Tope por defecto del comando de validación.
