@@ -3,7 +3,9 @@
 Sin el arnés: un historial git real con el ``reindexar.py`` real (indexador real y HTTP real) contra
 el servidor del e2e, con Mongo y FalkorDB reales. Las superposiciones de unidades ya integradas se
 crean con ``railspec-graph`` sobre el mismo FalkorDB, como las deja ``unit.integrate``. Cada prueba
-parte de su propio índice completo, así que no depende de las demás.
+parte de su propio índice completo y borra sus superposiciones al terminar. Solo mira las de sus
+unidades: en un FalkorDB que se reusa entre corridas (el flujo local) pueden quedar las retenidas de
+otros módulos, p. ej. la de ``test_consola_e2e``, que nunca indexa su merge.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ pytestmark = pytest.mark.skipif(
 
 ALCANCE = AlcanceRepositorio(org=ORG, workspace=WS, repositorio=REPO)
 CANONICO = f"railspec:{ORG}:{WS}:{REPO}"
+UNIDADES = ("0001-salto", "0002-despues")
 
 
 @dataclass
@@ -39,8 +42,15 @@ class Historia:
     m4: str
 
     def superposiciones(self) -> set[str]:
+        """Las superposiciones que quedan de las unidades de esta prueba."""
+
         prefijo = f"{CANONICO}:u:"
-        return {g.removeprefix(prefijo) for g in self.falkordb.list_graphs() if g.startswith(prefijo)}
+        existentes = {g.removeprefix(prefijo) for g in self.falkordb.list_graphs() if g.startswith(prefijo)}
+        return existentes & set(UNIDADES)
+
+    def limpiar(self) -> None:
+        for unidad in UNIDADES:
+            self.grafo.descartar_superposicion(ALCANCE, unidad, self.base)
 
     def retener(self, unidad: str, integrado: str) -> None:
         """La superposición de ``unidad`` tal como la deja ``unit.integrate`` en ``integrado``."""
@@ -69,7 +79,7 @@ def _commit(clon: Path, nombre: str) -> str:
 
 
 @pytest.fixture
-def historia(entorno, tmp_path) -> Historia:
+def historia(entorno, tmp_path):
     clon = preparar_repositorio(tmp_path, ORG, WS, REPO)
     ci = entorno.ci(tmp_path / "remoto.git", tmp_path)
     if ci is None:
@@ -79,7 +89,10 @@ def historia(entorno, tmp_path) -> Historia:
     fk = entorno.falkordb()
     grafo = AlmacenGrafo(AccesoGrafo(MotorFalkor(fk)))
     ci.reindexar(base)  # índice completo: el canónico parte de ``base``
-    return Historia(ci, grafo, fk, base, m2, m3, m4)
+    h = Historia(ci, grafo, fk, base, m2, m3, m4)
+    h.limpiar()  # restos de una corrida anterior interrumpida
+    yield h
+    h.limpiar()
 
 
 def test_un_delta_que_salta_un_commit_retira_la_unidad_integrada_en_el_salto(historia):
