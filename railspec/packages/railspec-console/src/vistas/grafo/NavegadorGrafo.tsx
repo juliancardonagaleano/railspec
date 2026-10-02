@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { ErrorApi } from "../../api/cliente";
-import { claves, grafo } from "../../api/endpoints";
+import { ErrorApi, esSinContrato14 } from "../../api/cliente";
+import { claves, grafo, unidades } from "../../api/endpoints";
 import { TIPOS_SIMBOLO, type AlcanceWorkspace, type RefSimbolo, type TipoSimbolo } from "../../api/tipos";
 import { Aviso, Cargando, Encabezado, ErrorVista, Vacio } from "../../componentes/Estados";
 import { EtiquetaRiesgo } from "../../componentes/Etiquetas";
@@ -16,7 +16,18 @@ import { commitCorto } from "../../lib/utiles";
 import type { BusquedaGrafo } from "../../router";
 import { LienzoSigma, type ColorearPor } from "./LienzoSigma";
 import { SeccionCriterios } from "./SeccionCriterios";
-import { COLOR_TIPO, colorRepositorio, fusionarVecindario, MODELO_VACIO, nodoDeRef, type ModeloGrafo, type NodoModelo } from "./modelo";
+import { separarImpacto } from "../unidad/PestanaImpacto";
+import {
+  COLOR_CAMBIO,
+  COLOR_TIPO,
+  colorRepositorio,
+  fusionarComparacion,
+  fusionarVecindario,
+  MODELO_VACIO,
+  nodoDeRef,
+  type ModeloGrafo,
+  type NodoModelo,
+} from "./modelo";
 
 function esSinGrafo(e: unknown): boolean {
   return e instanceof ErrorApi && e.status === 404 && e.codigo === "no-encontrado";
@@ -60,7 +71,7 @@ function SelectorRepos({
   );
 }
 
-function Buscador({ alcance, repos, alElegir }: { alcance: AlcanceWorkspace; repos: string[]; alElegir: (r: RefSimbolo) => void }) {
+function Buscador({ alcance, repos, unidad, alElegir }: { alcance: AlcanceWorkspace; repos: string[]; unidad?: string; alElegir: (r: RefSimbolo) => void }) {
   const [texto, setTexto] = useState("");
   const [tipo, setTipo] = useState<TipoSimbolo | "">("");
   const buscar = useMutation({
@@ -68,6 +79,7 @@ function Buscador({ alcance, repos, alElegir }: { alcance: AlcanceWorkspace; rep
       grafo.consultar({
         alcance,
         repositorios: repos,
+        ...(unidad ? { unidad } : {}),
         consulta: { verbo: "search", texto: texto.trim(), ...(tipo ? { tipos: [tipo] } : {}) },
         limite: 50,
       }),
@@ -127,6 +139,12 @@ function Buscador({ alcance, repos, alElegir }: { alcance: AlcanceWorkspace; rep
   );
 }
 
+const TEXTO_CAMBIO = {
+  nuevo: "nuevo en el snapshot de la unidad",
+  eliminado: "oculto por el snapshot de la unidad",
+  tocado: "tocado por la unidad",
+} as const;
+
 function PanelDetalle({
   org,
   ws,
@@ -162,6 +180,15 @@ function PanelDetalle({
           <dd>{nodo.repositorio || "—"}</dd>
           <dt className="text-suave">Commit</dt>
           <dd className="font-mono text-xs">{commitCorto(nodo.commit)}</dd>
+          {nodo.cambio ? (
+            <>
+              <dt className="text-suave">Frente a la base</dt>
+              <dd>
+                <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full" style={{ background: COLOR_CAMBIO[nodo.cambio] }} />
+                {TEXTO_CAMBIO[nodo.cambio]}
+              </dd>
+            </>
+          ) : null}
           <dt className="text-suave">Impacto upstream</dt>
           <dd>
             {impacto ? (
@@ -197,30 +224,106 @@ function PanelDetalle({
   );
 }
 
+const opcionesTocados = (alcance: AlcanceWorkspace, unidad: string) => ({
+  queryKey: [...claves.unidad(alcance.org, alcance.workspace, unidad), "tocados"],
+  queryFn: () => grafo.consultar({ alcance, unidad, consulta: { verbo: "impact" as const, profundidad: 1 }, limite: 500 }),
+  retry: false,
+});
+
+function SelectorUnidad({ alcance, unidad, alCambiar }: { alcance: AlcanceWorkspace; unidad: string | undefined; alCambiar: (u: string | undefined) => void }) {
+  const lista = useQuery({
+    queryKey: [...claves.tablero(alcance.org, alcance.workspace), "para-grafo"],
+    queryFn: () => unidades.listar({ alcance, limite: 100 }),
+  });
+  const tocados = useQuery({ ...opcionesTocados(alcance, unidad ?? ""), enabled: !!unidad });
+  const opciones = (lista.data?.unidades ?? []).map((u) => ({ valor: u.unidad, etiqueta: `${u.unidad} · ${u.titulo}` }));
+  if (unidad && !opciones.some((o) => o.valor === unidad)) opciones.unshift({ valor: unidad, etiqueta: unidad });
+  const nTocados = tocados.data ? separarImpacto(tocados.data.resultados).tocados.length : null;
+  return (
+    <div className="flex flex-col gap-2">
+      <Campo etiqueta="Comparar con una unidad" htmlFor="comparar-unidad" ayuda="Muestra la base (canónico) contra el snapshot de la unidad: lo nuevo, lo oculto y lo tocado.">
+        <Select id="comparar-unidad" vacio="Solo la base" value={unidad ?? ""} opciones={opciones} onChange={(e) => alCambiar(e.target.value || undefined)} />
+      </Campo>
+      {lista.isError ? <p className="text-xs text-peligro">No se pudo cargar la lista de unidades.</p> : null}
+      {unidad ? (
+        <>
+          <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs" aria-label="Leyenda de la comparación">
+            {(["nuevo", "eliminado", "tocado"] as const).map((c) => (
+              <li key={c} className="flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: COLOR_CAMBIO[c] }} aria-hidden="true" />
+                {c === "nuevo" ? "nuevo" : c === "eliminado" ? "oculto" : "tocado"}
+              </li>
+            ))}
+            <li className="flex items-center gap-1">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: COLOR_CAMBIO.igual }} aria-hidden="true" />
+              igual
+            </li>
+          </ul>
+          {tocados.isPending ? <p className="text-xs text-suave">Calculando lo que toca la unidad…</p> : null}
+          {nTocados !== null ? <p className="text-xs text-suave">La unidad toca {nTocados} símbolo(s).</p> : null}
+          {tocados.isError ? (
+            <p className="text-xs text-suave">
+              {esSinContrato14(tocados.error) ? "El servidor aún no habla el contrato 1.4: no se marcan los símbolos tocados." : "No se pudo calcular lo que toca la unidad."}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 export function NavegadorGrafo() {
   const { org, ws } = useWorkspace();
   const busqueda = useSearch({ strict: false }) as BusquedaGrafo;
   const navegar = useNavigate();
+  const clienteQuery = useQueryClient();
   const alcance = { org, workspace: ws };
+  const comparada = busqueda.unidad;
   const [repos, setRepos] = useState<string[]>([]);
   const [profundidad, setProfundidad] = useState(1);
-  const [colorearPor, setColorearPor] = useState<ColorearPor>("tipo");
+  const [colorearPor, setColorearPor] = useState<ColorearPor>(comparada ? "cambio" : "tipo");
   const [modelo, setModelo] = useState<ModeloGrafo>(MODELO_VACIO);
   const [seleccionado, setSeleccionado] = useState<string | null>(null);
 
   const vecindario = useMutation({
     mutationFn: async (centro: NodoModelo) => {
       const base = { alcance, ...(repos.length ? { repositorios: repos } : {}), limite: 100 };
-      const [up, down, rel] = await Promise.all([
-        grafo.consultar({ ...base, consulta: { verbo: "traverse", simbolo: centro.id, direccion: "upstream", profundidad } }),
-        grafo.consultar({ ...base, consulta: { verbo: "traverse", simbolo: centro.id, direccion: "downstream", profundidad } }),
-        grafo.consultar({ ...base, consulta: { verbo: "related", simbolo: centro.id } }),
+      const traer = async (unidad?: string) => {
+        const u = unidad ? { unidad } : {};
+        const [up, down, rel] = await Promise.all([
+          grafo.consultar({ ...base, ...u, consulta: { verbo: "traverse", simbolo: centro.id, direccion: "upstream", profundidad } }),
+          grafo.consultar({ ...base, ...u, consulta: { verbo: "traverse", simbolo: centro.id, direccion: "downstream", profundidad } }),
+          grafo.consultar({ ...base, ...u, consulta: { verbo: "related", simbolo: centro.id } }),
+        ]);
+        return { up, down, rel };
+      };
+      // Con una unidad se mira el mismo vecindario en la base y en su snapshot, y se marca la diferencia.
+      const [canonico, snapshot, tocados] = await Promise.all([
+        traer(),
+        comparada ? traer(comparada) : Promise.resolve(null),
+        comparada
+          ? clienteQuery.ensureQueryData(opcionesTocados(alcance, comparada)).then(
+              (r) => new Set(separarImpacto(r.resultados).tocados.map((t) => t.ref.simbolo)),
+              () => new Set<string>(), // sin contrato 1.4 o sin snapshot: se compara sin marcar tocados
+            )
+          : Promise.resolve(new Set<string>()),
       ]);
-      const commit = up.commits[centro.repositorio] ?? down.commits[centro.repositorio] ?? centro.commit;
-      return { centro: { ...centro, commit }, up, down, rel };
+      const vista = snapshot ?? canonico;
+      const commit = vista.up.commits[centro.repositorio] ?? vista.down.commits[centro.repositorio] ?? centro.commit;
+      return { centro: { ...centro, commit }, canonico, snapshot, tocados };
     },
-    onSuccess: ({ centro, up, down, rel }) =>
-      setModelo((m) => fusionarVecindario(m, centro, up.resultados, down.resultados, rel.resultados)),
+    onSuccess: ({ centro, canonico, snapshot, tocados }) =>
+      setModelo((m) =>
+        snapshot
+          ? fusionarComparacion(
+              m,
+              centro,
+              { up: canonico.up.resultados, down: canonico.down.resultados, rel: canonico.rel.resultados },
+              { up: snapshot.up.resultados, down: snapshot.down.resultados, rel: snapshot.rel.resultados },
+              tocados,
+            )
+          : fusionarVecindario(m, centro, canonico.up.resultados, canonico.down.resultados, canonico.rel.resultados),
+      ),
   });
 
   const expandir = useCallback(
@@ -230,6 +333,20 @@ export function NavegadorGrafo() {
     },
     [vecindario.mutate],
   );
+
+  // Cambiar la unidad comparada invalida lo explorado (las marcas son de la anterior): se vuelve a abrir el símbolo elegido.
+  const unidadPrevia = useRef(comparada);
+  useEffect(() => {
+    if (unidadPrevia.current === comparada) return;
+    unidadPrevia.current = comparada;
+    setColorearPor(comparada ? "cambio" : "tipo");
+    const abierto = seleccionado ? modelo.nodos[seleccionado] : undefined;
+    setModelo(MODELO_VACIO);
+    if (abierto) {
+      const { cambio: _marcaAnterior, ...limpio } = abierto;
+      expandir(limpio);
+    }
+  }, [comparada, seleccionado, modelo.nodos, expandir]);
 
   const elegirDeBusqueda = (ref: RefSimbolo) => {
     void navegar({ to: ".", search: { simbolo: ref.simbolo, nombre: ref.nombre, repositorio: ref.repositorio } });
@@ -268,7 +385,8 @@ export function NavegadorGrafo() {
                 setModelo(MODELO_VACIO);
                 setSeleccionado(null);
                 cargadoDeUrl.current = null;
-                void navegar({ to: ".", search: {} });
+                // Se conserva la unidad comparada: «Limpiar» vacía el lienzo, no la comparación.
+                void navegar({ to: ".", search: comparada ? { unidad: comparada } : {} });
               }}
             >
               Limpiar
@@ -296,11 +414,17 @@ export function NavegadorGrafo() {
                 opciones={[
                   { valor: "tipo", etiqueta: "tipo" },
                   { valor: "repositorio", etiqueta: "repositorio" },
+                  ...(comparada ? [{ valor: "cambio", etiqueta: "cambio (base contra snapshot)" }] : []),
                 ]}
               />
             </Campo>
           </div>
-          <Buscador alcance={alcance} repos={repos} alElegir={elegirDeBusqueda} />
+          <SelectorUnidad
+            alcance={alcance}
+            unidad={comparada}
+            alCambiar={(u) => void navegar({ to: ".", search: (prev: BusquedaGrafo) => ({ ...prev, unidad: u }) })}
+          />
+          <Buscador alcance={alcance} repos={repos} {...(comparada ? { unidad: comparada } : {})} alElegir={elegirDeBusqueda} />
         </div>
         <div className="flex min-w-0 flex-col gap-2">
           {vecindario.isPending ? <Cargando texto="Cargando vecindario…" /> : null}

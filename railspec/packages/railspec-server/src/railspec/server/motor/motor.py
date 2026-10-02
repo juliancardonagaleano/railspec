@@ -27,6 +27,7 @@ from typing import Any
 
 from railspec.contracts import VERSION_CONTRATO
 from railspec.contracts.comun import (
+    MODOS_CON_MANDATO,
     Actor,
     AlcanceRepositorio,
     AlcanceUnidad,
@@ -373,6 +374,14 @@ class Motor:
                 raise ErrorNegocio(
                     CodigoError.conversion_no_permitida,
                     f"la unidad ya está en {e.modo.value}",
+                    estado.version,
+                )
+            # La entrada ya exige ``plan`` para estos modos, pero rige el de la unidad guardada: si
+            # nació sin mandato, el estado resultante no sería válido y el almacén lo rechazaría.
+            if e.modo in MODOS_CON_MANDATO and estado.unidad.plan is None:
+                raise ErrorNegocio(
+                    CodigoError.conversion_no_permitida,
+                    f"el modo {e.modo.value} exige un mandato y la unidad no pertenece a ninguno",
                     estado.version,
                 )
             conversion = ConversionModo(

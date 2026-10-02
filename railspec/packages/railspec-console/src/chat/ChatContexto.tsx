@@ -7,7 +7,7 @@ import type { FormEvent, KeyboardEvent } from "react";
 import { crearClienteChat, ErrorChat } from "./api";
 import type { ClienteChat } from "./api";
 import { comandoPull, detalleReferencia, etiquetaReferencia, explicarRegla, shaCorto } from "./referencias";
-import type { Conversacion, DatosProgreso, Insumo, MensajeChat, NivelEfectivo } from "./tipos";
+import type { Conversacion, DatosProgreso, Insumo, MensajeChat, NivelEfectivo, RepositorioElegible } from "./tipos";
 import "./chat.css";
 
 export interface PropsChatContexto {
@@ -19,10 +19,21 @@ export interface PropsChatContexto {
   workspace: string;
   /** Si falta (y no hay conversacionId) se pide al usuario antes de crear la conversación. */
   repositorios?: string[];
+  /**
+   * Repositorios que se ofrecen en el selector (los vínculos del workspace). Sin ellos el selector
+   * cae a un campo de texto con los nombres separados por coma.
+   */
+  repositoriosDisponibles?: RepositorioElegible[];
   /** Si se indica, se carga esa conversación en lugar de crear una nueva. */
   conversacionId?: string;
   /** Se invoca cuando se crea una conversación nueva (p. ej. para reflejar el id en la URL). */
   alCrearConversacion?: (id: string) => void;
+  /** La conversación pedida con `conversacionId` no existe, expiró o no es de esta persona (404). */
+  alConversacionNoDisponible?: () => void;
+  /** La persona pidió empezar otra conversación; el shell olvida la anterior. */
+  alNuevaConversacion?: () => void;
+  /** Se ofrece «Crear unidad con este insumo» tras exportarlo; el shell decide qué hacer con él. */
+  alCrearUnidad?: (insumo: Insumo) => void;
 }
 
 function mensajeDeError(e: unknown): string {
@@ -187,10 +198,11 @@ function MensajeAsistente({
   );
 }
 
-function PanelExportar({ cliente, conversacion, deshabilitado }: {
+function PanelExportar({ cliente, conversacion, deshabilitado, alCrearUnidad }: {
   cliente: ClienteChat;
   conversacion: Conversacion;
   deshabilitado: boolean;
+  alCrearUnidad?: (insumo: Insumo) => void;
 }) {
   const idObjetivo = useId();
   const idRestricciones = useId();
@@ -312,6 +324,11 @@ function PanelExportar({ cliente, conversacion, deshabilitado }: {
             <button type="button" onClick={() => descargar(insumo)}>
               Descargar JSON
             </button>
+            {alCrearUnidad && (
+              <button type="button" onClick={() => alCrearUnidad(insumo)}>
+                Crear unidad con este insumo
+              </button>
+            )}
           </div>
           {copiado && <p className="rs-chat-sutil">{copiado}</p>}
         </div>
@@ -322,7 +339,10 @@ function PanelExportar({ cliente, conversacion, deshabilitado }: {
 
 // ---------------------------------------------------------------------------
 
-type PropsConversacion = Omit<PropsChatContexto, "repositorios"> & { repositorios: string[] };
+type PropsConversacion = Omit<PropsChatContexto, "repositorios" | "repositoriosDisponibles"> & {
+  repositorios: string[];
+  alEmpezarOtra: () => void;
+};
 
 function ChatConversacion({
   apiBase,
@@ -332,12 +352,17 @@ function ChatConversacion({
   repositorios,
   conversacionId,
   alCrearConversacion,
+  alConversacionNoDisponible,
+  alEmpezarOtra,
+  alCrearUnidad,
 }: PropsConversacion) {
   // El token se lee del último prop en cada petición, sin recrear el cliente.
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const alCrearRef = useRef(alCrearConversacion);
   alCrearRef.current = alCrearConversacion;
+  const alNoDisponibleRef = useRef(alConversacionNoDisponible);
+  alNoDisponibleRef.current = alConversacionNoDisponible;
 
   const cliente = useMemo(
     () => crearClienteChat({ apiBase, obtenerToken: () => tokenRef.current }),
@@ -390,6 +415,8 @@ function ChatConversacion({
         inicioRef.current = null;
         setError(mensajeDeError(e));
         setCargando(false);
+        // Una conversación retomada que ya no existe: el shell la olvida y se vuelve a elegir repositorios.
+        if (conversacionId && e instanceof ErrorChat && e.estado === 404) alNoDisponibleRef.current?.();
       },
     );
     return () => {
@@ -499,6 +526,9 @@ function ChatConversacion({
         <div className="rs-chat-error" role="alert">
           {error ?? "No se pudo abrir la conversación."}
         </div>
+        <button type="button" onClick={alEmpezarOtra}>
+          Empezar otra conversación
+        </button>
       </div>
     );
   }
@@ -518,6 +548,9 @@ function ChatConversacion({
             Expira: {new Date(conversacion.expira_en).toLocaleString("es")}
             {conversacion.bloqueos > 0 ? ` · bloqueos: ${conversacion.bloqueos}` : ""}
           </p>
+          <button type="button" onClick={alEmpezarOtra} disabled={enviando}>
+            Nueva conversación
+          </button>
         </div>
         <div className="rs-chat-estado">
           <span
@@ -604,20 +637,75 @@ function ChatConversacion({
         cliente={cliente}
         conversacion={conversacion}
         deshabilitado={enviando}
+        alCrearUnidad={alCrearUnidad}
       />
       <p className="rs-chat-sutil">Hallazgos marcados para el insumo: {conservados}</p>
     </div>
   );
 }
 
-/** Pide los repositorios del alcance cuando el shell no los indica. */
-function SelectorRepositorios({ alConfirmar }: { alConfirmar: (repos: string[]) => void }) {
+/** Un repositorio vinculado es un slug: minúsculas, dígitos y guiones (máx. 63), sin `owner/`. */
+export const PATRON_REPOSITORIO = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+function SelectorRepositorios({
+  disponibles,
+  alConfirmar,
+}: {
+  disponibles?: RepositorioElegible[];
+  alConfirmar: (repos: string[]) => void;
+}) {
   const id = useId();
+  const [marcados, setMarcados] = useState<string[]>(() => (disponibles ?? []).map((r) => r.id));
   const [valor, setValor] = useState("");
+
+  if (disponibles) {
+    if (disponibles.length === 0) {
+      return (
+        <div className="rs-chat">
+          <h2>Chat de contexto</h2>
+          <p className="rs-chat-sutil" role="status">
+            Este workspace no tiene repositorios vinculados; vincula alguno en Administración para poder preguntar.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div className="rs-chat">
+        <h2>Chat de contexto</h2>
+        <form
+          className="rs-chat-entrada"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (marcados.length > 0) alConfirmar(disponibles.map((r) => r.id).filter((r) => marcados.includes(r)));
+          }}
+        >
+          <fieldset>
+            <legend>Repositorios a consultar</legend>
+            {disponibles.map((r) => (
+              <label key={r.id} className="rs-chat-repositorio">
+                <input
+                  type="checkbox"
+                  checked={marcados.includes(r.id)}
+                  onChange={(e) => setMarcados((m) => (e.target.checked ? [...m, r.id] : m.filter((x) => x !== r.id)))}
+                />{" "}
+                {r.id}
+                {r.nivel ? <span className="rs-chat-sutil"> · {r.nivel}</span> : null}
+              </label>
+            ))}
+          </fieldset>
+          <button type="submit" disabled={marcados.length === 0}>
+            Iniciar conversación
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   const repos = valor
     .split(",")
     .map((r) => r.trim())
     .filter((r) => r !== "");
+  const invalidos = repos.filter((r) => !PATRON_REPOSITORIO.test(r));
   return (
     <div className="rs-chat">
       <h2>Chat de contexto</h2>
@@ -625,19 +713,25 @@ function SelectorRepositorios({ alConfirmar }: { alConfirmar: (repos: string[]) 
         className="rs-chat-entrada"
         onSubmit={(e) => {
           e.preventDefault();
-          if (repos.length > 0) alConfirmar(repos);
+          if (repos.length > 0 && invalidos.length === 0) alConfirmar(repos);
         }}
       >
-        <label htmlFor={id}>Repositorios a consultar (separados por coma)</label>
+        <label htmlFor={id}>Repositorios a consultar (nombres vinculados, separados por coma)</label>
         <input
           id={id}
           type="text"
           required
-          placeholder="acme/api, acme/web"
+          placeholder="api, web"
           value={valor}
+          aria-invalid={invalidos.length > 0}
           onChange={(e) => setValor(e.target.value)}
         />
-        <button type="submit" disabled={repos.length === 0}>
+        {invalidos.length > 0 && (
+          <p className="rs-chat-error" role="alert">
+            Nombre no válido: {invalidos.join(", ")}. Usa el nombre del repositorio vinculado (sin «owner/»).
+          </p>
+        )}
+        <button type="submit" disabled={repos.length === 0 || invalidos.length > 0}>
           Iniciar conversación
         </button>
       </form>
@@ -647,9 +741,27 @@ function SelectorRepositorios({ alConfirmar }: { alConfirmar: (repos: string[]) 
 
 export function ChatContexto(props: PropsChatContexto) {
   const [elegidos, setElegidos] = useState<string[] | null>(null);
-  const repositorios = props.repositorios ?? elegidos ?? (props.conversacionId ? [] : null);
-  if (repositorios === null) return <SelectorRepositorios alConfirmar={setElegidos} />;
-  return <ChatConversacion {...props} repositorios={repositorios} />;
+  // «Nueva conversación» descarta la retomada y vuelve a pedir repositorios; la generación remonta la conversación.
+  const [otra, setOtra] = useState(false);
+  const [generacion, setGeneracion] = useState(0);
+  const { repositoriosDisponibles, alNuevaConversacion, ...resto } = props;
+  const conversacionId = otra ? undefined : props.conversacionId;
+  const repositorios = props.repositorios ?? elegidos ?? (conversacionId ? [] : null);
+  if (repositorios === null) return <SelectorRepositorios disponibles={repositoriosDisponibles} alConfirmar={setElegidos} />;
+  return (
+    <ChatConversacion
+      key={generacion}
+      {...resto}
+      repositorios={repositorios}
+      conversacionId={conversacionId}
+      alEmpezarOtra={() => {
+        setOtra(true);
+        setElegidos(null);
+        setGeneracion((g) => g + 1);
+        alNuevaConversacion?.();
+      }}
+    />
+  );
 }
 
 export default ChatContexto;

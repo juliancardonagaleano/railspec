@@ -355,7 +355,8 @@ Azure manda.
 
 Una llamada a modelo con las mismas entradas no se paga dos veces. La clave es
 el `sha256` de proveedor, modelo, despliegue, effort, tope de tokens, esquema
-de salida, sistema y contenido (`proveedores/cache.py`); el contenido incluye
+de salida, sistema, contenido y el commit del código evaluado
+(`proveedores/cache.py`); el contenido incluye
 el material, los criterios y los hallazgos previos, así que un gate que se
 repite tras una caída, otra réplica que reanuda desde el checkpoint o un
 material idéntico reciben la respuesta guardada. Se guarda por organización en

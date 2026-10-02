@@ -5,15 +5,21 @@ los estilos están en `chat.css` (clases `rs-chat-`, claro/oscuro con `prefers-c
 
 ## Montaje en el shell
 
-El shell carga `src/chat/index.tsx` (vía `import.meta.glob`) en la ruta `/$org/$ws/chat` y usa su
-`export default` (equivale al export nombrado `ChatContexto`):
+El shell (`vistas/chat/RutaChat.tsx`) carga `ChatContexto` de forma diferida en la ruta `/$org/$ws/chat`
+(el módulo también tiene `export default`):
 
 ```tsx
-import ChatContexto from "./chat";
-
-<Route
-  path="/:org/:ws/chat"
-  element={<ChatContexto apiBase="" token={token} org={org} workspace={ws} />}
+<ChatContexto
+  apiBase=""
+  token={token}
+  org={org}
+  workspace={ws}
+  repositoriosDisponibles={vinculos}
+  conversacionId={ultima}
+  alCrearConversacion={guardar}
+  alConversacionNoDisponible={olvidar}
+  alNuevaConversacion={olvidar}
+  alCrearUnidad={abrirDialogoDeUnidad}
 />
 ```
 
@@ -22,12 +28,16 @@ import ChatContexto from "./chat";
 | `apiBase` | `string` | `""` = mismo origen (rutas `/v1/...`). |
 | `token` | `string` | Bearer vigente. Se renueva cada hora y vuelve a llegar como prop; cada petición usa el valor actual. |
 | `org`, `workspace` | `string` | Alcance de la conversación. |
-| `repositorios?` | `string[]` | Si falta (y no hay `conversacionId`), el chat pide la lista separada por comas antes de crear la conversación. |
+| `repositoriosDisponibles?` | `{id, nivel?}[]` | Repositorios vinculados al workspace: se ofrecen como casillas (todas marcadas). Vacío = el chat dice que no hay vínculos. Si falta, cae a un campo de texto con los nombres separados por coma, validado contra `^[a-z0-9][a-z0-9-]{0,62}$` (el servidor rechaza `owner/repo` con 422). |
+| `repositorios?` | `string[]` | Si se da (y no hay `conversacionId`), no se pregunta: se crea la conversación con ellos. |
 | `conversacionId?` | `string` | Carga una conversación existente en lugar de crear una. |
-| `alCrearConversacion?` | `(id) => void` | Aviso al crear una conversación (p. ej. para reflejar el id en la URL). |
+| `alCrearConversacion?` | `(id) => void` | Aviso al crear una conversación (el shell guarda el id para retomarla). |
+| `alConversacionNoDisponible?` | `() => void` | El servidor respondió 404 a `conversacionId` (expiró o no es de esta persona); el shell la olvida. |
+| `alNuevaConversacion?` | `() => void` | La persona pulsó «Nueva conversación» (o «Empezar otra conversación» tras un 404). |
+| `alCrearUnidad?` | `(insumo) => void` | Si se pasa, el panel de exportar ofrece «Crear unidad con este insumo» y el shell decide qué hacer con él. |
 
 `PaginaPruebaChat` es una página independiente (API base, token, org, workspace, repos) para probar
-el chat mientras no exista el shell.
+el chat sin el shell.
 
 ## Endpoints usados
 
@@ -45,4 +55,4 @@ El insumo nunca lleva texto de código: sólo afirmaciones y referencias. Se tra
 
 ## Pruebas
 
-`sse.test.ts` y `referencias.test.ts` (vitest).
+`sse.test.ts`, `referencias.test.ts` y `ChatContexto.test.tsx` (selector de repositorios y conversación retomada), con vitest.

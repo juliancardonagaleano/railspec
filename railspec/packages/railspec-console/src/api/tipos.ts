@@ -159,6 +159,31 @@ export interface UnitListSalida {
   cursor_siguiente: string | null;
 }
 
+/** Versión del contrato que declara la SPA al arrancar una unidad (`version_contrato_cliente`). */
+export const VERSION_CONTRATO_CLIENTE = "1.4";
+
+/** El primero es el primario donde se trabaja; `base_commit` es el sha completo (40 hex). */
+export interface RepositorioInicio {
+  repositorio: string;
+  rama: string;
+  base_commit: string;
+}
+
+export interface UnitStartEntrada {
+  alcance: AlcanceWorkspace;
+  repositorios: RepositorioInicio[];
+  titulo: string;
+  pedido: string;
+  /** Ids (uuid) de insumos exportados por el chat de este workspace. */
+  insumos?: string[];
+  version_contrato_cliente: string;
+}
+
+export interface UnitStartSalida {
+  estado: EstadoUnidad;
+  version_contrato_negociada?: string;
+}
+
 export interface Checkpoint {
   id: string;
   tipo: "aprobar-spec" | "aprobar-plan" | "paquete-aprobacion" | "parada" | "gate-escalado";

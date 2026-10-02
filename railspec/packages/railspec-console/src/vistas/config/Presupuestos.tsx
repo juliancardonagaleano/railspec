@@ -100,6 +100,7 @@ function FormularioPresupuesto({ org, ws, actual, editable }: { org: string; ws?
                     aria-label={`${ETIQUETA[c]} en ${NOMBRE_FASE[f]}`}
                     type="number"
                     min={0}
+                    step={c === "costo_usd_max" ? "0.01" : "1"}
                     className="h-8"
                     disabled={!editable}
                     value={porFase[f][c]}

@@ -341,3 +341,8 @@
   .rs-chat-usuario { max-width: 100%; }
   .rs-chat-prueba-config { grid-template-columns: 1fr; }
 }
+
+.rs-chat-repositorio {
+  display: block;
+  margin: 0.25rem 0;
+}

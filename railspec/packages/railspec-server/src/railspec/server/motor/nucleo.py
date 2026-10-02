@@ -27,8 +27,9 @@ from railspec.contracts.comun import (
     Perfil,
     Riesgo,
     RolRepositorio,
+    Veredicto,
 )
-from railspec.contracts.estado import Consumo, EjecucionModelo, EstadoUnidad
+from railspec.contracts.estado import EjecucionModelo, EstadoUnidad
 from railspec.contracts.eventos import (
     DIRECCION_POR_TIPO,
     CargaEvento,
@@ -40,6 +41,7 @@ from railspec.contracts.repositorio import EventoAuditoria, PerfilConfig, Regist
 
 from ..proveedores.base import Uso
 from ..proveedores.seleccion import Proveedores
+from . import presupuesto
 from .gate import Llamada, LlamadaFallida, requisitos_del_gate
 from .gobernanza import GobernanzaNoConfigurada, ProveedorGobernanza
 from .perfiles import ACTOR_SERVIDOR, perfil_por_defecto, tope_gate
@@ -199,20 +201,21 @@ class Nucleo:
         estado: EstadoUnidad,
         fase: Fase | GateFase,
         llamadas: list[Llamada],
-        veredicto=None,
+        veredicto: Veredicto | None = None,
         *,
         fallidas: list[LlamadaFallida] = (),
-    ) -> dict[str, Any]:
-        """Telemetría y auditoría por llamada; devuelve los campos de estado a actualizar.
+    ) -> None:
+        """Telemetría y auditoría por llamada, una sola vez.
 
-        Las fallidas también se auditan (lo enviado salió hacia el proveedor) y
-        dejan telemetría con cero tokens; no tocan el consumo.
+        No va dentro de ``escribir``: el reintento del bloqueo optimista vuelve a
+        correr el cambio y duplicaría las filas. El consumo se aplica aparte
+        (``contabilizar``). Las fallidas también se auditan (lo enviado salió hacia
+        el proveedor) y dejan telemetría con cero tokens. ``veredicto`` es el de la
+        iteración del gate a la que pertenecen las llamadas.
         """
 
         repo = primario(estado)
         nivel = self.nivel(estado, repo)
-        ejecuciones = list(estado.modelo_ejecucion)
-        consumo = estado.consumo
         alcance_ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
         for f in fallidas:
             ahora = self.reloj()
@@ -230,6 +233,7 @@ class Nucleo:
                     proveedor=e.proveedor.proveedor,
                     modelo=e.modelo,
                     duracion_ms=f.duracion_ms,
+                    veredicto=veredicto,
                     en=ahora,
                 )
             )
@@ -258,7 +262,7 @@ class Nucleo:
             )
         for ll in llamadas:
             r = ll.respuesta
-            # Un acierto de caché no salió hacia el proveedor: telemetría a cero, sin auditoría ni consumo.
+            # Un acierto de caché no salió hacia el proveedor: telemetría a cero y sin auditoría.
             u = Uso() if ll.desde_cache else r.uso
             ahora = self.reloj()
             self.almacen.registrar_telemetria(
@@ -310,6 +314,20 @@ class Nucleo:
                         },
                     )
                 )
+
+    def contabilizar(
+        self, estado: EstadoUnidad, fase: Fase | GateFase, llamadas: list[Llamada]
+    ) -> dict[str, Any]:
+        """Campos del estado (consumo y ejecuciones) tras ``llamadas``; sin efectos fuera de ``estado``.
+
+        Es el ``cambio`` de ``escribir``: se recalcula sobre el estado vigente en
+        cada reintento. Un acierto de caché no consume; las fallidas tampoco.
+        """
+
+        ejecuciones = list(estado.modelo_ejecucion)
+        consumo = estado.consumo
+        for ll in llamadas:
+            r = ll.respuesta
             ejecuciones.append(
                 EjecucionModelo(
                     fase=fase,
@@ -318,30 +336,23 @@ class Nucleo:
                     proveedor=r.proveedor,
                     modelo=r.modelo,
                     effort=ll.effort,
-                    en=ahora,
+                    en=self.reloj(),
                 )
             )
-            consumo = Consumo(
-                tokens=consumo.tokens + u.tokens,
-                segundos=consumo.segundos + u.duracion_ms // 1000,
-                costo_usd=round(consumo.costo_usd + u.costo_usd, 6),
-            )
+            if not ll.desde_cache:
+                consumo = presupuesto.con_uso(consumo, r.uso)
         return {"modelo_ejecucion": ejecuciones, "consumo": consumo}
+
+    def presupuesto_agotado(
+        self, estado: EstadoUnidad, gate: GateFase, fase: Fase, gastado: Uso = presupuesto.SIN_GASTO
+    ) -> str | None:
+        """Qué tope del presupuesto (unidad, fase o mes) impide otra llamada de ``gate``, o ``None``."""
+
+        return presupuesto.agotado(self.almacen, self.reloj(), estado, gate, fase, gastado)
 
 
 def primario(estado: EstadoUnidad) -> str:
     return next(r.repositorio for r in estado.repositorios if r.rol == RolRepositorio.primario)
 
 
-def presupuesto_agotado(estado: EstadoUnidad) -> str | None:
-    p, c = estado.presupuesto, estado.consumo
-    if p.tokens_max is not None and c.tokens >= p.tokens_max:
-        return f"tokens {c.tokens}/{p.tokens_max}"
-    if p.costo_usd_max is not None and c.costo_usd >= p.costo_usd_max:
-        return f"costo {c.costo_usd:.2f}/{p.costo_usd_max:.2f} USD"
-    if p.segundos_max is not None and c.segundos >= p.segundos_max:
-        return f"segundos {c.segundos}/{p.segundos_max}"
-    return None
-
-
-__all__ = ["Direccion", "Nucleo", "Reloj", "presupuesto_agotado", "primario", "reloj_utc"]
+__all__ = ["Direccion", "Nucleo", "Reloj", "primario", "reloj_utc"]

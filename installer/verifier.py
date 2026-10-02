@@ -29,6 +29,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from installer.convivencia import coincide, contenido_del_kit  # noqa: E402
 from installer.git_target import GitTargetError, resolve_git_dir, resolve_git_root  # noqa: E402
 from installer.manifest import (  # noqa: E402
     DEFAULT_MANIFEST_PATH,
@@ -38,7 +39,6 @@ from installer.manifest import (  # noqa: E402
     get_kit_version,
     load_and_validate,
     read_install_record,
-    sha256_bytes,
 )
 
 EXIT_OK = 0
@@ -150,7 +150,9 @@ def run_verify(target: Path, *, manifest_path: Path = DEFAULT_MANIFEST_PATH) -> 
                 print(f"ausente: {dest_rel}")
                 has_divergence = True
                 continue
-            if sha256_bytes(dest_path.read_bytes()) != sha256_bytes(source_file.read_bytes()):
+            if contenido_del_kit(dest_rel, dest_path.read_bytes()) != contenido_del_kit(
+                dest_rel, source_file.read_bytes()
+            ):
                 print(f"divergencia sin clasificar: {dest_rel}")
                 has_divergence = True
         if has_divergence:
@@ -168,8 +170,8 @@ def run_verify(target: Path, *, manifest_path: Path = DEFAULT_MANIFEST_PATH) -> 
             print(f"ausente: {dest_rel}")
             has_divergence = True
             continue
-        actual_digest = sha256_bytes(dest_path.read_bytes())
-        if actual_digest == baseline_digest:
+        # Lo que Railspec añade a un archivo compartido no cuenta (ver `convivencia`).
+        if coincide(dest_rel, dest_path.read_bytes(), baseline_digest):
             continue
         print(f"drift: {dest_rel}")
         has_divergence = True

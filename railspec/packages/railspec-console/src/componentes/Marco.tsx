@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { auth } from "../api/endpoints";
 import type { Yo } from "../api/tipos";
+import { olvidarTodasLasConversaciones } from "../lib/conversacionChat";
 import { alcanza, ETIQUETA_ROL, rolEnOrg, rolEnWorkspace } from "../lib/roles";
 import { useYo } from "../lib/sesion";
 import { cn } from "../lib/utiles";
@@ -115,6 +116,7 @@ function Usuario({ yo, org, ws }: { yo: Yo; org?: string; ws?: string }) {
     try {
       await auth.salir();
     } finally {
+      olvidarTodasLasConversaciones();
       clienteQuery.clear();
       window.location.assign("/consola/login");
     }

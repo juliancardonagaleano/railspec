@@ -26,6 +26,7 @@ FalkorDB.
 | `railspec_e2e/arnes.py` | Arnés simulado: cliente MCP por stdio que escribe artefactos y código en el worktree, responde los checkpoints por *elicitation* y sigue `unit_advance` hasta `cerrada`. |
 | `railspec_e2e/ci.py` | El job `railspec-reindexar`: `railspec/deploy/ci/reindexar.py` real (indexador y HTTP reales) contra el servidor, con un emisor OIDC local en loopback (`RAILSPEC_OIDC_*` del subproceso) en lugar del de GitHub Actions. Con `RAILSPEC_E2E_URL` el servidor no lo conoce y esas pruebas se saltan. |
 | `tests/` | El recorrido, una vez por módulo, y una prueba por cada parte que comprueba. |
+| `tests/test_cobertura_ci.py` | Contrato 1.5 sin el arnés: historial git real, `reindexar.py` real y el servidor; el índice declara `commits_cubiertos` y el servidor retira solo las superposiciones de unidades integradas en ellos (o todas con `--sin-cobertura`). |
 
 ## Correr las pruebas
 

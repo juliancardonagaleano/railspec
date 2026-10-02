@@ -20,3 +20,10 @@ python3 installer/cli.py --target <ruta-destino> --install
 ```
 
 Ver `docs/` para el detalle del contenido del kit y su manifiesto.
+
+## Railspec
+
+El repositorio también aloja [Railspec](railspec/README.md), un plugin que da rieles SDD a
+los arneses con un motor remoto. Puede instalarse junto al kit en el mismo repositorio;
+para traer unidades y, si quieres, quitar el kit:
+[railspec/docs/migracion-kit.md](railspec/docs/migracion-kit.md).

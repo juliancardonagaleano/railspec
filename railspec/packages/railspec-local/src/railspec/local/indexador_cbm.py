@@ -9,7 +9,15 @@ demonio por cuenta y rechaza dos cachés distintas a la vez. Nunca se escribe
 el artefacto ``.codebase-memory/`` en el árbol (``persistence`` queda en
 falso). Las consultas piden páginas grandes: con el presupuesto de salida por
 defecto el binario devuelve unas cien filas por página. Si la sesión no
-arranca, se vuelve al modo ``cli`` (un proceso por operación). Para el delta:
+arranca, se vuelve al modo ``cli`` (un proceso por operación).
+
+La versión del binario está fijada (``VERSION_FIJA``): los ids de símbolo y las
+aristas salen de su parser y de sus nombres calificados, y un delta calculado
+con otra versión no casaría con el índice canónico que construye la CI. Al
+arrancar (``crear``) se compara la versión instalada; si es otra, el indexador
+queda apagado con un aviso que dice qué instalar y los snapshots viajan con
+solo hashes. Subir la versión fijada es un PR que repasa las pruebas con el
+binario nuevo. Para el delta:
 
 - el árbol de trabajo de la unidad se indexa con un nombre de proyecto fijo;
 - los archivos tocados, tal como estaban en el commit base, se extraen a un
@@ -28,11 +36,13 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import selectors
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -54,6 +64,9 @@ from . import git
 from .rutas import coincide
 
 BINARIO = "codebase-memory-mcp"
+#: Versión de ``codebase-memory-mcp`` con la que se verificó el indexador. Instalar:
+#: ``pip install codebase-memory-mcp==$(python -m railspec.local.indexador_cbm)``.
+VERSION_FIJA = "0.11.0"
 #: Tope de filas por página y de salida que admite ``query_graph``.
 MAX_FILAS = 99998
 MAX_TOKENS_SALIDA = 1_000_000
@@ -75,6 +88,8 @@ _RELACIONES = {
     "DEFINES": Relacion.define,
     "TESTS": Relacion.prueba,
 }
+
+log = logging.getLogger(__name__)
 
 
 class ErrorIndexador(RuntimeError):
@@ -219,9 +234,9 @@ class _SesionMcp:
 
 
 class IndexadorCodebaseMemory:
-    def __init__(self, binario: str) -> None:
+    def __init__(self, binario: str, version: str | None = None) -> None:
         self.binario = binario
-        self._version: str | None = None
+        self._version = version  # ya leída por ``diagnosticar``; si no, se pregunta al binario
         self._sesion: _SesionMcp | None = None
         self._solo_cli = False
 
@@ -438,8 +453,79 @@ def _sha_lineas(archivo: Path, inicio: int, fin: int) -> str:
     return hashlib.sha256(b"".join(lineas[inicio - 1 : fin])).hexdigest()
 
 
-def crear() -> IndexadorCodebaseMemory | None:
-    """Fábrica del entry point; None si el binario no está instalado."""
+@dataclass(frozen=True)
+class DiagnosticoBinario:
+    """Qué binario de ``codebase-memory-mcp`` hay en la máquina frente a la versión fijada."""
 
-    binario = shutil.which(BINARIO)
-    return IndexadorCodebaseMemory(binario) if binario else None
+    binario: str | None
+    #: ``None`` si no hay binario o su versión no se pudo leer.
+    version: str | None
+    fijada: str = VERSION_FIJA
+
+    @property
+    def compatible(self) -> bool:
+        return self.binario is not None and self.version == self.fijada
+
+    @property
+    def problema(self) -> str | None:
+        """Texto para el desarrollador; ``None`` si el binario sirve."""
+
+        if self.binario is None:
+            return f"{BINARIO} no está instalado."
+        instalar = f"pip install {BINARIO}=={self.fijada}"
+        if self.version is None:
+            detalle = f"no se pudo leer la versión de {self.binario}"
+        elif self.version != self.fijada:
+            detalle = f"{BINARIO} {self.version} no es la versión fijada {self.fijada}"
+        else:
+            return None
+        return (
+            f"{detalle}. El indexado local queda apagado y los snapshots viajan solo con hashes; "
+            f"instala la fijada: {instalar}"
+        )
+
+
+def diagnosticar(binario: str | None = None) -> DiagnosticoBinario:
+    """Busca el binario (en el PATH si no se da) y lee su versión, sin fallar si no responde."""
+
+    binario = binario or shutil.which(BINARIO)
+    if binario is None:
+        return DiagnosticoBinario(binario=None, version=None)
+    try:
+        version = IndexadorCodebaseMemory(binario).version()
+    except (ErrorIndexador, subprocess.SubprocessError, OSError):
+        version = None
+    return DiagnosticoBinario(binario=binario, version=version)
+
+
+def crear() -> IndexadorCodebaseMemory | None:
+    """Fábrica del entry point; None si el binario no está instalado o no es la versión fijada."""
+
+    diagnostico = diagnosticar()
+    if diagnostico.binario is None:
+        return None
+    if not diagnostico.compatible:
+        log.warning("%s", diagnostico.problema)
+        return None
+    return IndexadorCodebaseMemory(diagnostico.binario, version=diagnostico.version)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m railspec.local.indexador_cbm``: imprime la versión fijada; ``--verificar`` además
+    comprueba que la instalada es esa y sale con 1 si no (lo usa la CI)."""
+
+    argumentos = sys.argv[1:] if argv is None else argv
+    if argumentos == ["--verificar"]:
+        diagnostico = diagnosticar()
+        if not diagnostico.compatible:
+            print(diagnostico.problema, file=sys.stderr)
+            return 1
+    elif argumentos:
+        print("uso: python -m railspec.local.indexador_cbm [--verificar]", file=sys.stderr)
+        return 2
+    print(VERSION_FIJA)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

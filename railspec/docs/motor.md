@@ -35,7 +35,8 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   abre un `paquete-aprobacion`; `supervisado` y `desatendido` solo paran en
   paradas y gates escalados.
 - El gate escala sin gastar tokens si la gobernanza no respondió o respondió
-  a medias (`sin-gobernanza`) o si el presupuesto se agotó. Un fallo del
+  a medias (`sin-gobernanza`) o si el presupuesto se agotó (ver
+  [Presupuestos y telemetría](#presupuestos-y-telemetría)). Un fallo del
   proveedor escala con `error-proveedor`.
 - Los artefactos de la unidad (`.railspec/unidades/<unidad>/`) viven en su
   worktree: la orden `implementar` los admite en `alcance.permitidos` y el gate
@@ -47,12 +48,15 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   (ver `grafo.md`). El grafo informa, no genera hallazgos deterministas.
 - `unit.report` ingiere el snapshot en el grafo con la política del vínculo y
   enlaza los criterios de las tareas completadas; `unit.integrate` retiene
-  la superposición de la unidad en el repositorio primario hasta que
-  `graph.index` lleve el canónico a `commit_integrado` y descarta las de los
+  la superposición de la unidad en el repositorio primario hasta que un
+  `graph.index` cubra `commit_integrado` (el propio commit del índice o uno de
+  los `commits_cubiertos` que declara CI desde 1.5) y descarta las de los
   demás (todas, si no hay commit); ver `grafo.md`.
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
-  siguiente gate.
+  siguiente gate. `supervisado` y `desatendido` exigen un mandato: la entrada
+  de `unit.set_mode` ya pide `unidad.plan`, y si la unidad guardada no
+  pertenece a ninguno responde `conversion-no-permitida` (no guarda nada).
 - `unit.report` reconoce el reenvío de un reporte ya aceptado (misma orden y
   secuencia) y responde `secuencia-duplicada` en vez de `orden-no-vigente`, para
   que el proxy lo dé por entregado.
@@ -75,6 +79,43 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   por workspace, repositorio primario y origen (colección `importaciones`) y
   cada importación se audita con su origen. `unit.export` devuelve el paquete
   con los artefactos del checkpoint aprobados como prefijo según la fase.
+
+## Presupuestos y telemetría
+
+El gate comprueba tres topes de `PresupuestoConfig` (los edita la consola) con
+lo ya consumido; al alcanzar uno escala con `presupuesto-agotado` y el motivo
+del checkpoint dice cuál:
+
+| Tope | Se compara con | Motivo |
+| --- | --- | --- |
+| `por_unidad` | El `consumo` de la unidad. Se copia a la unidad al arrancarla: cambiarlo después no la alcanza. | `por_unidad: tokens 1200/1000` |
+| `por_fase` | La telemetría de esa unidad en esa fase; el gate de código cuenta para `implement`. Se lee vigente. | `por_fase plan: costo 1.02/1.00 USD` |
+| `mensual_usd` | El costo de toda la telemetría del workspace en el mes calendario UTC, chat incluido. Se lee vigente. | `mensual_usd 2026-10: costo 50.02/50.00 USD` |
+
+- Una configuración de la organización (sin workspace) rige para cada
+  workspace por separado, también el tope mensual.
+- Se comprueba al empezar el gate y antes de cada llamada del panel al
+  proveedor, sumando lo que ya costaron las llamadas del mismo panel (aún sin
+  registrar). Los críticos salen a la vez y comparten lo gastado hasta ese
+  momento: el tope frena la tanda siguiente (el refutador), no la que está en
+  vuelo, así que un panel puede pasarlo por lo que cueste esa tanda. Lo ya
+  llamado se registra y consume igual.
+- Una respuesta de la caché no gasta y no se comprueba. El chat no comprueba
+  estos topes todavía; su gasto sí cuenta para el mes.
+- `segundos_max` por fase suma la duración de las llamadas fallidas también;
+  el `consumo` de la unidad no las cuenta.
+- El costo es la estimación de `PRECIOS_USD_MTOK`; manda la factura de Azure.
+
+Cada llamada deja su fila de auditoría y de telemetría una sola vez: el
+consumo se aplica aparte y es lo único que se reintenta ante un
+`conflicto-version`. `TelemetriaNodo.veredicto` es el de la iteración del gate
+a la que pertenece la llamada: `aprobado` si el gate cierra en la primera,
+`refinado` si pide otra iteración o cierra tras refinar, `escalado` si escala
+(también tras un error del proveedor o un tope agotado a mitad del panel).
+
+La clave de la caché de nodos incluye el commit del código evaluado
+(`repositorio@commit` de cada repositorio de la unidad): el mismo material
+sobre otro commit es otra pregunta. Ver [proveedores.md](proveedores.md).
 
 ## Variables de entorno
 
@@ -119,6 +160,9 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
 
 ## Pendiente
 
-- Manejadores de `insumo.get` y `code.read` (`graph.query` y `graph.index` ya se enchufan con el grafo): el registro los
-  acepta enchufados y no los anuncia mientras falten.
+- `insumo.get` se enchufa siempre; `code.read`, solo con una fuente de código
+  (`RAILSPEC_CHAT_CLONES`), y `graph.query` y `graph.index`, con el grafo. El
+  registro no anuncia la tool cuyo manejador falta.
+- Presupuesto por tier, meta de llamadas y contador de aciertos de la caché
+  (contrato 1.6); `unit.advance` ignora `version_vista` y `dueno` no se exige.
 - La forma de la respuesta de PCE no está verificada contra el servicio real.

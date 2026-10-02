@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { claves, repositorios } from "../../api/endpoints";
 import {
@@ -29,6 +29,36 @@ const POLITICA_BASE: PoliticaChat = {
   modelos_permitidos: [],
   permitido: true,
 };
+
+const listaDeModelos = (texto: string): string[] =>
+  texto
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+
+/**
+ * Los modelos se escriben separados por comas: el texto se conserva tal cual mientras se teclea (si se
+ * normalizara en cada pulsación, la coma desaparecería antes de poder escribir el siguiente modelo).
+ */
+function CampoModelos({ modelos, alCambiar }: { modelos: string[]; alCambiar: (m: string[]) => void }) {
+  const [texto, setTexto] = useState(modelos.join(", "));
+  // Si la lista cambia desde fuera (otro valor cargado), el texto la sigue.
+  useEffect(() => {
+    setTexto((previo) => (listaDeModelos(previo).join(",") === modelos.join(",") ? previo : modelos.join(", ")));
+  }, [modelos]);
+  return (
+    <Campo etiqueta="Modelos permitidos" htmlFor="pol-modelos" ayuda="Separados por comas; vacío = todos los del catálogo." className="sm:col-span-2">
+      <Input
+        id="pol-modelos"
+        value={texto}
+        onChange={(e) => {
+          setTexto(e.target.value);
+          alCambiar(listaDeModelos(e.target.value));
+        }}
+      />
+    </Campo>
+  );
+}
 
 function EditorPolitica({ valor, alCambiar }: { valor: PoliticaChat; alCambiar: (p: PoliticaChat) => void }) {
   const num = (k: keyof PoliticaChat) => (e: { target: { value: string } }) => alCambiar({ ...valor, [k]: Number(e.target.value) });
@@ -70,21 +100,7 @@ function EditorPolitica({ valor, alCambiar }: { valor: PoliticaChat; alCambiar: 
           onChange={num("presupuesto_fuga_usuario_dia")}
         />
       </Campo>
-      <Campo etiqueta="Modelos permitidos" htmlFor="pol-modelos" ayuda="Separados por comas; vacío = todos los del catálogo." className="sm:col-span-2">
-        <Input
-          id="pol-modelos"
-          value={(valor.modelos_permitidos ?? []).join(", ")}
-          onChange={(e) =>
-            alCambiar({
-              ...valor,
-              modelos_permitidos: e.target.value
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean),
-            })
-          }
-        />
-      </Campo>
+      <CampoModelos modelos={valor.modelos_permitidos ?? []} alCambiar={(m) => alCambiar({ ...valor, modelos_permitidos: m })} />
       <label className="flex items-center gap-2 text-sm sm:col-span-2">
         <input
           type="checkbox"

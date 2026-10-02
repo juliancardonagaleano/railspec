@@ -95,8 +95,10 @@ class CiLocal:
         self._servidor, self._emisor = servidor, emisor
         self._reindexar = _cargar_reindexar()
 
-    def reindexar(self, commit: str, anterior: str | None = None) -> GraphIndexSalida:
-        """``anterior`` None = índice completo; con commit, delta desde él (``github.event.before``)."""
+    def reindexar(self, commit: str, anterior: str | None = None, cobertura: bool = True) -> GraphIndexSalida:
+        """``anterior`` None = índice completo; con commit, delta desde él (``github.event.before``).
+
+        ``cobertura=False`` es ``--sin-cobertura``: no declara ``commits_cubiertos`` (contrato 1.4)."""
 
         from railspec.local import indexador_cbm, secretos
 
@@ -119,4 +121,5 @@ class CiLocal:
             indexador_cbm.crear(),
             secretos.exclusiones(self._checkout),
             espera_s=0.1,
+            cobertura=cobertura,
         )

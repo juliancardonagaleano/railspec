@@ -47,7 +47,7 @@ function SimbolosDelCriterio({ org, ws, unidad, criterio }: { org: string; ws: s
     <ul className="mt-1 text-xs">
       {simbolos.map((s) => (
         <li key={s.simbolo}>
-          <EnlaceSimbolo org={org} ws={ws} simbolo={s.simbolo} nombre={s.nombre} repositorio={s.repositorio} ruta={s.ruta} />
+          <EnlaceSimbolo org={org} ws={ws} simbolo={s.simbolo} nombre={s.nombre} repositorio={s.repositorio} ruta={s.ruta} unidad={unidad} />
         </li>
       ))}
     </ul>
@@ -103,7 +103,7 @@ export function PestanaTrazabilidad({ datos, org, ws, unidad }: { datos: Trazabi
                   <ul>
                     {c.simbolos.map((s) => (
                       <li key={s.simbolo}>
-                        <EnlaceSimbolo org={org} ws={ws} simbolo={s.simbolo} nombre={s.nombre} repositorio={s.repositorio} ruta={s.ruta} />{" "}
+                        <EnlaceSimbolo org={org} ws={ws} simbolo={s.simbolo} nombre={s.nombre} repositorio={s.repositorio} ruta={s.ruta} unidad={unidad} />{" "}
                         <span className="text-xs text-suave">{s.tipo}</span>
                       </li>
                     ))}

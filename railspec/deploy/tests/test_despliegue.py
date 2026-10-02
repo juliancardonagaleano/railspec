@@ -758,6 +758,41 @@ def test_planificar_delta_y_completo(tmp_path):
     assert reindexar.planificar(raiz, c1, c3).completo
 
 
+def test_planificar_declara_los_commits_cubiertos(tmp_path):
+    raiz, (c1, c2, c3) = _repo(tmp_path)
+    assert reindexar.planificar(raiz, c3, c1).cubiertos == [c3, c2]  # más reciente primero
+    assert reindexar.planificar(raiz, c3, None).cubiertos == [c3, c2, c1]
+    assert reindexar.planificar(raiz, c1, c3).cubiertos == [c1]  # force-push: completo de c1
+
+
+def test_los_commits_cubiertos_siguen_los_primeros_padres_y_tienen_tope(tmp_path, monkeypatch):
+    raiz, (c1, c2, c3) = _repo(tmp_path)
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(raiz), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    git("checkout", "-q", "-b", "rama", c1)
+    for nombre in ("x.py", "y.py"):
+        (raiz / nombre).write_text("x = 1\n")
+        git("add", nombre)
+        git("commit", "-q", "-m", nombre)
+    git("checkout", "-q", "master")
+    git("merge", "-q", "--no-ff", "rama", "-m", "merge")
+    fusion = git("rev-parse", "HEAD")
+    # Las puntas de la rama por defecto son primeros padres: los de ``rama`` no se enumeran.
+    assert reindexar.commits_cubiertos(raiz, fusion, c1) == [fusion, c3, c2]
+    monkeypatch.setattr(reindexar, "MAX_COMMITS_CUBIERTOS", 2)
+    assert reindexar.commits_cubiertos(raiz, fusion, None) == [fusion, c3]  # los más recientes
+
+
+def test_commits_cubiertos_declara_solo_el_commit_si_git_falla(tmp_path, capsys):
+    raiz, (_, _, c3) = _repo(tmp_path)
+    assert reindexar.commits_cubiertos(raiz, c3, "f" * 40) == [c3]
+    assert "se declara solo el commit" in capsys.readouterr().out
+
+
 # --- flujo con dobles -----------------------------------------------------------------
 
 
@@ -791,7 +826,7 @@ class ServidorDoble:
 ALCANCE = AlcanceRepositorio(org="acme", workspace="ws", repositorio="repo")
 
 
-def _correr(raiz, commit, anterior, servidor, indexador=None):
+def _correr(raiz, commit, anterior, servidor, indexador=None, **extra):
     return reindexar.reindexar(
         raiz,
         ALCANCE,
@@ -805,6 +840,7 @@ def _correr(raiz, commit, anterior, servidor, indexador=None):
         tamano=1,
         transporte=servidor,
         espera_s=0,
+        **extra,
     )
 
 
@@ -818,6 +854,56 @@ def test_reindexar_delta_por_lotes(tmp_path):
         (2, 2, c1),
     ]
     assert servidor.cuerpos[0]["alcance"] == {"org": "acme", "workspace": "ws", "repositorio": "repo"}
+
+
+def test_reindexar_declara_los_commits_cubiertos_en_cada_lote(tmp_path):
+    raiz, (c1, c2, c3) = _repo(tmp_path)
+    servidor = ServidorDoble()
+    assert _correr(raiz, c3, c1, servidor).aplicado
+    assert [(c["version_contrato"], c["commits_cubiertos"]) for c in servidor.cuerpos] == [
+        ("1.5", [c3, c2])
+    ] * 2
+
+
+def test_reindexar_sin_cobertura_habla_1_4(tmp_path):
+    """``--sin-cobertura``: sin la lista, el índice completo retira todas las retenidas."""
+
+    raiz, (_, _, c3) = _repo(tmp_path)
+    servidor = ServidorDoble()
+    assert _correr(raiz, c3, None, servidor, cobertura=False).aplicado
+    assert all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in servidor.cuerpos)
+
+
+def test_un_servidor_14_que_rechaza_la_lista_recibe_el_indice_sin_ella(tmp_path, capsys):
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    rechazo = {
+        "detalle": "entrada fuera de contrato",
+        "errores": [{"ruta": "commits_cubiertos", "mensaje": "Extra inputs are not permitted"}],
+    }
+    servidor = ServidorDoble([(422, rechazo)])
+    assert _correr(raiz, c3, c1, servidor).aplicado
+    primero, *resto = servidor.cuerpos
+    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.5"
+    assert resto and all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in resto)
+    assert "sin cobertura" in capsys.readouterr().out
+
+
+def test_un_422_que_no_es_de_la_cobertura_no_se_reintenta(tmp_path):
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    ajeno = {"codigo": "snapshot-invalido", "detalle": "lotes incoherentes"}
+    servidor = ServidorDoble([(422, ajeno)])
+    with pytest.raises(reindexar.RechazoServidor, match="422"):
+        _correr(raiz, c3, c1, servidor)
+    assert len(servidor.cuerpos) == 1
+
+
+def test_el_reintento_completo_por_desfase_declara_la_historia_entera(tmp_path):
+    raiz, (c1, c2, c3) = _repo(tmp_path)
+    servidor = ServidorDoble([(409, {"codigo": "base-commit-distinto", "detalle": "x"})])
+    assert _correr(raiz, c3, c1, servidor).aplicado
+    assert servidor.cuerpos[0]["commits_cubiertos"] == [c3, c2]
+    assert servidor.cuerpos[-1]["commits_cubiertos"] == [c3, c2, c1]
+    assert "commit_anterior" not in servidor.cuerpos[-1]
 
 
 def test_reindexar_reintenta_completo_si_el_canonico_esta_desfasado(tmp_path):

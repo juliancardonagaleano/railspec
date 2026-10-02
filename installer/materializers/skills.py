@@ -52,6 +52,8 @@ from pathlib import Path
 
 import yaml
 
+from .ajenos import PREFIJO_RAILSPEC  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_DIR = REPO_ROOT / ".agents" / "skills"
 DEFAULT_MIRROR_DIR = REPO_ROOT / ".claude" / "skills"
@@ -60,7 +62,10 @@ MANIFEST_HEADER = "# GENERADO por installer/materializers/skills.py — no edita
 IDEMPOTENCY_WINDOW_SECONDS = 60
 # Skill families whose mirror is owned by their own runtime (not Claude
 # Code/OpenCode portable agents). Excluded from the portable mirror.
-EXCLUDED_FAMILIES = ("gitnexus-",)
+# ``railspec*`` are the skills Railspec's adapters write (``railspec`` and
+# ``railspec-bucle``, also under ``.agents/skills/`` for Codex): they are not
+# kit skills, so the mirror neither copies nor prunes them.
+EXCLUDED_FAMILIES = ("gitnexus-", PREFIJO_RAILSPEC)
 
 
 def sha256_bytes(data: bytes) -> str:
