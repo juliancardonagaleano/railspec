@@ -159,7 +159,7 @@ no se marcan. El arnés trae el texto de cada referencia en local con
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
-| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma, en minúsculas: `eastus2,swedencentral`) donde el chat puede enviar código en `restringido`/`interno`. Vacío: el chat no responde en esos niveles. |
+| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma, en minúsculas: `eastus2,swedencentral`; `zona-us` o `zona-eu` para un despliegue DataZone) donde el chat puede enviar código en `restringido`/`interno`. Vacío: el chat no responde en esos niveles. |
 | `RAILSPEC_CHAT_MODELO` | `claude-sonnet-5-5` | Modelo (despliegue en Foundry) del rol `chat`. |
 | `RAILSPEC_CHAT_CLONES` | vacío | Carpeta con un clon de solo lectura por repositorio en `<owner>/<repo>`. Sin ella no hay `code.read` y el chat responde sin leer código. |
 
