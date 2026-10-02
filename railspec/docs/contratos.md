@@ -123,10 +123,10 @@ su prueba negativa.
   su cola local→remoto con `sync.push`, que responde `confirmada_hasta`. La
   subida no lleva actor (lo pone el servidor) y un hueco de secuencia se
   rechaza con `secuencia-con-hueco`. `snapshot.subido` y `orden.reportada`
-  solo avisan: los datos viajan en `unit.report`. El webhook de push de la
-  GitHub App sigue siendo la fuente para ramas empujadas fuera del proxy;
-  si ya llegó un `commit.empujado` con el mismo commit, el servidor no lo
-  aplica dos veces.
+  solo avisan: los datos viajan en `unit.report`. El servidor no recibe
+  webhooks de push (no hay receptor en `railspec-server`): `commit.empujado`
+  solo llega por `sync.push`, así que una rama empujada desde otra máquina no
+  genera el evento hasta que un proxy la vea.
 - **Grafo (1.4).** `graph.query` añade `impact` (exige `unidad`: símbolos
   tocados por la superposición con `distancia` 0 y afectados aguas arriba con
   `distancia` >= 1 y `relacion`, todos con `riesgo`) y `trace` (por `criterio`,
@@ -215,19 +215,22 @@ vínculo, y el servidor la corta si el repositorio destino no es visible.
 
 ## Almacenamiento e identidad
 
-`almacen.py` define las interfaces que implementan los hilos siguientes:
-`StateStore` (Mongo), `GraphStore` y `VectorStore` (FalkorDB, un grafo por
-workspace y repositorio, con LadybugDB como alternativa) y
+`almacen.py` define las interfaces:
+`StateStore` (Mongo: `AlmacenMongo` en `railspec-server`), `GraphStore` y
+`VectorStore` (FalkorDB, un grafo por workspace y repositorio, con LadybugDB
+como alternativa: `AlmacenGrafo` y `AlmacenVectores` en `railspec-graph`) y
 `ProveedorIdentidad` (GitHub). Cada método exige su alcance tipado, así que
 no hay consulta sin workspace. `CheckpointStorage` es el de Microsoft Agent
-Framework y se implementa en la fase 2.
+Framework y lo implementa `CheckpointsMongo` en `railspec-server`.
 
 `repositorio.py` fija las colecciones con su clave de aislamiento y su campo
 de TTL, y el nombre de grafo `railspec:<org>:<workspace>:<repositorio>`.
 
 ## Variables de entorno del servidor
 
-Convención para las fases 2 y 4; los valores vienen de Kubernetes Secrets.
+Los secretos (URI de Mongo, URL de FalkorDB y claves) vienen de un Kubernetes
+Secret y el resto del ConfigMap. Aquí van las principales; la lista completa
+está en [despliegue.md](despliegue.md#variables-de-los-manifiestos).
 
 | Variable | Uso |
 |---|---|
@@ -235,7 +238,7 @@ Convención para las fases 2 y 4; los valores vienen de Kubernetes Secrets.
 | `RAILSPEC_FALKORDB_URL` | Grafo central y vectores |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Proveedor primario (sin clave = Entra ID) |
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Adaptador de Anthropic tras bandera |
-| `RAILSPEC_GITHUB_APP_ID`, `RAILSPEC_GITHUB_APP_PRIVATE_KEY` | Identidad, clon canónico y webhooks |
+| `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Identidad: inicio de sesión de la consola y comprobación de que cada token de GitHub lo emitió la App |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Proveedor de gobernanza |
 
 ## Lo que queda abierto
@@ -243,4 +246,3 @@ Convención para las fases 2 y 4; los valores vienen de Kubernetes Secrets.
 - Umbrales del gate de salida (N de huella por nivel, presupuestos de fuga):
   `politica_chat_por_defecto` fija valores iniciales editables por vínculo;
   el hilo del chat los calibra con el corpus de ataques.
-- Framework del frontend: no afecta a estos contratos.
