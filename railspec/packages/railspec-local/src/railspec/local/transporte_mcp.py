@@ -1,8 +1,11 @@
 """Transporte de producción: MCP Streamable HTTP hacia ``railspec-server``.
 
-El token del desarrollador (GitHub OAuth) viaja como ``Authorization:
-Bearer``; el servidor deriva el actor de él. La sesión MCP se abre al primer
-uso, en una tarea propia, y se reabre si la conexión se cae.
+El token del desarrollador (token de usuario de la GitHub App de Railspec) viaja
+como ``Authorization: Bearer``; el servidor deriva el actor de él. Sale de
+``RAILSPEC_TOKEN`` o de la sesión que guardó ``railspec login`` y se resuelve en
+cada petición, no al abrir la sesión MCP: un ``railspec login`` con el arnés
+abierto vale sin reiniciarlo. La sesión MCP se abre al primer uso, en una tarea
+propia, y se reabre si la conexión se cae.
 """
 
 from __future__ import annotations
@@ -18,7 +21,21 @@ from mcp.client.streamable_http import streamable_http_client
 from railspec.contracts.tools import nombre_mcp
 
 from .cliente import error_desde
+from .credenciales import FuenteToken
 from .errores import RespuestaInvalida, ServidorRechazo, SinConexion
+
+
+class _BearerVigente(httpx2.Auth):
+    """Pone el token que valga ahora en cada petición, incluidas las de reconexión."""
+
+    def __init__(self, fuente: FuenteToken) -> None:
+        self.fuente = fuente
+
+    def auth_flow(self, request: httpx2.Request):
+        token = self.fuente.token()
+        if token:
+            request.headers["Authorization"] = f"Bearer {token}"
+        yield request
 
 
 class TransporteMcpHttp:
@@ -29,9 +46,10 @@ class TransporteMcpHttp:
     abrió: si la sesión se abriera dentro de la primera tool, al terminar esa tool
     anyio rompería con "cancel scope" y el arnés perdería la conexión."""
 
-    def __init__(self, url: str, token: str | None, timeout_s: float = 300.0) -> None:
+    def __init__(self, url: str, token: str | FuenteToken | None, timeout_s: float = 300.0) -> None:
         self.url = url
-        self.token = token
+        # Un ``str`` es un token fijo (como ``RAILSPEC_TOKEN``); la CLI pasa la fuente completa.
+        self.fuente = token if isinstance(token, FuenteToken) else FuenteToken(url, token)
         self.timeout_s = timeout_s
         self._cliente: Client | None = None
         self._tarea: asyncio.Task[None] | None = None
@@ -49,11 +67,10 @@ class TransporteMcpHttp:
         return await asyncio.shield(self._listo)
 
     async def _sostener(self, listo: asyncio.Future[Client], fin: asyncio.Event) -> None:
-        cabeceras = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         try:
             async with (
                 httpx2.AsyncClient(
-                    headers=cabeceras, timeout=httpx2.Timeout(30.0, read=self.timeout_s)
+                    auth=_BearerVigente(self.fuente), timeout=httpx2.Timeout(30.0, read=self.timeout_s)
                 ) as http,
                 Client(streamable_http_client(self.url, http_client=http)) as cliente,
             ):
@@ -93,7 +110,7 @@ class TransporteMcpHttp:
             if isinstance(datos, dict) and "codigo" in datos:
                 raise error_desde(datos)
             # Sin ``ErrorTool``: el servidor rechazó la identidad (texto plano), no la tool.
-            raise ServidorRechazo(tool, _texto_de_contenido(resultado.content))
+            raise ServidorRechazo(tool, _texto_de_contenido(resultado.content), self.fuente.nota())
         if not isinstance(datos, dict):
             raise RespuestaInvalida(f"{tool}: el servidor no devolvió un objeto JSON")
         return datos

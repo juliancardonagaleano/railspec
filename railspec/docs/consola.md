@@ -42,6 +42,9 @@ GitHub Apps):
 
 - **Callback URL**: `https://<dominio>/consola/api/auth/github/callback`.
 - **Request user authorization (OAuth) during installation**: no hace falta.
+- **Enable Device Flow**: sí, lo usa `railspec login` para que el arnés consiga su token
+  ([proxy-local.md](proxy-local.md#iniciar-sesión-con-github), con la decisión sobre la
+  expiración de los tokens de usuario).
 - **Permisos**: Organization → Members: *Read-only* (equipos del usuario para
   roles por equipo). Sin ese permiso la consola y el arnés funcionan, pero solo
   resuelven roles asignados a personas.

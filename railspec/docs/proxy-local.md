@@ -15,20 +15,22 @@ pip install codebase-memory-mcp       # opcional: indexado local (delta de símb
 railspec instalar --org acme --workspace certificados --repositorio certificados-api \
   --arnes claude-code --arnes opencode   # también: --arnes codex, --arnes copilot
 export RAILSPEC_URL=https://railspec.example/mcp   # endpoint MCP del servidor
-export RAILSPEC_TOKEN=...                          # token de usuario de la GitHub App de Railspec
+railspec login --client-id Iv23li...               # inicia sesión con GitHub (una vez): ver "Iniciar sesión con GitHub"
 ```
 
 `railspec instalar` escribe `.railspec/config.json` (versionable, sin
 secretos: org, workspace, slug del repositorio, nivel de código, arnés) y el
 adaptador de cada arnés. `--nivel` fija el nivel del vínculo; si falta rige
 `restringido`. `railspec instalar --verificar` informa deriva sin escribir.
-El token nunca se escribe en disco. No sirve un token `rsc1` de la consola (vale
+El token nunca va al repositorio: lo guarda `railspec login` fuera de él, o llega
+por `RAILSPEC_TOKEN`. No sirve un token `rsc1` de la consola (vale
 solo en `/v1` y el chat, no en `/mcp`). El servidor identifica a la persona con
 él y, si la GitHub App tiene el permiso de miembros de la organización, lee sus
 equipos de GitHub (cinco minutos de caché): un rol asignado a un equipo vale en
 el arnés igual que en la consola ([consola.md](consola.md#autorización)).
 Cuando el servidor no acepta el token, el proxy lo dice con el motivo del
-servidor y qué revisar (`RAILSPEC_TOKEN`); cuando se niega una tool por rol, el
+servidor y qué hacer según de dónde salió (`railspec login` si no hay sesión o
+venció; `RAILSPEC_TOKEN` si lo exportas); cuando se niega una tool por rol, el
 mensaje trae el rol que pide, el que tienes y, si no hay equipos resueltos, que
 solo cuentan los roles asignados a tu persona. El comando `railspec` tiene que estar en
 el `PATH` que ve el arnés (el binario de la release en `~/.local/bin` o
@@ -46,6 +48,77 @@ cada archivo como estaba; si un archivo queda vacío (o, en OpenCode, solo con
 `$schema`), lo borra, y también las carpetas que queden vacías. Nunca toca
 las unidades: sus worktrees y su estado local siguen donde estaban y la salida
 los lista en `unidades_en_local`.
+
+## Iniciar sesión con GitHub
+
+El servidor identifica a cada persona con un **token de usuario de la GitHub App
+de Railspec**: no sirve un token personal (PAT), uno de otra OAuth app ni el
+`rsc1` de la consola. `railspec login` lo consigue con el [device flow de
+GitHub](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app#using-the-device-flow-to-generate-a-user-access-token):
+no hay nada que pegar a mano y el client secret de la App no sale del servidor.
+
+```
+export RAILSPEC_URL=https://railspec.example/mcp
+export RAILSPEC_GITHUB_CLIENT_ID=Iv23li...   # no es secreto; lo publica quien administra el servidor
+railspec login
+#   Abre https://github.com/login/device e introduce el código:
+#       ABCD-1234
+#   Esperando la autorización (el código vence en 15 min; Ctrl+C cancela)…
+railspec whoami             # quién eres para el proxy y de dónde sale el token
+railspec whoami --comprobar # además, pregunta a GitHub si el token sigue valiendo
+railspec logout             # borra la sesión de este equipo
+```
+
+- **Por servidor.** La sesión es la del servidor de `RAILSPEC_URL` (la URL se
+  compara sin barra final y sin distinguir mayúsculas en el host): un mismo equipo puede tener sesión en
+  varios. Los tres comandos funcionan desde cualquier carpeta, no hace falta un
+  repositorio.
+- **Client id.** `--client-id`, o `RAILSPEC_GITHUB_CLIENT_ID`, o el de la sesión
+  guardada: tras el primer `login` basta `railspec login`.
+- **Dónde se guarda.** `~/.config/railspec/credenciales.json` (`$XDG_CONFIG_HOME`
+  si está definida; `RAILSPEC_CREDENCIALES` fija otra ruta, absoluta), fuera de cualquier
+  repositorio. Carpeta 0700, archivo 0600 creado así desde el primer byte y
+  reemplazado de forma atómica. Una entrada por servidor con el token, el client
+  id, el login y el id de GitHub, y cuándo vence. Si el archivo está más abierto
+  que 0600, `railspec` lo cierra antes de usarlo (y si no puede, se niega); si
+  está dañado, lo dice sin repetir su contenido y `railspec login` lo reescribe.
+  No se guarda el refresh token. Solo POSIX: el proxy no corre en Windows.
+- **Quién gana.** `RAILSPEC_TOKEN`, si está exportada, manda sobre la sesión
+  guardada (como `GH_TOKEN` en `gh`); `login` avisa cuando lo está y `whoami`
+  dice cuál se usa y qué sesión ignora.
+- **Sin reiniciar el arnés.** El proxy resuelve el token en cada petición, no al
+  arrancar: un `railspec login` o `logout` con el arnés abierto vale en la
+  llamada siguiente. Lo que sí tiene que llegar al proceso del proxy es
+  `RAILSPEC_URL` y un `HOME` desde el que encuentre el archivo (o
+  `RAILSPEC_CREDENCIALES`); si tu arnés lo lanza con un entorno reducido,
+  configúralo ahí.
+- **Si el servidor rechaza el token** el mensaje trae su motivo y lo que hay que
+  hacer: «No hay sesión iniciada: ejecuta `railspec login`», «La sesión de
+  `railspec login` como ana venció el …», o, si el token viene de
+  `RAILSPEC_TOKEN`, que tiene prioridad y qué tipo de token vale. Un token
+  vencido ya no se manda al servidor.
+- **`logout` solo olvida el token en este equipo.** Revocarlo en GitHub exige el
+  client secret de la App; mientras no venza sigue valiendo y se quita desde
+  <https://github.com/settings/apps/authorizations>.
+
+### Configurar la GitHub App (quien administra el servidor)
+
+En Settings → Developer settings → GitHub Apps → la App de Railspec (la misma de
+[consola.md](consola.md#github-app)):
+
+1. Marca **Enable Device Flow**. Sin eso `railspec login` falla con
+   «la GitHub App de Railspec no tiene activado el device flow».
+2. Publica el **Client ID** de la App junto a `RAILSPEC_URL` (no es secreto).
+   Tiene que ser el de la App cuyo client id y secret están en el Secret del
+   servidor (`RAILSPEC_GITHUB_APP_CLIENT_ID`): el servidor rechaza los tokens de
+   cualquier otra App.
+3. Decide **Expire user authorization tokens**. Activada (lo que GitHub propone
+   en Apps nuevas) el token dura 8 horas y `railspec login` no puede renovarlo:
+   renovarlo exige el client secret, que no debe viajar a las máquinas de los
+   desarrolladores, así que hay que repetir `railspec login` cuando venza (el
+   proxy lo dice con la fecha). Desactivada, el token no vence y solo se quita
+   revocándolo en GitHub. La primera cuida más un token que vive en disco; la
+   segunda evita repetir el inicio de sesión cada día.
 
 ## Adaptadores: el stack de tres piezas
 
@@ -559,6 +632,10 @@ mismo PR. Construir en local: `empaquetado/README.md`.
 
 ## Pendiente
 
+- **Renovar el token de la sesión.** Con la expiración de tokens de la GitHub App
+  activada, `railspec login` hay que repetirlo cada 8 horas. Renovarlo sin que
+  el proxy conozca el client secret pide un endpoint del servidor que lo
+  refresque con él (hoy el servidor solo verifica tokens); no se hizo.
 - **Instalación por usuario.** Los adaptadores se instalan por repositorio; un
   alcance de usuario (`~/.claude`, `~/.config/opencode`) queda para otra
   iteración.

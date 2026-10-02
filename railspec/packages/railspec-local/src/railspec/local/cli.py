@@ -3,6 +3,8 @@
 - ``railspec mcp``: servidor MCP por stdio para el arnés (lo lanza el arnés).
 - ``railspec instalar``: configura el repositorio y los adaptadores de arnés.
 - ``railspec desinstalar``: quita los adaptadores (y, si se pide, la configuración).
+- ``railspec login``, ``logout`` y ``whoami``: sesión del desarrollador con GitHub (device flow) en
+  vez de exportar ``RAILSPEC_TOKEN`` a mano.
 - ``railspec insumo pull <id>``: trae un insumo del chat de la consola.
 - ``railspec exportar`` e ``railspec importar``: una unidad a o desde un paquete en
   disco; ``importar`` también convierte a demanda unidades del kit SDD (``.spec/units/``).
@@ -18,16 +20,18 @@ import json
 import os
 import shutil
 import sys
+from contextlib import suppress
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from railspec.contracts.comun import Arnes, NivelCodigo
 
-from . import __version__, adaptadores, config, git, guardia
+from . import __version__, adaptadores, config, credenciales, dispositivo, git, guardia
 from .almacen import EXCLUIR_DE_GIT
 from .cliente import ClienteServidor
-from .errores import ConfigInvalida, ErrorRailspec
+from .errores import ConfigInvalida, CredencialesInvalidas, ErrorRailspec, LoginFallido
 from .indice import cargar_indexador
 from .proxy import ProxyLocal
 
@@ -38,7 +42,9 @@ def crear_proxy(raiz: Path) -> ProxyLocal:
         raise ConfigInvalida(f"Falta {config.ENV_URL}: el endpoint MCP de railspec-server.")
     from .transporte_mcp import TransporteMcpHttp
 
-    return ProxyLocal(cfg, ClienteServidor(TransporteMcpHttp(cfg.url, cfg.token)), cargar_indexador())
+    # RAILSPEC_TOKEN manda; sin él, la sesión de `railspec login`, releída en cada petición.
+    fuente = credenciales.FuenteToken(cfg.url, cfg.token, credenciales.AlmacenCredenciales())
+    return ProxyLocal(cfg, ClienteServidor(TransporteMcpHttp(cfg.url, fuente)), cargar_indexador())
 
 
 def _raiz(desde: str | None) -> Path:
@@ -104,7 +110,10 @@ def _cmd_instalar(args: argparse.Namespace) -> int:
         "config": str(ruta_config),
         "nivel_codigo": repo.nivel_codigo.value,
         "cambios": cambios,
-        "siguiente": f"exporta {config.ENV_URL} y {config.ENV_TOKEN} y reinicia el arnés",
+        "siguiente": (
+            f"exporta {config.ENV_URL}, inicia sesión con `railspec login` (o exporta {config.ENV_TOKEN}) "
+            "y reinicia el arnés"
+        ),
     }
     avisos = _avisos(arneses, worktrees)
     if avisos:
@@ -162,6 +171,151 @@ def _cmd_desinstalar(args: argparse.Namespace) -> int:
         salida["unidades_en_local"] = {u: str(r) for u, r in sorted(unidades.items())}
     _imprimir(salida)
     return 0
+
+
+def crear_flujo(client_id: str | None) -> dispositivo.FlujoDispositivo:
+    return dispositivo.FlujoDispositivo(client_id)
+
+
+def _aviso(texto: str) -> None:
+    print(f"railspec: {texto}", file=sys.stderr)
+
+
+def _url_servidor() -> str:
+    url = os.environ.get(config.ENV_URL)
+    if not url:
+        raise ConfigInvalida(
+            f"Falta {config.ENV_URL}: el endpoint MCP de railspec-server. La sesión se guarda por servidor."
+        )
+    return url
+
+
+def _iso(momento: Any) -> str | None:
+    return momento.isoformat() if momento is not None else None
+
+
+def _cmd_login(args: argparse.Namespace) -> int:
+    url = _url_servidor()
+    almacen = credenciales.AlmacenCredenciales()
+    ruta = almacen.ruta  # si no hay dónde guardar la sesión, falla ya y no tras autorizar en GitHub
+    try:
+        previa = almacen.leer(url)
+    except CredencialesInvalidas:
+        previa = None  # un archivo dañado no impide iniciar sesión: `guardar` lo reescribe
+    client_id = args.client_id or os.environ.get(config.ENV_GITHUB_CLIENT_ID) or (previa and previa.client_id)
+    if not client_id:
+        raise ConfigInvalida(
+            "Falta el client id de la GitHub App de Railspec: pásalo con --client-id o exporta "
+            f"{config.ENV_GITHUB_CLIENT_ID} (no es secreto; lo publica quien administra el servidor). "
+            "Se recuerda en la sesión guardada: las veces siguientes basta `railspec login`."
+        )
+    if os.environ.get(config.ENV_TOKEN):
+        _aviso(
+            f"{config.ENV_TOKEN} está exportada y tiene prioridad sobre la sesión que vas a guardar: "
+            "quítala (unset) para usar la de `railspec login`."
+        )
+    try:
+        with crear_flujo(client_id) as flujo:
+            codigo = flujo.solicitar_codigo()
+            print(
+                f"\nAbre {codigo.verification_uri} e introduce el código:\n\n    {codigo.user_code}\n\n"
+                f"Esperando la autorización (el código vence en {max(codigo.expires_in // 60, 1)} min; "
+                "Ctrl+C cancela)…",
+                file=sys.stderr,
+            )
+            token = flujo.esperar_token(codigo)
+            persona = flujo.persona(token.access_token)
+    except KeyboardInterrupt:
+        raise LoginFallido("Cancelado: no se inició sesión.") from None
+    ahora = credenciales.ahora_utc()
+    credencial = credenciales.Credencial(
+        access_token=token.access_token,
+        client_id=client_id,
+        login=persona.login if persona else None,
+        github_id=persona.github_id if persona else None,
+        obtenido_en=ahora,
+        expira_en=ahora + timedelta(seconds=token.expires_in) if token.expires_in else None,
+    )
+    almacen.guardar(url, credencial)
+    salida: dict[str, Any] = {
+        "servidor": url,
+        "login": credencial.login,
+        "github_id": credencial.github_id,
+        "expira_en": _iso(credencial.expira_en),
+        "credenciales": str(ruta),
+        "siguiente": "el proxy usa esta sesión en su próxima llamada; no hace falta reiniciar el arnés",
+    }
+    if persona is None:
+        salida["aviso"] = "GitHub no dijo de quién es el token; se guardó igual."
+    if credencial.expira_en is not None:
+        salida["aviso_vencimiento"] = (
+            "Este token vence y no se puede renovar desde aquí (renovarlo exige el client secret de la App): "
+            "cuando venza, ejecuta `railspec login` otra vez."
+        )
+    _imprimir(salida)
+    return 0
+
+
+def _cmd_logout(args: argparse.Namespace) -> int:
+    url = _url_servidor()
+    almacen = credenciales.AlmacenCredenciales()
+    cerrada = almacen.borrar(url)
+    salida: dict[str, Any] = {"servidor": url, "cerrada": cerrada}
+    if cerrada:
+        salida["aviso"] = (
+            "Se borró la sesión de este equipo; el token sigue vigente en GitHub hasta que venza. Para "
+            "revocarlo ya, quita la GitHub App de Railspec en https://github.com/settings/apps/authorizations."
+        )
+    if os.environ.get(config.ENV_TOKEN):
+        salida["entorno"] = f"{config.ENV_TOKEN} sigue exportada: el proxy seguirá usándola."
+    _imprimir(salida)
+    return 0
+
+
+def _cmd_whoami(args: argparse.Namespace) -> int:
+    url = _url_servidor()
+    almacen = credenciales.AlmacenCredenciales()
+    sesion = credenciales.FuenteToken(url, os.environ.get(config.ENV_TOKEN), almacen).sesion()
+    salida: dict[str, Any] = {
+        "servidor": url,
+        "origen": {"entorno": config.ENV_TOKEN, "credenciales": "railspec login"}.get(sesion.origen),
+    }
+    credencial = sesion.credencial
+    if sesion.origen == "entorno":
+        with suppress(CredencialesInvalidas):
+            guardada = almacen.leer(url)
+            if guardada is not None:
+                quien = guardada.login or "otra persona"
+                salida["ignorada"] = f"la sesión guardada de {quien}: {config.ENV_TOKEN} tiene prioridad"
+    if credencial is not None:
+        salida |= {
+            "login": credencial.login,
+            "github_id": credencial.github_id,
+            "client_id": credencial.client_id,
+            "obtenido_en": _iso(credencial.obtenido_en),
+            "expira_en": _iso(credencial.expira_en),
+            "vencida": sesion.vencida,
+        }
+    if sesion.problema:
+        salida["problema"] = sesion.problema
+    valida = sesion.token is not None
+    if args.comprobar and sesion.token is not None:
+        with crear_flujo(None) as flujo:
+            persona = flujo.comprobar(sesion.token)
+        salida["github"] = (
+            {"valido": True, "login": persona.login, "github_id": persona.github_id}
+            if persona
+            else {"valido": False}
+        )
+        valida = persona is not None
+    if not valida:
+        salida["siguiente"] = (
+            sesion.nota()
+            if sesion.token is None or sesion.origen == "entorno"
+            else "ejecuta `railspec login`"
+        )
+    _imprimir(salida)
+    return 0 if valida else 1
 
 
 def _cmd_insumo(args: argparse.Namespace) -> int:
@@ -266,6 +420,23 @@ def parser() -> argparse.ArgumentParser:
     )
     des.add_argument("--config", action="store_true", help=f"Borra también {config.ARCHIVO_CONFIG}.")
     des.set_defaults(fn=_cmd_desinstalar)
+
+    login = sub.add_parser(
+        "login", help="Inicia sesión con GitHub (device flow) y guarda tu token de usuario en este equipo."
+    )
+    login.add_argument(
+        "--client-id",
+        help=f"Client id de la GitHub App de Railspec (por defecto {config.ENV_GITHUB_CLIENT_ID}).",
+    )
+    login.set_defaults(fn=_cmd_login)
+
+    sub.add_parser("logout", help="Borra la sesión guardada para el servidor de RAILSPEC_URL.").set_defaults(
+        fn=_cmd_logout
+    )
+
+    who = sub.add_parser("whoami", help="Quién eres para el proxy y de dónde sale el token.")
+    who.add_argument("--comprobar", action="store_true", help="Pregunta a GitHub si el token sigue valiendo.")
+    who.set_defaults(fn=_cmd_whoami)
 
     ins = sub.add_parser("insumo", help="Insumos exportados desde el chat de la consola.")
     ins_sub = ins.add_subparsers(dest="accion", required=True)
