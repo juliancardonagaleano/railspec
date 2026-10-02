@@ -73,6 +73,8 @@ describe("presupuestos", () => {
     // La vista recarga: el formulario refleja lo guardado (versión 3).
     await waitFor(() => expect(campo("Por unidad: Tokens máx.")).toHaveValue(200000));
     expect(campo("Por unidad: Segundos máx.")).toHaveValue(null);
+    // El formulario se remontó con la versión nueva (`key={version}`) y el «Guardado» no se perdió con él.
+    expect(screen.getByText(/^Guardado · versión 3\b/)).toBeInTheDocument();
   });
 
   it("los campos vacíos o con 0 no se envían y el mensual vacío es null", async () => {
@@ -125,7 +127,7 @@ describe("presupuestos", () => {
     await user.click(guardar());
     const alerta = await screen.findByRole("alert");
     expect(alerta).toHaveTextContent("Presupuesto no válido. (por_fase.plan.tokens_max: supera el tope por unidad)");
-    expect(screen.queryByText("Presupuesto guardado.")).toBeNull();
+    expect(screen.queryByText(/^Guardado ·/)).toBeNull();
   });
 
   it("tras un 409 recarga lo vigente y el siguiente guardado envía la versión nueva", async () => {

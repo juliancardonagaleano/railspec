@@ -41,6 +41,9 @@ class AlmacenChat:
         db = self.db
         for coleccion in ("chat_conversaciones", "chat_mensajes", "chat_huellas", "chat_fuga_usuario"):
             db[coleccion].create_index("_expira", expireAfterSeconds=0)
+        db.chat_conversaciones.create_index(
+            [("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING), ("_autor", ASCENDING)]
+        )
         db.chat_mensajes.create_index([("_conversacion", ASCENDING), ("_orden", ASCENDING)])
         db.chat_huellas.create_index("_conversacion")
         db.insumos.create_index([("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING)])
@@ -75,6 +78,25 @@ class AlmacenChat:
             "autor": doc["_autor"],
         }
         return Conversacion.model_validate({k: v for k, v in doc.items() if not k.startswith("_")}), meta
+
+    def conversaciones_de(
+        self, alcance: AlcanceWorkspace, autor_id: int, ahora: datetime, limite: int
+    ) -> list[Conversacion]:
+        """Las conversaciones vigentes de ``autor_id`` en el workspace, recientes primero.
+
+        El filtro de workspace y de autor va en la consulta, no después: ninguna conversación de
+        otro workspace o de otra persona sale de Mongo. Se ordena por ``creada_en`` ya validado
+        (el documento guarda la fecha como texto, que no ordena bien con husos distintos).
+        """
+
+        cursor = self.db.chat_conversaciones.find(
+            {**_ws(alcance), "_autor": autor_id, "_expira": {"$gt": ahora.astimezone(UTC)}}
+        )
+        encontradas = [
+            Conversacion.model_validate({k: v for k, v in d.items() if not k.startswith("_")}) for d in cursor
+        ]
+        encontradas.sort(key=lambda c: c.creada_en, reverse=True)
+        return encontradas[:limite]
 
     def actualizar_commits(self, id_: UUID, commits: dict[str, str]) -> None:
         """Fija el commit visto de cada repositorio la primera vez que aparece (nunca lo cambia)."""

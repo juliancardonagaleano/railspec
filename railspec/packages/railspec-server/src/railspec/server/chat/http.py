@@ -25,7 +25,7 @@ from railspec.contracts.comun import AlcanceWorkspace, Slug
 
 from ..api.identidad import TokenInvalido
 from ..api.superficies import _actor, estado_de_identidad
-from .servicio import ErrorChat, Evento, InsumoBloqueado, ServicioChat
+from .servicio import LIMITE_LISTA, ErrorChat, Evento, InsumoBloqueado, ServicioChat
 
 
 class CrearConversacion(BaseModel):
@@ -85,6 +85,26 @@ def router_chat(servicio: ServicioChat, identidad: Any) -> APIRouter:
             return JSONResponse({"detalle": str(exc)}, status_code=estado_de_identidad(exc))
         except ErrorChat as exc:
             return error(exc)
+
+    @router.get("/conversaciones")
+    async def listar(request: Request):
+        async def accion(a):
+            consulta = request.query_params
+            try:
+                alcance = AlcanceWorkspace(
+                    org=consulta.get("org", ""), workspace=consulta.get("workspace", "")
+                )
+            except ValidationError as exc:
+                detalle = [{"ruta": ".".join(map(str, e["loc"])), "mensaje": e["msg"]} for e in exc.errors()]
+                raise ErrorChat("entrada-invalida", json.dumps(detalle, ensure_ascii=False), 422) from exc
+            try:
+                limite = int(consulta.get("limite", LIMITE_LISTA))
+            except ValueError as exc:
+                raise ErrorChat("entrada-invalida", "limite debe ser un entero", 422) from exc
+            conversaciones = servicio.listar(a, alcance, limite)
+            return {"conversaciones": [_json(c) for c in conversaciones]}
+
+        return await atender(request, accion)
 
     @router.post("/conversaciones")
     async def crear(request: Request):

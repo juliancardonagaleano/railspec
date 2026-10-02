@@ -2,13 +2,13 @@ import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { claves, presupuestos } from "../../api/endpoints";
 import { FASES, type Fase, type Presupuesto, type PresupuestoConfig } from "../../api/tipos";
-import { Aviso, Cargando, ErrorVista } from "../../componentes/Estados";
+import { Cargando, ErrorVista } from "../../componentes/Estados";
 import { NOMBRE_FASE } from "../../componentes/Etiquetas";
 import { Button } from "../../componentes/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../componentes/ui/card";
 import { Campo, Input } from "../../componentes/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
-import { ErrorGuardado, numeroOpcional, useGuardar } from "../../lib/mutaciones";
+import { AvisoGuardado, ErrorGuardado, numeroOpcional, useGuardar } from "../../lib/mutaciones";
 
 type Textos = { tokens_max: string; segundos_max: string; costo_usd_max: string };
 const CAMPOS: (keyof Textos)[] = ["tokens_max", "segundos_max", "costo_usd_max"];
@@ -56,6 +56,8 @@ function FormularioPresupuesto({ org, ws, actual, editable }: { org: string; ws?
       );
     },
     [["presupuestos", org]],
+    undefined,
+    { clave: `presupuestos:${org}:${ws ?? ""}` },
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();
@@ -112,7 +114,7 @@ function FormularioPresupuesto({ org, ws, actual, editable }: { org: string; ws?
           ))}
         </TableBody>
       </Table>
-      {guardar.isSuccess ? <Aviso tono="exito">Presupuesto guardado.</Aviso> : null}
+      <AvisoGuardado guardado={guardar.guardado} />
       <ErrorGuardado error={guardar.error} />
       {editable ? (
         <div>

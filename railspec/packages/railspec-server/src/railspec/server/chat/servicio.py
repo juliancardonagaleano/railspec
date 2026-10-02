@@ -80,6 +80,9 @@ log = logging.getLogger("railspec.chat")
 
 _RESTRICCION = [NivelCodigo.restringido, NivelCodigo.interno, NivelCodigo.abierto]
 
+#: Tope de conversaciones que devuelve el listado (``GET /v1/chat/conversaciones``).
+LIMITE_LISTA = 50
+
 
 class ErrorChat(Exception):
     def __init__(self, codigo: str, detalle: str, estado_http: int) -> None:
@@ -281,6 +284,16 @@ class ServicioChat:
             conv, n_tokens=politica.n_tokens, commits=commits, autor_id=actor.github_id
         )
         return conv
+
+    def listar(
+        self, actor: Actor, alcance: AlcanceWorkspace, limite: int = LIMITE_LISTA
+    ) -> list[Conversacion]:
+        """Las conversaciones vigentes de la persona en el workspace (nunca las de otras)."""
+
+        self._exigir_rol(actor, alcance)
+        return self.chat.conversaciones_de(
+            alcance, actor.github_id, self.reloj(), max(1, min(limite, LIMITE_LISTA))
+        )
 
     def obtener(self, actor: Actor, id_: UUID) -> tuple[Conversacion, list[MensajeChat]]:
         conv, _ = self._propia(actor, id_)

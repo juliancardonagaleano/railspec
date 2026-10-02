@@ -131,6 +131,8 @@ describe("perfiles de esfuerzo", () => {
 
     // La vista recarga y pasa a la versión guardada.
     expect(await screen.findByText(/Versión 4/)).toBeInTheDocument();
+    // El editor se remontó con la versión nueva y el «Guardado» sigue ahí, con esa versión.
+    expect(screen.getByText(/^Guardado · versión 4\b/)).toBeInTheDocument();
     const [put] = s.de("PUT", "/orgs/acme/perfiles/estandar");
     expect(put!.consulta.has("workspace")).toBe(false);
     expect(put!.cabeceras["X-Railspec-Consola"]).toBe("1");
@@ -147,6 +149,40 @@ describe("perfiles de esfuerzo", () => {
       exploradores: { bajo: 0, medio: 1, alto: 5 },
       version: 3,
     });
+  });
+});
+
+describe("avisos del guardado de perfiles", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("los avisos del servidor sobreviven al remontaje del editor por la versión nueva", async () => {
+    const user = userEvent.setup();
+    servidor([estandar, ligero], (est) => ({
+      "PUT /orgs/acme/perfiles/estandar": aceptar(est, ["El effort high no lo admite claude-sonnet-5-5."]),
+    }));
+    montarConQuery(<Perfiles org="acme" editable />);
+
+    await screen.findByText(/Versión 3/);
+    await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
+
+    // La lista recarga (versión 4) y `key={version}` monta otro editor: los avisos no se pierden con él.
+    expect(await screen.findByText(/Versión 4/)).toBeInTheDocument();
+    expect(screen.getByText("Guardado con avisos:")).toBeInTheDocument();
+    expect(screen.getByText("El effort high no lo admite claude-sonnet-5-5.")).toBeInTheDocument();
+    expect(screen.getByText(/versión 4 ·/)).toBeInTheDocument();
+  });
+
+  it("cada perfil tiene su propio aviso", async () => {
+    const user = userEvent.setup();
+    servidor([estandar, ligero], (est) => ({ "PUT /orgs/acme/perfiles/estandar": aceptar(est) }));
+    montarConQuery(<Perfiles org="acme" editable />);
+
+    await screen.findByText(/Versión 3/);
+    await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
+    expect(await screen.findByText(/^Guardado · versión 4\b/)).toBeInTheDocument();
+
+    await user.click(pestana("ligero"));
+    expect(screen.queryByText(/^Guardado ·/)).toBeNull();
   });
 });
 
@@ -178,7 +214,7 @@ describe("editor de perfil", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "Guardar perfil" }));
-    expect(await screen.findByText("Perfil guardado.")).toBeInTheDocument();
+    expect(await screen.findByText(/^Guardado · versión 4\b/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
     await waitFor(() => expect(s.de("PUT", "/orgs/acme/perfiles/estandar")).toHaveLength(2));
     expect(s.de("PUT", "/orgs/acme/perfiles/estandar").map((l) => l.cuerpo.version)).toEqual([3, 4]);
@@ -198,7 +234,7 @@ describe("editor de perfil", () => {
     expect(await screen.findByText("Guardado con avisos:")).toBeInTheDocument();
     const items = screen.getAllByRole("listitem").map((li) => li.textContent);
     expect(items).toEqual(["El rol «redactor» no tiene modelo para foundry.", "El effort high no lo admite claude-sonnet-5-5."]);
-    expect(screen.queryByText("Perfil guardado.")).toBeNull();
+    expect(screen.queryByText(/^Guardado ·/)).toBeNull();
   });
 
   it("un 409 de versión se explica como conflicto e indica la versión vigente", async () => {
@@ -209,7 +245,7 @@ describe("editor de perfil", () => {
     const aviso = await screen.findByText(/Otra persona modificó este registro/);
     expect(aviso).toHaveTextContent("(versión actual 5)");
     expect(aviso).toHaveTextContent("perfil en versión 5, recibida 3");
-    expect(screen.queryByText("Perfil guardado.")).toBeNull();
+    expect(screen.queryByText(/^Guardado ·/)).toBeNull();
   });
 
   it("un 422 muestra el detalle del servidor y los campos inválidos", async () => {
@@ -266,7 +302,7 @@ describe("editor de perfil", () => {
     await user.clear(screen.getByLabelText("Contexto mínimo para redactor"));
     await user.selectOptions(screen.getByLabelText("Effort para redactor"), "—");
     await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
-    await screen.findByText("Perfil guardado.");
+    await screen.findByText(/^Guardado · versión 4\b/);
     expect(s.de("PUT", "/orgs/acme/perfiles/estandar")[0]!.cuerpo.roles).toEqual({
       redactor: { modelo: {}, effort: null, structured_outputs: false, contexto_min_tokens: null },
     });
@@ -281,7 +317,7 @@ describe("editor de perfil", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: "Guardar perfil" }));
-    await screen.findByText("Perfil guardado.");
+    await screen.findByText(/^Guardado · versión 1\b/);
     const [put] = s.de("PUT", "/orgs/acme/perfiles/estandar");
     expect(put!.consulta.get("workspace")).toBe("cert");
     expect(put!.cuerpo).not.toHaveProperty("version");

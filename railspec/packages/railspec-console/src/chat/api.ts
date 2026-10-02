@@ -37,6 +37,8 @@ export class ErrorChat extends Error {
 }
 
 export interface ClienteChat {
+  /** Las conversaciones vigentes de la persona en el workspace, recientes primero (tope 50). Nunca las de otras personas. */
+  listarConversaciones(alcance: Alcance): Promise<Conversacion[]>;
   crearConversacion(alcance: Alcance, repositorios: string[]): Promise<Conversacion>;
   obtenerConversacion(id: string): Promise<{ conversacion: Conversacion; mensajes: MensajeChat[] }>;
   preguntar(id: string, pregunta: string, senal?: AbortSignal): AsyncGenerator<EventoChat>;
@@ -97,6 +99,13 @@ export function crearClienteChat(opciones: OpcionesClienteChat): ClienteChat {
   const ruta = (id: string) => `/v1/chat/conversaciones/${encodeURIComponent(id)}`;
 
   return {
+    async listarConversaciones(alcance) {
+      const consulta = new URLSearchParams({ org: alcance.org, workspace: alcance.workspace });
+      const r = await pedir("GET", `/v1/chat/conversaciones?${consulta}`);
+      const j = (await r.json()) as { conversaciones: Conversacion[] };
+      return j.conversaciones;
+    },
+
     async crearConversacion(alcance, repositorios) {
       const r = await pedir("POST", "/v1/chat/conversaciones", { alcance, repositorios });
       const j = (await r.json()) as { conversacion: Conversacion };

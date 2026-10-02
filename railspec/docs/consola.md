@@ -359,6 +359,17 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 `version` para bloqueo optimista: cada escritura manda la versión que editó
 (ninguna al crear); un conflicto responde 409 con `version_actual`.
 
+En la SPA, cada guardado que acepta el servidor se anuncia como «Guardado ·
+versión N · hora» (y «Guardado con avisos:» con la lista, en los perfiles). Lo
+escribe `useGuardar` en la caché de consultas bajo una clave por pantalla
+(`lib/mutaciones.tsx`, `useGuardado(clave)`), no en el estado del componente:
+los formularios se remontan al subir la versión (`key={version}`) y los diálogos
+se cierran al guardar, y el aviso sigue visible en el formulario nuevo o en la
+tarjeta que abrió el diálogo. Empezar otro guardado lo borra y la caché lo descarta
+cinco minutos después de que nadie lo mire; los borrados y el
+catálogo (que ya resume su sincronización) no lo usan. Un 409 sí se pierde con
+el remontaje: el formulario vuelve a la versión vigente sin explicarlo.
+
 | Método y ruta | Qué hace |
 | --- | --- |
 | `GET /auth/config` | Métodos de inicio de sesión disponibles (`github`, `desarrollo`). |
@@ -403,8 +414,9 @@ borren a mano.
 
 - **Servidor**: las rutas son `/v1/chat/*` (`railspec.server.chat.http`), no
   `/consola/api/chat`. Resuelven el actor con la identidad del servidor, que ya
-  acepta tokens `rsc1`. (`consola/api.py` y `contexto.py` conservan un gancho
-  `router_consola` que ningún módulo implementa; la SPA no lo usa.)
+  acepta tokens `rsc1`. `GET /v1/chat/conversaciones?org=&workspace=&limite=`
+  lista las conversaciones vigentes de la persona en ese workspace (recientes
+  primero, tope 50); ver `chat.md`.
 - **SPA**: la ruta `/<org>/<ws>/chat` carga `src/chat/ChatContexto.tsx` de forma
   diferida (`vistas/chat/cargador.ts`) y es parte de este paquete. El token sale
   de `POST /consola/api/auth/token`, vive solo en memoria y la SPA lo renueva unos
@@ -417,8 +429,15 @@ borren a mano.
     por organización y workspace (`lib/conversacionChat.ts`) y la reabre al
     volver. Si el servidor responde 404 (expiró o no es de esa persona) la olvida,
     avisa y vuelve al selector; «Nueva conversación» también la olvida. Cerrar sesión
-    borra los ids guardados. No hay un endpoint que liste las conversaciones, así que
-    solo se retoma la última de ese navegador.
+    borra los ids guardados.
+  - **Elegir otra**: sobre el chat, un selector «Conversación» lista las de la
+    persona en el workspace (`GET /v1/chat/conversaciones`, con el token del chat;
+    fecha y repositorios de cada una) y deja abrir cualquiera, no solo la última
+    del navegador. Elegir una la guarda como última y remonta el chat para que
+    cargue esa; «Nueva conversación» (también en el selector) vuelve a pedir
+    repositorios. La lista se recarga al crear una conversación o al descubrir que
+    una ya no existe. Si no se puede listar, el chat sigue y el aviso trae un
+    botón para reintentar.
   - **Crear una unidad desde el insumo**: tras exportar el insumo el chat ofrece
     «Crear unidad con este insumo» (solo `desarrollador` o más). Abre el diálogo de
     nueva unidad con título, pedido, restricciones, repositorios (primario primero) y
@@ -475,7 +494,6 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
   repositorio; hoy la consola edita las `exclusiones` del vínculo).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).
 - Un flujo de eventos por workspace (SSE) para el tablero, que hoy sondea cada
-  15 s, y un endpoint que liste las conversaciones del chat de la persona, para
-  retomar más de la última del navegador. Ambos serían rutas nuevas del servidor.
-- Quitar el gancho `router_consola` (`consola/api.py`, `consola/contexto.py`), que
-  ningún módulo implementa.
+  15 s: sería una ruta nueva del servidor.
+- Explicar un 409 que recarga la versión: el formulario se remonta con los datos
+  vigentes y el aviso de conflicto se pierde.

@@ -9,7 +9,18 @@ import { ErrorGuardado, useGuardar } from "../../lib/mutaciones";
 const PATRON_ID = "^[a-z0-9][a-z0-9\\-]{0,62}$";
 
 /** Crea (sin `org`) o edita (con `org`) una organización. */
-export function FormularioOrganizacion({ org, abierto, alCerrar }: { org?: Organizacion; abierto: boolean; alCerrar: () => void }) {
+export function FormularioOrganizacion({
+  org,
+  abierto,
+  alCerrar,
+  claveAviso,
+}: {
+  org?: Organizacion;
+  abierto: boolean;
+  alCerrar: () => void;
+  /** Dónde queda el «Guardado»: el diálogo se cierra al guardar y lo muestra quien lo abrió. */
+  claveAviso: string;
+}) {
   const [id, setId] = useState(org?.id ?? "");
   const [nombre, setNombre] = useState(org?.nombre ?? "");
   const [githubOrg, setGithubOrg] = useState(org?.github_org ?? "");
@@ -21,6 +32,7 @@ export function FormularioOrganizacion({ org, abierto, alCerrar }: { org?: Organ
     },
     [claves.organizaciones, claves.yo],
     alCerrar,
+    { clave: claveAviso },
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();

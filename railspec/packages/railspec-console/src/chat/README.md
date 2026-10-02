@@ -43,6 +43,8 @@ el chat sin el shell.
 
 Todas las peticiones llevan `Authorization: Bearer <token>`.
 
+- `GET /v1/chat/conversaciones?org=&workspace=` → las conversaciones vigentes de la persona en el workspace, recientes
+  primero (tope 50). No las usa `ChatContexto`: el shell las ofrece en un selector (`listarConversaciones` del cliente).
 - `POST /v1/chat/conversaciones` → crea la conversación.
 - `GET /v1/chat/conversaciones/{id}` → conversación + mensajes (también refresca contadores tras cada pregunta).
 - `POST /v1/chat/conversaciones/{id}/mensajes` → `text/event-stream` (eventos `pregunta`, `progreso`,

@@ -17,7 +17,7 @@ import { Dialog } from "../../componentes/ui/dialog";
 import { Campo, Input, Textarea } from "../../componentes/ui/input";
 import { opcionesDe, Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
-import { ErrorGuardado, useGuardar } from "../../lib/mutaciones";
+import { AvisoGuardado, ErrorGuardado, useGuardado, useGuardar } from "../../lib/mutaciones";
 import { fecha } from "../../lib/utiles";
 
 const POLITICA_BASE: PoliticaChat = {
@@ -113,6 +113,9 @@ function EditorPolitica({ valor, alCambiar }: { valor: PoliticaChat; alCambiar: 
   );
 }
 
+/** Dónde queda el «Guardado»: el diálogo se cierra al guardar y la tarjeta lo anuncia. */
+const claveAviso = (org: string, ws: string) => `repositorios:${org}:${ws}`;
+
 function FormularioVinculo({
   org,
   ws,
@@ -156,6 +159,7 @@ function FormularioVinculo({
     },
     [claves.repositorios(org, ws), claves.grafo(org, ws)],
     alCerrar,
+    { clave: claveAviso(org, ws) },
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();
@@ -267,6 +271,7 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
   const lista = useQuery({ queryKey: claves.repositorios(org, ws), queryFn: () => repositorios.listar(org, ws) });
   const [editando, setEditando] = useState<VinculoRepositorio | "nuevo" | null>(null);
   const [desvinculando, setDesvinculando] = useState<VinculoRepositorio | null>(null);
+  const guardado = useGuardado(claveAviso(org, ws));
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between">
@@ -281,6 +286,7 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
         ) : null}
       </CardHeader>
       <CardContent>
+        <AvisoGuardado guardado={guardado} className="mb-3" />
         {lista.isPending ? <Cargando /> : null}
         {lista.isError ? <ErrorVista error={lista.error} reintentar={() => void lista.refetch()} /> : null}
         {lista.isSuccess && lista.data.length === 0 ? <Vacio titulo="Sin repositorios vinculados" /> : null}

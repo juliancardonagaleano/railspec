@@ -32,7 +32,7 @@ CABECERA_CSRF = "x-railspec-consola"
 
 @dataclass
 class ContextoConsola:
-    """Lo que necesitan las rutas; también lo recibe el módulo del chat (``router_consola``)."""
+    """Lo que necesitan las rutas de ``/consola/api``."""
 
     config: ConfigConsola
     firmador: Firmador

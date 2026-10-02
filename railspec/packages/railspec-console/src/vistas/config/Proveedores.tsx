@@ -10,10 +10,13 @@ import { Dialog } from "../../componentes/ui/dialog";
 import { Campo, Input } from "../../componentes/ui/input";
 import { opcionesDe, Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
-import { ErrorGuardado, numeroOpcional, useGuardar } from "../../lib/mutaciones";
+import { AvisoGuardado, ErrorGuardado, numeroOpcional, useGuardado, useGuardar } from "../../lib/mutaciones";
 
 /** Referencia a un secreto: nunca el valor. */
 export const PATRON_CREDENCIAL = /^secret:\/\/[a-z0-9-]+\/[A-Za-z0-9_.-]+$/;
+
+/** Dónde queda el «Guardado»: el diálogo se cierra al guardar y la tarjeta lo anuncia. */
+const claveAviso = (org: string, ws: string | undefined) => `proveedores:${org}:${ws ?? ""}`;
 
 function FormularioProveedor({
   org,
@@ -53,6 +56,7 @@ function FormularioProveedor({
       ),
     [["proveedores-contexto", org]],
     alCerrar,
+    { clave: claveAviso(org, ws) },
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();
@@ -133,6 +137,7 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
   const lista = useQuery({ queryKey: claves.proveedores(org, ws), queryFn: () => proveedoresContexto.listar(org, ws) });
   const [editando, setEditando] = useState<ProveedorContexto | "nuevo" | null>(null);
   const [borrando, setBorrando] = useState<ProveedorContexto | null>(null);
+  const guardado = useGuardado(claveAviso(org, ws));
   const borrar = useGuardar(
     (p: ProveedorContexto) => proveedoresContexto.borrar(org, p.rol, p.nombre, p.workspace ?? undefined),
     [["proveedores-contexto", org]],
@@ -152,6 +157,7 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
         ) : null}
       </CardHeader>
       <CardContent>
+        <AvisoGuardado guardado={guardado} className="mb-3" />
         {lista.isPending ? <Cargando /> : null}
         {lista.isError ? <ErrorVista error={lista.error} reintentar={() => void lista.refetch()} /> : null}
         {lista.isSuccess && lista.data.length === 0 ? <Vacio titulo="Sin proveedores de contexto" /> : null}
