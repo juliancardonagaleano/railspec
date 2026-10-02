@@ -10,96 +10,209 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../componentes/ui/c
 import { Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
 import { useWorkspace } from "../../lib/sesion";
-import { cn, commitCorto, numero, usd } from "../../lib/utiles";
-import { estadoGasto, rangoDias, totalesPor, type Total } from "./agregar";
+import { cn, commitCorto, duracion, numero, porcentaje, usd } from "../../lib/utiles";
+import { duracionMediaMs, estadoGasto, rangoDias, sumar, tasaCache, totalesPor, type Total } from "./agregar";
 
 const RANGOS = [7, 30, 90] as const;
 
-function opcionBarras(totales: Total[], titulo: string) {
-  return {
+/** Dimensiones por las que se desglosa la telemetría (las claves de `telemetry.query`). */
+export const DIMENSIONES: { clave: ClaveTelemetria; etiqueta: string }[] = [
+  { clave: "fase", etiqueta: "Fase" },
+  { clave: "nodo", etiqueta: "Nodo del DAG" },
+  { clave: "modelo", etiqueta: "Modelo" },
+  { clave: "proveedor", etiqueta: "Proveedor" },
+  { clave: "tier", etiqueta: "Tier" },
+  { clave: "repositorio", etiqueta: "Repositorio" },
+  { clave: "workspace", etiqueta: "Workspace (toda la organización)" },
+  { clave: "veredicto", etiqueta: "Veredicto del gate" },
+];
+
+export const METRICAS = [
+  { valor: "costo", etiqueta: "Costo y tokens" },
+  { valor: "duracion", etiqueta: "Duración media por llamada" },
+  { valor: "cache", etiqueta: "Caché de prompts" },
+] as const;
+export type Metrica = (typeof METRICAS)[number]["valor"];
+
+export function opcionBarras(totales: Total[], titulo: string, metrica: Metrica = "costo") {
+  const base = {
     tooltip: { trigger: "axis" },
-    legend: { data: ["Costo (USD)", "Tokens"] },
     grid: { left: 60, right: 60, bottom: 60, top: 40 },
     xAxis: { type: "category", data: totales.map((t) => t.clave), axisLabel: { rotate: totales.length > 5 ? 30 : 0 } },
+    aria: { enabled: true, description: titulo },
+  };
+  if (metrica === "duracion") {
+    return {
+      ...base,
+      legend: { data: ["Duración media (s)", "Llamadas"] },
+      yAxis: [
+        { type: "value", name: "s" },
+        { type: "value", name: "llamadas" },
+      ],
+      series: [
+        { name: "Duración media (s)", type: "bar", data: totales.map((t) => Number(((duracionMediaMs(t) ?? 0) / 1000).toFixed(2))) },
+        { name: "Llamadas", type: "bar", yAxisIndex: 1, data: totales.map((t) => t.llamadas) },
+      ],
+    };
+  }
+  if (metrica === "cache") {
+    return {
+      ...base,
+      legend: { data: ["Entrada leída de caché (%)", "Tokens de caché"] },
+      yAxis: [
+        { type: "value", name: "%", max: 100 },
+        { type: "value", name: "tokens" },
+      ],
+      series: [
+        { name: "Entrada leída de caché (%)", type: "bar", data: totales.map((t) => Number((tasaCache(t) ?? 0).toFixed(1))) },
+        { name: "Tokens de caché", type: "bar", yAxisIndex: 1, data: totales.map((t) => t.tokens_cache_lectura) },
+      ],
+    };
+  }
+  return {
+    ...base,
+    legend: { data: ["Costo (USD)", "Tokens"] },
     yAxis: [
       { type: "value", name: "USD" },
       { type: "value", name: "tokens" },
     ],
     series: [
       { name: "Costo (USD)", type: "bar", data: totales.map((t) => Number(t.costo_usd.toFixed(4))) },
-      {
-        name: "Tokens",
-        type: "bar",
-        yAxisIndex: 1,
-        data: totales.map((t) => t.tokens_entrada + t.tokens_salida),
-      },
+      { name: "Tokens", type: "bar", yAxisIndex: 1, data: totales.map((t) => t.tokens_entrada + t.tokens_salida) },
     ],
-    aria: { enabled: true, description: titulo },
   };
 }
 
 function useAgrupado(org: string, ws: string, dias: number, clave: ClaveTelemetria) {
+  // Por workspace solo tiene sentido en toda la organización: se pide sin acotar el workspace.
+  const alcanceOrg = clave === "workspace";
   return useQuery({
-    queryKey: [...claves.telemetria(org, ws), dias, clave],
+    queryKey: [...claves.telemetria(org, alcanceOrg ? "*" : ws), dias, clave],
     queryFn: () => {
       const { desde, hasta } = rangoDias(dias);
-      return telemetria.consultar({ org, workspace: ws, desde, hasta, agrupar_por: [clave], filtros: {} });
+      return telemetria.consultar({ org, workspace: alcanceOrg ? null : ws, desde, hasta, agrupar_por: [clave], filtros: {} });
     },
     select: (s) => totalesPor(s.filas, clave),
   });
 }
 
-function TarjetaGrafico({ titulo, consulta }: { titulo: string; consulta: ReturnType<typeof useAgrupado> }) {
-  const opcion = useMemo(() => opcionBarras(consulta.data ?? [], titulo), [consulta.data, titulo]);
+function EstadoConsulta({ consulta, vacio }: { consulta: ReturnType<typeof useAgrupado>; vacio: string }) {
+  return (
+    <>
+      {consulta.isPending ? <Cargando /> : null}
+      {consulta.isError ? <ErrorVista error={consulta.error} reintentar={() => void consulta.refetch()} /> : null}
+      {consulta.isSuccess && consulta.data.length === 0 ? <Vacio titulo={vacio} /> : null}
+    </>
+  );
+}
+
+function TablaTotales({ totales, columnaClave, filas }: { totales: Total[]; columnaClave: string; filas?: number }) {
+  const visibles = filas ? totales.slice(0, filas) : totales;
+  const total = sumar(totales);
+  const celdas = (t: Total) => (
+    <>
+      <TableCell className="text-right">{numero(t.llamadas)}</TableCell>
+      <TableCell className="text-right">{numero(t.tokens_entrada)}</TableCell>
+      <TableCell className="text-right">{numero(t.tokens_salida)}</TableCell>
+      <TableCell className="text-right">{numero(t.tokens_cache_lectura)}</TableCell>
+      <TableCell className="text-right">{porcentaje(tasaCache(t))}</TableCell>
+      <TableCell className="text-right">{duracion(duracionMediaMs(t))}</TableCell>
+      <TableCell className="text-right">{usd(t.costo_usd)}</TableCell>
+    </>
+  );
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{columnaClave}</TableHead>
+          <TableHead className="text-right">Llamadas</TableHead>
+          <TableHead className="text-right">Tokens entrada</TableHead>
+          <TableHead className="text-right">Tokens salida</TableHead>
+          <TableHead className="text-right">Caché leída</TableHead>
+          <TableHead className="text-right">% caché</TableHead>
+          <TableHead className="text-right">Duración media</TableHead>
+          <TableHead className="text-right">Costo</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {visibles.map((t) => (
+          <TableRow key={t.clave}>
+            <TableCell className="font-mono text-xs">{t.clave}</TableCell>
+            {celdas(t)}
+          </TableRow>
+        ))}
+        {totales.length > 1 ? (
+          <TableRow className="font-semibold">
+            <TableCell>{filas && totales.length > filas ? `Total (${totales.length} filas)` : "Total"}</TableCell>
+            {celdas(total)}
+          </TableRow>
+        ) : null}
+      </TableBody>
+    </Table>
+  );
+}
+
+function Desglose({ org, ws, dias }: { org: string; ws: string; dias: number }) {
+  const [clave, setClave] = useState<ClaveTelemetria>("fase");
+  const [metrica, setMetrica] = useState<Metrica>("costo");
+  const consulta = useAgrupado(org, ws, dias, clave);
+  const etiqueta = DIMENSIONES.find((d) => d.clave === clave)?.etiqueta ?? clave;
+  const titulo = `${METRICAS.find((m) => m.valor === metrica)?.etiqueta} por ${etiqueta.toLowerCase()}`;
+  const opcion = useMemo(() => opcionBarras(consulta.data ?? [], titulo, metrica), [consulta.data, titulo, metrica]);
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{titulo}</CardTitle>
+        <CardTitle>Desglose</CardTitle>
+        <div className="mt-2 flex flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <label htmlFor="desglose-dimension" className="text-sm">
+              Agrupar por
+            </label>
+            <Select
+              id="desglose-dimension"
+              className="w-60"
+              value={clave}
+              onChange={(e) => setClave(e.target.value as ClaveTelemetria)}
+              opciones={DIMENSIONES.map((d) => ({ valor: d.clave, etiqueta: d.etiqueta }))}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="desglose-metrica" className="text-sm">
+              Métrica
+            </label>
+            <Select
+              id="desglose-metrica"
+              className="w-56"
+              value={metrica}
+              onChange={(e) => setMetrica(e.target.value as Metrica)}
+              opciones={METRICAS.map((m) => ({ valor: m.valor, etiqueta: m.etiqueta }))}
+            />
+          </div>
+        </div>
       </CardHeader>
-      <CardContent>
-        {consulta.isPending ? <Cargando /> : null}
-        {consulta.isError ? <ErrorVista error={consulta.error} reintentar={() => void consulta.refetch()} /> : null}
-        {consulta.isSuccess && consulta.data.length === 0 ? <Vacio titulo="Sin llamadas en el rango" /> : null}
-        {consulta.isSuccess && consulta.data.length > 0 ? <Grafico opcion={opcion} etiqueta={titulo} /> : null}
+      <CardContent className="flex flex-col gap-4">
+        <EstadoConsulta consulta={consulta} vacio="Sin llamadas en el rango" />
+        {consulta.isSuccess && consulta.data.length > 0 ? (
+          <>
+            <Grafico opcion={opcion} etiqueta={titulo} />
+            <TablaTotales totales={consulta.data} columnaClave={etiqueta} />
+          </>
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
-function TablaUnidades({ consulta }: { consulta: ReturnType<typeof useAgrupado> }) {
+function TablaUnidades({ org, ws, dias }: { org: string; ws: string; dias: number }) {
+  const consulta = useAgrupado(org, ws, dias, "unidad");
   return (
     <Card>
       <CardHeader>
         <CardTitle>Unidades más caras</CardTitle>
       </CardHeader>
       <CardContent>
-        {consulta.isPending ? <Cargando /> : null}
-        {consulta.isError ? <ErrorVista error={consulta.error} /> : null}
-        {consulta.isSuccess && consulta.data.length === 0 ? <Vacio titulo="Sin datos" /> : null}
-        {consulta.isSuccess && consulta.data.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Unidad</TableHead>
-                <TableHead className="text-right">Llamadas</TableHead>
-                <TableHead className="text-right">Tokens entrada</TableHead>
-                <TableHead className="text-right">Tokens salida</TableHead>
-                <TableHead className="text-right">Costo</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {consulta.data.slice(0, 15).map((t) => (
-                <TableRow key={t.clave}>
-                  <TableCell className="font-mono text-xs">{t.clave}</TableCell>
-                  <TableCell className="text-right">{numero(t.llamadas)}</TableCell>
-                  <TableCell className="text-right">{numero(t.tokens_entrada)}</TableCell>
-                  <TableCell className="text-right">{numero(t.tokens_salida)}</TableCell>
-                  <TableCell className="text-right">{usd(t.costo_usd)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : null}
+        <EstadoConsulta consulta={consulta} vacio="Sin datos" />
+        {consulta.isSuccess && consulta.data.length > 0 ? <TablaTotales totales={consulta.data} columnaClave="Unidad" filas={15} /> : null}
       </CardContent>
     </Card>
   );
@@ -241,15 +354,12 @@ export function Estadisticas() {
   const { org, ws } = useWorkspace();
   const [dias, setDias] = useState<number>(30);
   const resumen = useQuery({ queryKey: [...claves.telemetria(org, ws), "resumen"], queryFn: () => telemetria.resumen(org, ws) });
-  const porFase = useAgrupado(org, ws, dias, "fase");
-  const porModelo = useAgrupado(org, ws, dias, "modelo");
-  const porUnidad = useAgrupado(org, ws, dias, "unidad");
 
   return (
     <>
       <Encabezado
         titulo="Estadísticas"
-        descripcion="Costo, tokens y convergencia del workspace."
+        descripcion="Costo, tokens, duración, caché y convergencia del workspace."
         acciones={
           <div className="flex items-center gap-2">
             <label htmlFor="rango" className="text-sm">
@@ -270,12 +380,9 @@ export function Estadisticas() {
         {resumen.isError ? <ErrorVista error={resumen.error} reintentar={() => void resumen.refetch()} /> : null}
         {resumen.data ? <TarjetasResumen r={resumen.data} /> : null}
       </section>
-      <section aria-label="Telemetría" className="grid gap-4 lg:grid-cols-2">
-        <TarjetaGrafico titulo="Costo y tokens por fase" consulta={porFase} />
-        <TarjetaGrafico titulo="Costo y tokens por modelo" consulta={porModelo} />
-        <div className="lg:col-span-2">
-          <TablaUnidades consulta={porUnidad} />
-        </div>
+      <section aria-label="Telemetría" className="grid gap-4">
+        <Desglose org={org} ws={ws} dias={dias} />
+        <TablaUnidades org={org} ws={ws} dias={dias} />
       </section>
     </>
   );

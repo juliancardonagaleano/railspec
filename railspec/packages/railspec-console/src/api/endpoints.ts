@@ -36,6 +36,8 @@ import type {
   Trazabilidad,
   UnitListEntrada,
   UnitListSalida,
+  UnitStartEntrada,
+  UnitStartSalida,
   VinculoRepositorio,
   Workspace,
   Yo,
@@ -69,9 +71,10 @@ export const unidades = {
     pedir<Trazabilidad>(`${rutaUnidad(org, ws, u)}/trazabilidad`),
   urlEventos: (org: string, ws: string, u: string) =>
     `/consola/api${rutaUnidad(org, ws, u)}/eventos?desde_remoto=0&desde_local=0`,
+  iniciar: (entrada: UnitStartEntrada) => invocarTool<UnitStartSalida>("unit.start", entrada),
   aprobar: (entrada: { unidad: AlcanceUnidad; checkpoint: string; decision: Decision; comentario?: string }) =>
     invocarTool<{ estado: EstadoUnidad }>("unit.approve", entrada),
-  integrar: (entrada: { unidad: AlcanceUnidad; especificacion_viva: string; pr_url?: string }) =>
+  integrar: (entrada: { unidad: AlcanceUnidad; especificacion_viva: string; pr_url?: string; commit_integrado?: string }) =>
     invocarTool<{ estado: EstadoUnidad }>("unit.integrate", entrada),
   fijarModo: (entrada: { unidad: AlcanceUnidad; modo: Modo; motivo: string; version_vista: number }) =>
     invocarTool<{ estado: EstadoUnidad }>("unit.set_mode", entrada),

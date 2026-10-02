@@ -38,3 +38,17 @@ export function fechaAIso(valor: string, fin = false): string | undefined {
   if (!valor) return undefined;
   return new Date(`${valor}T${fin ? "23:59:59.999" : "00:00:00.000"}Z`).toISOString();
 }
+
+/** Duración legible a partir de milisegundos: «850 ms», «12,4 s», «3 min 05 s». */
+export function duracion(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1).replace(".", ",")} s`;
+  const min = Math.floor(s / 60);
+  return `${min} min ${String(Math.round(s - min * 60)).padStart(2, "0")} s`;
+}
+
+export function porcentaje(n: number | null | undefined): string {
+  return n === null || n === undefined ? "—" : `${n.toFixed(0)} %`;
+}

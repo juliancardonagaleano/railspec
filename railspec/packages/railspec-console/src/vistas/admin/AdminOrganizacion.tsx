@@ -102,9 +102,11 @@ function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
                   <TableCell>{w.perfil_por_defecto}</TableCell>
                   <TableCell>{w.zona_datos_azure ?? "—"}</TableCell>
                   <TableCell>
-                    <Button variante="secundario" tamano="pequeno" onClick={() => setEditando(w)}>
-                      Editar
-                    </Button>
+                    {puedeCrear ? (
+                      <Button variante="secundario" tamano="pequeno" onClick={() => setEditando(w)}>
+                        Editar
+                      </Button>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}

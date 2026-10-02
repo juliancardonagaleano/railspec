@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { claves, grafo } from "../../api/endpoints";
 import type { RefSimbolo, ResultadoGrafo } from "../../api/tipos";
 import { EnlaceSimbolo } from "../../componentes/EnlaceSimbolo";
@@ -20,7 +21,7 @@ export function separarImpacto(resultados: ResultadoGrafo[]): { tocados: Resulta
   };
 }
 
-function TablaSimbolos({ filas, org, ws, conDistancia }: { filas: ResultadoSimbolo[]; org: string; ws: string; conDistancia: boolean }) {
+function TablaSimbolos({ filas, org, ws, unidad, conDistancia }: { filas: ResultadoSimbolo[]; org: string; ws: string; unidad: string; conDistancia: boolean }) {
   if (filas.length === 0) return <p className="text-sm text-suave">Ninguno.</p>;
   return (
     <Table>
@@ -41,7 +42,7 @@ function TablaSimbolos({ filas, org, ws, conDistancia }: { filas: ResultadoSimbo
         {filas.map((r) => (
           <TableRow key={`${r.ref.simbolo}-${r.distancia ?? 0}-${r.relacion ?? ""}`}>
             <TableCell>
-              <EnlaceSimbolo org={org} ws={ws} simbolo={r.ref.simbolo} nombre={r.ref.nombre} repositorio={r.ref.repositorio} ruta={r.ref.ruta} />
+              <EnlaceSimbolo org={org} ws={ws} simbolo={r.ref.simbolo} nombre={r.ref.nombre} repositorio={r.ref.repositorio} ruta={r.ref.ruta} unidad={unidad} />
             </TableCell>
             <TableCell>{r.ref.tipo_simbolo}</TableCell>
             <TableCell className="font-mono text-xs">
@@ -76,14 +77,17 @@ export function PestanaImpacto({ org, ws, unidad }: { org: string; ws: string; u
       <p className="flex items-center gap-2 text-sm">
         Riesgo de impacto: {riesgo ? <EtiquetaRiesgo riesgo={riesgo} /> : "—"}
         {q.data.truncado ? <span className="text-xs text-suave">(resultados truncados)</span> : null}
+        <Link to="/$org/$ws/grafo" params={{ org, ws }} search={{ unidad }} className="ml-auto text-primario underline-offset-2 hover:underline">
+          Ver en el grafo contra la base
+        </Link>
       </p>
       <section>
         <h3 className="mb-1 text-sm font-semibold">Símbolos tocados ({tocados.length})</h3>
-        <TablaSimbolos filas={tocados} org={org} ws={ws} conDistancia={false} />
+        <TablaSimbolos filas={tocados} org={org} ws={ws} unidad={unidad} conDistancia={false} />
       </section>
       <section>
         <h3 className="mb-1 text-sm font-semibold">Afectados aguas arriba ({afectados.length})</h3>
-        <TablaSimbolos filas={afectados} org={org} ws={ws} conDistancia />
+        <TablaSimbolos filas={afectados} org={org} ws={ws} unidad={unidad} conDistancia />
       </section>
     </div>
   );

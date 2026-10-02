@@ -5,8 +5,8 @@ workspaces, roles y repositorios vinculados; configura perfiles, presupuestos
 y proveedores de contexto; muestra estadísticas de costo y de convergencia de
 gates; y explora unidades (tablero, DAG de fases, línea de tiempo,
 checkpoints, integración, trazabilidad CA-NN), el grafo de código y la
-auditoría. El chat de contexto (fase 8) vive aparte y se enchufa en la ruta
-que la consola le reserva.
+auditoría. Incluye el chat de contexto (fase 8), que habla con `/v1/chat/*`
+con un token `rsc1` y no con `/consola/api`.
 
 Nunca muestra código, y lo garantiza la API, no solo la SPA: de una orden solo
 salen sus metadatos (nunca instrucciones, plantilla, contexto ni comando de
@@ -330,6 +330,13 @@ resolución que llegue por cualquier canal y la segunda recibe
 `checkpoint-ya-resuelto` (409). Integrar (`unit.integrate`) solo existe tras
 el cierre y no lo condiciona. El estado registra el canal `consola`.
 
+El diálogo de integrar pide la especificación viva y admite la URL del PR y,
+opcional, el `commit_integrado` (sha completo del commit resultante en la rama
+por defecto, contrato 1.4). Con él el servidor retiene la superposición de la
+unidad en el grafo hasta que el índice canónico llegue a ese commit (ver
+`grafo.md`, «Superposición de una unidad integrada»); sin él la descarta al
+integrar. El proxy local lo calcula solo; en la consola lo escribe quien integra.
+
 ## Auditoría
 
 Toda escritura de administración y configuración queda en `auditoria` con su
@@ -391,14 +398,49 @@ borren a mano.
 
 ## Chat de contexto (fase 8)
 
-- **Servidor**: si existe `railspec.server.chat` con
-  `router_consola(ctx: ContextoConsola) -> APIRouter`, la consola lo monta en
-  `/consola/api/chat`. Las rutas `/v1/chat/*` del chat pueden vivir aparte; para
-  resolver el actor usan la identidad del servidor, que ya acepta tokens `rsc1`.
-- **SPA**: la ruta `/<org>/<ws>/chat` carga `src/chat/index.tsx` si existe (export
-  `ChatContexto` o el default) con props `{apiBase: "", token, org, workspace}`.
-  El token sale de `POST /consola/api/auth/token`, vive solo en memoria y la
-  SPA lo renueva unos minutos antes de expirar. `src/chat/` es del hilo del chat.
+- **Servidor**: las rutas son `/v1/chat/*` (`railspec.server.chat.http`), no
+  `/consola/api/chat`. Resuelven el actor con la identidad del servidor, que ya
+  acepta tokens `rsc1`. (`consola/api.py` y `contexto.py` conservan un gancho
+  `router_consola` que ningún módulo implementa; la SPA no lo usa.)
+- **SPA**: la ruta `/<org>/<ws>/chat` carga `src/chat/ChatContexto.tsx` de forma
+  diferida (`vistas/chat/cargador.ts`) y es parte de este paquete. El token sale
+  de `POST /consola/api/auth/token`, vive solo en memoria y la SPA lo renueva unos
+  minutos antes de expirar.
+  - **Repositorios**: el selector ofrece casillas con los vínculos del workspace
+    (`GET …/repositorios`, todos marcados). El servidor valida el nombre del
+    repositorio vinculado (`^[a-z0-9][a-z0-9-]{0,62}$`), así que un texto libre como
+    `owner/repo` daba 422; sin vínculos el chat lo dice en vez de pedir texto.
+  - **Retomar**: la SPA guarda en `localStorage` el id de la última conversación
+    por organización y workspace (`lib/conversacionChat.ts`) y la reabre al
+    volver. Si el servidor responde 404 (expiró o no es de esa persona) la olvida,
+    avisa y vuelve al selector; «Nueva conversación» también la olvida. Cerrar sesión
+    borra los ids guardados. No hay un endpoint que liste las conversaciones, así que
+    solo se retoma la última de ese navegador.
+  - **Crear una unidad desde el insumo**: tras exportar el insumo el chat ofrece
+    «Crear unidad con este insumo» (solo `desarrollador` o más). Abre el diálogo de
+    nueva unidad con título, pedido, restricciones, repositorios (primario primero) y
+    `base_commit` tomados del insumo, la rama del vínculo y el id del insumo en
+    `insumos`; el servidor comprueba que el insumo exista en el workspace.
+
+## Tablero, estadísticas y grafo
+
+- **Tablero en vivo**: «En vivo» (por defecto) vuelve a pedir `unit.list` cada
+  15 s mientras la pestaña está visible y resalta las unidades nuevas o que
+  cambiaron (fase, estado, modo, riesgo, integración o checkpoint). No hay un flujo de eventos por workspace (el SSE
+  es por unidad), así que es sondeo; un SSE de workspace sería un endpoint nuevo.
+  Los carriles reparten las unidades por repositorio, dueño, modo o riesgo
+  (`?carriles=`); `?vivo=no` apaga el sondeo.
+- **Estadísticas**: `telemetry.query` agrupado por fase, nodo del DAG, modelo,
+  proveedor, tier, repositorio, workspace (toda la organización, exige rol
+  lector a ese nivel) o veredicto del gate; el gráfico muestra costo y tokens,
+  duración media por llamada o caché. La tasa de caché es
+  `cache / (entrada + cache)`, porque `tokens_entrada` ya excluye las lecturas de caché.
+- **Grafo contra el snapshot de una unidad**: en el navegador del grafo, «Comparar
+  con una unidad» pide el vecindario dos veces (`graph.query` sin y con `unidad`,
+  que mira el canónico más la superposición) y colorea lo nuevo, lo que la
+  unidad oculta y lo que toca (verbo `impact`, contrato 1.4; con un servidor
+  anterior compara igual y avisa que no marca lo tocado). Se llega también desde
+  las pestañas Impacto y Trazabilidad de una unidad (`?unidad=`).
 
 ## Desarrollo
 
@@ -429,3 +471,8 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
 - Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el
   repositorio; hoy la consola edita las `exclusiones` del vínculo).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).
+- Un flujo de eventos por workspace (SSE) para el tablero, que hoy sondea cada
+  15 s, y un endpoint que liste las conversaciones del chat de la persona, para
+  retomar más de la última del navegador. Ambos serían rutas nuevas del servidor.
+- Quitar el gancho `router_consola` (`consola/api.py`, `consola/contexto.py`), que
+  ningún módulo implementa.
