@@ -7,9 +7,12 @@ entidad (R4) y un registro en ``auditoria`` con el actor (R2).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import uuid
+from collections.abc import Callable
+from functools import partial
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -34,6 +37,8 @@ from .almacen import WORKSPACE_ORG
 from .api import Entrada
 from .contexto import ContextoConsola, alcanza
 from .github import PATRON_LOGIN, ErrorGithub
+
+log = logging.getLogger("railspec.consola")
 
 router = APIRouter()
 
@@ -538,8 +543,43 @@ async def guardar_vinculo(
     return _json(v)
 
 
+#: Intentos por paso al desvincular y espera entre ellos (se multiplica por el número de intento).
+#: Cada paso es idempotente, así que repetirlo no deja nada a medias.
+INTENTOS_DESVINCULO = 3
+ESPERA_DESVINCULO_S = 0.5
+
+
+async def _paso_desvinculo(nombre: str, paso: Callable[[], Any]) -> tuple[Any, str | None]:
+    """Ejecuta ``paso`` en un hilo con reintento acotado: ``(resultado, None)`` o ``(None, tipo del error)``.
+
+    De la causa solo sale el tipo de la excepción (a la auditoría y al cuerpo del error): su texto puede
+    traer direcciones o credenciales de la base y va únicamente al log.
+    """
+
+    error = ""
+    for intento in range(1, INTENTOS_DESVINCULO + 1):
+        try:
+            return await asyncio.to_thread(paso), None
+        except Exception as exc:  # FalkorDB y Mongo fallan con tipos propios
+            error = type(exc).__name__
+            log.warning(
+                "desvincular: %s falló (intento %d/%d): %s", nombre, intento, INTENTOS_DESVINCULO, exc
+            )
+            if intento < INTENTOS_DESVINCULO:
+                await asyncio.sleep(ESPERA_DESVINCULO_S * intento)
+    return None, error
+
+
 @router.delete("/orgs/{org}/workspaces/{ws}/repositorios/{repo}")
 async def desvincular(org: str, ws: str, repo: str, request: Request, motivo: str = "") -> Response:
+    """Desvincula un repositorio y borra lo que el servidor guardó de él.
+
+    Orden: audita la intención, borra el grafo, borra los snapshots y, solo si ambos terminaron, el
+    vínculo. Si algo falla tras los reintentos el vínculo se queda (el repositorio sigue visible y la
+    llamada se puede repetir: cada paso es idempotente), se audita el cierre como ``incompleto`` y
+    responde 502 con lo que falta.
+    """
+
     ctx = _ctx(request)
     sesion = await ctx.sesion(request)
     ctx.permisos(sesion).exigir(org, ws, Rol.workspace_admin)
@@ -549,19 +589,48 @@ async def desvincular(org: str, ws: str, repo: str, request: Request, motivo: st
     previo = ctx.datos.vinculo(alcance)
     if previo is None:
         raise HTTPException(404, f"{repo} no está vinculado a {org}/{ws}")
-    ctx.datos.borrar_vinculo(alcance)
+    actor = sesion.actor()
+    base = {"motivo": motivo.strip(), "nivel": previo.nivel_codigo.value}
+    evento = EventoAuditoria.desvinculo_repositorio
+    ctx.auditar(actor, org, ws, evento, repositorio=repo, fase="inicio", **base)
+
+    # Los pasos de datos no dependen entre sí: uno que falla no deja sin borrar el otro (el código de
+    # los snapshots de ``interno`` y ``abierto`` no debe esperar a que vuelva el grafo).
+    errores: dict[str, str] = {}
     grafo_borrado = False
     if ctx.grafo is not None:
-        await asyncio.to_thread(ctx.grafo.borrar_repositorio, alcance)
-        grafo_borrado = True
+        _, error = await _paso_desvinculo("grafo", partial(ctx.grafo.borrar_repositorio, alcance))
+        grafo_borrado = error is None
+        if error:
+            errores["grafo"] = error
+    snapshots, error = await _paso_desvinculo(
+        "snapshots", partial(ctx.almacen.borrar_snapshots_repositorio, alcance)
+    )
+    if error:
+        errores["snapshots"] = error
+    if not errores:
+        _, error = await _paso_desvinculo("vinculo", partial(ctx.datos.borrar_vinculo, alcance))
+        if error:
+            errores["vinculo"] = error
+
     ctx.auditar(
-        sesion.actor(),
+        actor,
         org,
         ws,
-        EventoAuditoria.desvinculo_repositorio,
+        evento,
         repositorio=repo,
-        motivo=motivo.strip(),
-        nivel=previo.nivel_codigo.value,
+        fase="fin",
+        estado="incompleto" if errores else "completo",
         grafo_borrado=grafo_borrado,
+        snapshots_borrados=snapshots,
+        pendientes=",".join(errores) or None,
+        **{f"error_{paso}": tipo for paso, tipo in errores.items()},
+        **base,
     )
+    if errores:
+        raise HTTPException(
+            502,
+            f"desvinculación incompleta: falló {', '.join(errores)}. {repo} sigue vinculado; "
+            "repite la operación para terminar",
+        )
     return Response(status_code=204)
