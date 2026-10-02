@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -27,7 +28,7 @@ from railspec.contracts.hallazgos import Cita, Hallazgo, bloqueantes
 from railspec.contracts.orden import ItemGobernanza
 from railspec.contracts.repositorio import PerfilConfig, RequisitoRol, TopeGate
 
-from ..proveedores.base import ErrorProveedor, PeticionModelo, RespuestaModelo
+from ..proveedores.base import ErrorProveedor, PeticionModelo, RespuestaModelo, Uso
 from ..proveedores.seleccion import Eleccion, PerfilInsatisfacible, Proveedores
 from .perfiles import requisito
 
@@ -173,6 +174,25 @@ class SalidaRefutador(BaseModel):
 # --- Evaluación -----------------------------------------------------------------------
 
 
+class PresupuestoAgotado(Exception):
+    """Un tope del presupuesto se agotó antes de una llamada al proveedor; el texto dice cuál."""
+
+
+@dataclass
+class Guardia:
+    """Comprobación del presupuesto antes de cada llamada del panel que sale hacia el proveedor.
+
+    ``comprobar`` recibe lo que ya gastaron las llamadas de este panel (aún no
+    registradas en el estado) y devuelve qué tope se agotó, o ``None``. Una
+    respuesta de la caché no pasa por aquí: no cuesta. Las llamadas que se
+    lanzan a la vez comparten lo gastado hasta ese momento, así que el tope
+    frena la tanda siguiente (el refutador tras los críticos), no la en vuelo.
+    """
+
+    comprobar: Callable[[Uso], str | None]
+    gastado: Uso = field(default_factory=Uso)
+
+
 @dataclass
 class EntradaGate:
     fase: GateFase
@@ -186,6 +206,9 @@ class EntradaGate:
     org: str | None = None
     #: ``Workspace.zona_datos_azure``: zona exigida a ``restringido``/``interno``.
     zona: str | None = None
+    #: ``repositorio@commit`` del código evaluado: entra en la clave de la caché de nodos.
+    commits: tuple[str, ...] = ()
+    guardia: Guardia | None = None
 
 
 @dataclass
@@ -223,6 +246,8 @@ class EvaluacionPanel:
     refutador: bool
     error: str | None = None
     fallidas: list[LlamadaFallida] = field(default_factory=list)
+    #: Tope agotado a mitad del panel (``error`` lleva el mismo texto): escala ``presupuesto-agotado``.
+    agotado: str | None = None
 
 
 def requisitos_del_gate(
@@ -245,14 +270,22 @@ async def _completar(
     nodo: str,
     sha: str,
     fallidas: list[LlamadaFallida],
+    guardia: Guardia | None = None,
 ) -> tuple[RespuestaModelo, bool]:
-    """La llamada, o su respuesta guardada si ya se hizo con las mismas entradas."""
+    """La llamada, o su respuesta guardada si ya se hizo con las mismas entradas.
+
+    Antes de llamar al proveedor comprueba el presupuesto (``PresupuestoAgotado``).
+    """
 
     cache = proveedores.cache if org else None
     if cache is not None:
         guardada = cache.obtener(org, eleccion.proveedor.proveedor, peticion)
         if guardada is not None:
             return guardada, True
+    if guardia is not None:
+        agotado = guardia.comprobar(guardia.gastado)
+        if agotado:
+            raise PresupuestoAgotado(agotado)
     try:
         r = await eleccion.proveedor.completar(peticion)
     except ErrorProveedor as exc:
@@ -261,6 +294,8 @@ async def _completar(
             LlamadaFallida(nodo, peticion.rol, eleccion, sha, effort, str(exc)[:500], exc.duracion_ms)
         )
         raise
+    if guardia is not None:
+        guardia.gastado = guardia.gastado + r.uso
     if cache is not None:
         cache.guardar(org, peticion, r)
     return r, False
@@ -357,8 +392,11 @@ async def evaluar_panel(
             etiqueta=f"critico-{i + 1}",
             despliegue=eleccion.despliegue,
             region=eleccion.region,
+            commits=entrada.commits,
         )
-        r, cacheada = await _completar(proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas)
+        r, cacheada = await _completar(
+            proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas, entrada.guardia
+        )
         return grupo, r, Llamada(nodo, rol, r, sha, req.effort, eleccion.despliegue, cacheada)
 
     # return_exceptions: una llamada que falla no oculta las que sí se completaron
@@ -368,9 +406,11 @@ async def evaluar_panel(
     fallo = next((r for r in crudos if isinstance(r, BaseException)), None)
     if fallo is not None:
         llamadas += [llamada for _, _, llamada in resultados]
-        if not isinstance(fallo, (ErrorProveedor, PerfilInsatisfacible)):
+        if not isinstance(fallo, (ErrorProveedor, PerfilInsatisfacible, PresupuestoAgotado)):
             raise fallo
-        return EvaluacionPanel([], llamadas, [], False, error=str(fallo), fallidas=fallidas)
+        return EvaluacionPanel(
+            [], llamadas, [], False, error=str(fallo), fallidas=fallidas, agotado=_agotado(fallo)
+        )
 
     criterios = {c.id for c in entrada.criterios}
     hallazgos: list[Hallazgo] = []
@@ -391,10 +431,16 @@ async def evaluar_panel(
             fallo = next((r for r in crudos_ref if isinstance(r, BaseException)), None)
             if fallo is not None:
                 llamadas += [r[1] for r in crudos_ref if not isinstance(r, BaseException)]
-                if not isinstance(fallo, (ErrorProveedor, PerfilInsatisfacible)):
+                if not isinstance(fallo, (ErrorProveedor, PerfilInsatisfacible, PresupuestoAgotado)):
                     raise fallo
                 return EvaluacionPanel(
-                    hallazgos, llamadas, _nombres(grupos), True, error=str(fallo), fallidas=fallidas
+                    hallazgos,
+                    llamadas,
+                    _nombres(grupos),
+                    True,
+                    error=str(fallo),
+                    fallidas=fallidas,
+                    agotado=_agotado(fallo),
                 )
             veredictos = crudos_ref
             refutados = set()
@@ -404,6 +450,10 @@ async def evaluar_panel(
                     refutados.add(h.id)
             hallazgos = [h.model_copy(update={"refutado": h.id in refutados}) for h in hallazgos]
     return EvaluacionPanel(hallazgos, llamadas, _nombres(grupos), refutador, fallidas=fallidas)
+
+
+def _agotado(fallo: BaseException) -> str | None:
+    return str(fallo) if isinstance(fallo, PresupuestoAgotado) else None
 
 
 def _nombres(grupos: list[list[Lente]]) -> list[str]:
@@ -435,8 +485,11 @@ async def _refutar(
         etiqueta=f"refutar-{h.id}",
         despliegue=eleccion.despliegue,
         region=eleccion.region,
+        commits=entrada.commits,
     )
-    r, cacheada = await _completar(proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas)
+    r, cacheada = await _completar(
+        proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas, entrada.guardia
+    )
     return r.valor, Llamada(nodo, "refutador", r, sha, req.effort, eleccion.despliegue, cacheada)
 
 

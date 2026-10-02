@@ -67,6 +67,10 @@ class PeticionModelo(Generic[T]):
     audita; ``despliegue`` es el nombre que se envía al proveedor (en Foundry,
     el despliegue). ``region`` es donde corre la inferencia según el catálogo;
     sin ella, la respuesta lleva la región del adaptador.
+
+    ``commits`` (``repositorio@commit``, ordenados) es el estado del código
+    sobre el que se evalúa. No viaja al proveedor: solo entra en la clave de la
+    caché de nodos, para que una respuesta no se reutilice sobre otro commit.
     """
 
     rol: str
@@ -80,6 +84,7 @@ class PeticionModelo(Generic[T]):
     metadatos: dict[str, str] = field(default_factory=dict)
     despliegue: str | None = None
     region: str | None = None
+    commits: tuple[str, ...] = ()
 
     @property
     def destino(self) -> str:
