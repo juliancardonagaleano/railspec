@@ -12,12 +12,11 @@ import {
   type Riesgo,
   type TopeGate,
 } from "../../api/tipos";
-import { Aviso } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Input } from "../../componentes/ui/input";
 import { Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
-import { ErrorGuardado, numeroOpcional, useGuardar } from "../../lib/mutaciones";
+import { AvisoGuardado, ErrorGuardado, numeroOpcional, useGuardar } from "../../lib/mutaciones";
 
 const RIESGOS: Riesgo[] = ["bajo", "medio", "alto"];
 const TOPE_BASE: TopeGate = { criticos: 1, iteraciones: 1, adversarial: false };
@@ -112,7 +111,6 @@ function FilaRol({
 export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: PropsEditorPerfil) {
   const [datos, setDatos] = useState<EscrituraPerfil>(inicial);
   const [nuevoRol, setNuevoRol] = useState("");
-  const [avisos, setAvisos] = useState<string[] | null>(null);
   const cat = useQuery({ queryKey: claves.catalogo(org), queryFn: () => catalogo.listar(org) });
   const modelos = useMemo(() => {
     const r: Record<Proveedor, string[]> = { foundry: [], anthropic: [] };
@@ -124,10 +122,10 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
     () => perfiles.guardar(org, nombre, datos, ws),
     [["perfiles", org]],
     (r) => {
-      setAvisos(r.avisos);
       setDatos((d) => ({ ...d, version: r.perfil.version }));
       alGuardar?.();
     },
+    { clave: `perfil:${org}:${ws ?? ""}:${nombre}`, version: (r) => r.perfil.version, avisos: (r) => r.avisos },
   );
 
   const setRol = (rol: string, req: RequisitoRol) => setDatos((d) => ({ ...d, roles: { ...d.roles, [rol]: req } }));
@@ -142,7 +140,6 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
 
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    setAvisos(null);
     guardar.mutate(undefined);
   };
 
@@ -282,17 +279,7 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
           </div>
         </div>
       </section>
-      {avisos && avisos.length > 0 ? (
-        <Aviso tono="aviso">
-          <p className="font-medium">Guardado con avisos:</p>
-          <ul className="list-inside list-disc">
-            {avisos.map((a) => (
-              <li key={a}>{a}</li>
-            ))}
-          </ul>
-        </Aviso>
-      ) : null}
-      {avisos && avisos.length === 0 ? <Aviso tono="exito">Perfil guardado.</Aviso> : null}
+      <AvisoGuardado guardado={guardar.guardado} />
       <ErrorGuardado error={guardar.error} />
       {editable ? (
         <div>

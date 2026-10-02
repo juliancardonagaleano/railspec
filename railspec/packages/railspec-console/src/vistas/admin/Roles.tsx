@@ -10,7 +10,7 @@ import { Dialog } from "../../componentes/ui/dialog";
 import { Campo, Input } from "../../componentes/ui/input";
 import { Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
-import { ErrorGuardado, useGuardar } from "../../lib/mutaciones";
+import { AvisoGuardado, ErrorGuardado, useGuardado, useGuardar } from "../../lib/mutaciones";
 import { ETIQUETA_ROL } from "../../lib/roles";
 
 function textoSujeto(a: AsignacionRol): string {
@@ -18,6 +18,9 @@ function textoSujeto(a: AsignacionRol): string {
   if (s.tipo === "usuario") return s.login ? `@${s.login}` : `usuario #${s.github_id}`;
   return `equipo ${s.github_org}/${s.equipo}`;
 }
+
+/** Dónde queda el aviso: el diálogo se cierra al asignar y la tarjeta lo anuncia. */
+const claveAviso = (org: string, ws: string | undefined) => `roles:${org}:${ws ?? ""}`;
 
 function FormularioAsignar({
   org,
@@ -51,6 +54,8 @@ function FormularioAsignar({
     },
     [["roles", org]],
     alCerrar,
+    // La versión de una asignación no le dice nada a quien asigna.
+    { clave: claveAviso(org, ws), version: null },
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();
@@ -126,6 +131,7 @@ export function Roles({ org, ws, puedeEditar }: { org: string; ws?: string; pued
   const [asignando, setAsignando] = useState(false);
   const [quitando, setQuitando] = useState<AsignacionRol | null>(null);
   const quitar = useGuardar((a: AsignacionRol) => roles.quitar(org, a.id), [["roles", org]], () => setQuitando(null));
+  const asignado = useGuardado(claveAviso(org, ws));
 
   return (
     <Card>
@@ -141,6 +147,7 @@ export function Roles({ org, ws, puedeEditar }: { org: string; ws?: string; pued
         ) : null}
       </CardHeader>
       <CardContent>
+        <AvisoGuardado guardado={asignado} texto="Rol asignado" className="mb-3" />
         {lista.isPending ? <Cargando /> : null}
         {lista.isError ? <ErrorVista error={lista.error} reintentar={() => void lista.refetch()} /> : null}
         {lista.isSuccess && lista.data.length === 0 ? <Vacio titulo="Sin asignaciones" /> : null}

@@ -6,16 +6,20 @@ import type { Organizacion } from "../../api/tipos";
 import { Cargando, Encabezado, ErrorVista, Vacio } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
+import { AvisoGuardado, useGuardado } from "../../lib/mutaciones";
 import { alcanza, rolEnOrg } from "../../lib/roles";
 import { useYo } from "../../lib/sesion";
 import { fecha } from "../../lib/utiles";
 import { FormularioOrganizacion } from "./FormularioOrganizacion";
+
+const CLAVE_AVISO = "organizaciones";
 
 export function Organizaciones() {
   const { data: yo } = useYo();
   const lista = useQuery({ queryKey: claves.organizaciones, queryFn: organizaciones.listar });
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<Organizacion | null>(null);
+  const guardado = useGuardado(CLAVE_AVISO);
   return (
     <>
       <Encabezado
@@ -23,6 +27,7 @@ export function Organizaciones() {
         descripcion="Organizaciones visibles para ti."
         acciones={yo?.plataforma_admin ? <Button onClick={() => setCreando(true)}>Nueva organización</Button> : null}
       />
+      <AvisoGuardado guardado={guardado} className="mb-3" />
       {lista.isPending ? <Cargando /> : null}
       {lista.isError ? <ErrorVista error={lista.error} reintentar={() => void lista.refetch()} /> : null}
       {lista.isSuccess && lista.data.length === 0 ? <Vacio titulo="No hay organizaciones" /> : null}
@@ -63,8 +68,10 @@ export function Organizaciones() {
           </TableBody>
         </Table>
       ) : null}
-      {creando ? <FormularioOrganizacion abierto alCerrar={() => setCreando(false)} /> : null}
-      {editando ? <FormularioOrganizacion key={editando.version} org={editando} abierto alCerrar={() => setEditando(null)} /> : null}
+      {creando ? <FormularioOrganizacion abierto alCerrar={() => setCreando(false)} claveAviso={CLAVE_AVISO} /> : null}
+      {editando ? (
+        <FormularioOrganizacion key={editando.version} org={editando} abierto alCerrar={() => setEditando(null)} claveAviso={CLAVE_AVISO} />
+      ) : null}
     </>
   );
 }

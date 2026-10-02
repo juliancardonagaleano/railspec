@@ -77,6 +77,8 @@ describe("administración de la organización", () => {
     // Se cierra y la tabla recargada muestra el nuevo workspace.
     expect(await screen.findByRole("link", { name: "Firma digital" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
+    // El diálogo ya no existe: el «Guardado» lo da la tarjeta de workspaces, con la versión que devolvió el servidor.
+    expect(screen.getByText(/^Guardado · versión 3\b/)).toBeInTheDocument();
     const [crear] = s.de("POST", "/orgs/acme/workspaces");
     expect(crear!.cuerpo).toEqual({ workspace: "firma", nombre: "Firma digital", zona_datos_azure: "westeurope", perfil_por_defecto: "profundo" });
     expect(crear!.cabeceras["X-Railspec-Consola"]).toBe("1");
@@ -104,6 +106,7 @@ describe("administración de la organización", () => {
     await user.click(within(dialogo).getByRole("button", { name: "Guardar" }));
 
     expect(await screen.findByRole("link", { name: "Certificados 2" })).toBeInTheDocument();
+    expect(screen.getByText(/^Guardado · versión 4\b/)).toBeInTheDocument();
     expect(s.de("PUT", "/orgs/acme/workspaces/cert")[0]!.cuerpo).toEqual({
       nombre: "Certificados 2",
       zona_datos_azure: null,
@@ -149,6 +152,7 @@ describe("administración de la organización", () => {
 
     await waitFor(() => expect(s.de("PUT", "/orgs/acme")).toHaveLength(1));
     expect(s.de("PUT", "/orgs/acme")[0]!.cuerpo).toEqual({ nombre: "Acme Corp", github_org: "acme-gh", region_datos: "us", version: 2 });
+    expect(await screen.findByText(/^Guardado · versión 3\b/)).toBeInTheDocument();
   });
 
   it("sin rol de org-admin oculta crear, asignar y quitar", async () => {
@@ -194,6 +198,8 @@ describe("roles", () => {
     expect(await screen.findByText("@carlos")).toBeInTheDocument();
     expect(s.de("POST", "/orgs/acme/roles")[0]!.cuerpo).toEqual({ workspace: null, rol: "org-admin", sujeto: { tipo: "usuario", login: "carlos" } });
     expect(screen.queryByRole("dialog")).toBeNull();
+    // La versión de una asignación no se anuncia: solo que quedó asignada.
+    expect(screen.getByText(/^Rol asignado · \d/)).not.toHaveTextContent("versión");
   });
 
   it("un rol por debajo de org-admin exige elegir workspace; un equipo envía su id numérico", async () => {
@@ -326,6 +332,9 @@ describe("administración del workspace", () => {
     await user.click(within(dialogo).getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(s.de("PUT", "/orgs/acme/workspaces/cert")).toHaveLength(1));
     expect(s.de("PUT", "/orgs/acme/workspaces/cert")[0]!.cuerpo).toMatchObject({ perfil_por_defecto: "ligero", version: 3 });
+    // El diálogo se cerró; la tarjeta del workspace dice «Guardado» con la versión nueva.
+    expect(await screen.findByText(/^Guardado · versión 4\b/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("tras un 409 recarga la versión vigente y el siguiente guardado la envía", async () => {
@@ -396,6 +405,7 @@ describe("repositorios vinculados", () => {
 
     expect(await screen.findByText("https://github.com/acme/firmas")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText(/^Guardado · versión \d+/)).toBeInTheDocument();
     const [guardar] = s.de("PUT", "/orgs/acme/workspaces/cert/repositorios/firmas");
     // Alta: sin `version` ni `motivo`, y sin política de chat propia salvo que se personalice.
     expect(guardar!.cuerpo).toEqual({

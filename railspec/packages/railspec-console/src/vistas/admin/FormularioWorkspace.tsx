@@ -13,11 +13,14 @@ export function FormularioWorkspace({
   ws,
   abierto,
   alCerrar,
+  claveAviso,
 }: {
   org: string;
   ws?: Workspace;
   abierto: boolean;
   alCerrar: () => void;
+  /** Dónde queda el «Guardado»: el diálogo se cierra al guardar y lo muestra quien lo abrió. */
+  claveAviso: string;
 }) {
   const [id, setId] = useState(ws?.alcance.workspace ?? "");
   const [nombre, setNombre] = useState(ws?.nombre ?? "");
@@ -32,6 +35,7 @@ export function FormularioWorkspace({
     },
     [claves.workspaces(org), claves.yo],
     alCerrar,
+    { clave: claveAviso },
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();

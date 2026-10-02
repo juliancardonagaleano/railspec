@@ -7,6 +7,7 @@ import { Cargando, Encabezado, ErrorVista, Vacio } from "../../componentes/Estad
 import { Button } from "../../componentes/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../componentes/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
+import { AvisoGuardado, useGuardado } from "../../lib/mutaciones";
 import { alcanza } from "../../lib/roles";
 import { useOrg, useRol } from "../../lib/sesion";
 import { fecha } from "../../lib/utiles";
@@ -17,6 +18,8 @@ import { Roles } from "./Roles";
 function DatosOrganizacion({ org, puedeEditar }: { org: string; puedeEditar: boolean }) {
   const lista = useQuery({ queryKey: claves.organizaciones, queryFn: organizaciones.listar });
   const [editando, setEditando] = useState(false);
+  const claveAviso = `organizacion:${org}`;
+  const guardado = useGuardado(claveAviso);
   const o = lista.data?.find((x) => x.id === org);
   return (
     <Card>
@@ -31,7 +34,8 @@ function DatosOrganizacion({ org, puedeEditar }: { org: string; puedeEditar: boo
           </Button>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-3">
+        <AvisoGuardado guardado={guardado} />
         {lista.isPending ? <Cargando /> : null}
         {lista.isError ? <ErrorVista error={lista.error} reintentar={() => void lista.refetch()} /> : null}
         {lista.isSuccess && !o ? <Vacio titulo="No puedes ver esta organización" /> : null}
@@ -52,7 +56,7 @@ function DatosOrganizacion({ org, puedeEditar }: { org: string; puedeEditar: boo
           </dl>
         ) : null}
       </CardContent>
-      {editando && o ? <FormularioOrganizacion key={o.version} org={o} abierto alCerrar={() => setEditando(false)} /> : null}
+      {editando && o ? <FormularioOrganizacion key={o.version} org={o} abierto alCerrar={() => setEditando(false)} claveAviso={claveAviso} /> : null}
     </Card>
   );
 }
@@ -61,6 +65,8 @@ function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
   const lista = useQuery({ queryKey: claves.workspaces(org), queryFn: () => workspaces.listar(org) });
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<Workspace | null>(null);
+  const claveAviso = `workspaces:${org}`;
+  const guardado = useGuardado(claveAviso);
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between">
@@ -74,7 +80,8 @@ function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
           </Button>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-3">
+        <AvisoGuardado guardado={guardado} />
         {lista.isPending ? <Cargando /> : null}
         {lista.isError ? <ErrorVista error={lista.error} reintentar={() => void lista.refetch()} /> : null}
         {lista.isSuccess && lista.data.length === 0 ? <Vacio titulo="Sin workspaces" /> : null}
@@ -114,9 +121,9 @@ function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
           </Table>
         ) : null}
       </CardContent>
-      {creando ? <FormularioWorkspace org={org} abierto alCerrar={() => setCreando(false)} /> : null}
+      {creando ? <FormularioWorkspace org={org} abierto alCerrar={() => setCreando(false)} claveAviso={claveAviso} /> : null}
       {editando ? (
-        <FormularioWorkspace key={editando.version} org={org} ws={editando} abierto alCerrar={() => setEditando(null)} />
+        <FormularioWorkspace key={editando.version} org={org} ws={editando} abierto alCerrar={() => setEditando(null)} claveAviso={claveAviso} />
       ) : null}
     </Card>
   );

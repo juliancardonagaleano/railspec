@@ -4,6 +4,7 @@ import { claves, workspaces } from "../../api/endpoints";
 import { Cargando, Encabezado, ErrorVista } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../componentes/ui/card";
+import { AvisoGuardado, useGuardado } from "../../lib/mutaciones";
 import { alcanza } from "../../lib/roles";
 import { useRol, useWorkspace } from "../../lib/sesion";
 import { FormularioWorkspace } from "./FormularioWorkspace";
@@ -13,6 +14,8 @@ import { Roles } from "./Roles";
 function DatosWorkspace({ org, ws, puedeEditar }: { org: string; ws: string; puedeEditar: boolean }) {
   const lista = useQuery({ queryKey: claves.workspaces(org), queryFn: () => workspaces.listar(org) });
   const [editando, setEditando] = useState(false);
+  const claveAviso = `workspace:${org}/${ws}`;
+  const guardado = useGuardado(claveAviso);
   const w = lista.data?.find((x) => x.alcance.workspace === ws);
   return (
     <Card>
@@ -24,7 +27,8 @@ function DatosWorkspace({ org, ws, puedeEditar }: { org: string; ws: string; pue
           </Button>
         ) : null}
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-3">
+        <AvisoGuardado guardado={guardado} />
         {lista.isPending ? <Cargando /> : null}
         {lista.isError ? <ErrorVista error={lista.error} /> : null}
         {w ? (
@@ -40,7 +44,7 @@ function DatosWorkspace({ org, ws, puedeEditar }: { org: string; ws: string; pue
           </dl>
         ) : null}
       </CardContent>
-      {editando && w ? <FormularioWorkspace key={w.version} org={org} ws={w} abierto alCerrar={() => setEditando(false)} /> : null}
+      {editando && w ? <FormularioWorkspace key={w.version} org={org} ws={w} abierto alCerrar={() => setEditando(false)} claveAviso={claveAviso} /> : null}
     </Card>
   );
 }

@@ -1,8 +1,9 @@
 """API HTTP de la consola (``/consola/api``): sesión, identidad y tools.
 
 La sub-aplicación reúne las rutas de administración, configuración,
-estadísticas y exploración (``rutas_*``) y, si existe, el router del chat
-(fase 8, otro módulo). Contrato completo en ``railspec/docs/consola.md``.
+estadísticas y exploración (``rutas_*``). El chat no cuelga de aquí: va por
+``/v1/chat`` con el token ``rsc1`` (``railspec.server.chat.http``). Contrato
+completo en ``railspec/docs/consola.md``.
 """
 
 from __future__ import annotations
@@ -262,17 +263,4 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
 
     for modulo in (rutas_admin, rutas_config, rutas_exploracion):
         api.include_router(modulo.router)
-    _montar_chat(api, ctx)
     return api
-
-
-def _montar_chat(api: FastAPI, ctx: ContextoConsola) -> None:
-    """Punto de integración del chat de contexto (fase 8, módulo ``railspec.server.chat``)."""
-
-    try:
-        from .. import chat  # type: ignore[attr-defined]
-    except ImportError:
-        return
-    fabrica = getattr(chat, "router_consola", None)
-    if fabrica is not None:
-        api.include_router(fabrica(ctx), prefix="/chat")

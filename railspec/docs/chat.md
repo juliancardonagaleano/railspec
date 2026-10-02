@@ -90,6 +90,7 @@ Misma identidad que `/v1/tools`: `Authorization: Bearer` resuelto con canal
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
 | `POST /v1/chat/conversaciones` | `{"alcance": {"org", "workspace"}, "repositorios": [slug]}` (vacío = todos los vinculados) | 201 `{"conversacion": Conversacion}` |
+| `GET /v1/chat/conversaciones?org=&workspace=&limite=` | | `{"conversaciones": [Conversacion]}`: solo las vigentes de la persona que pregunta en ese workspace (rol `lector`), recientes primero por `creada_en`; `limite` de 1 a 50 (por defecto 50). Sin mensajes. 422 `entrada-invalida` si falta `org` o `workspace`. |
 | `GET /v1/chat/conversaciones/{id}` | | `{"conversacion", "mensajes": [MensajeChat]}` |
 | `POST /v1/chat/conversaciones/{id}/mensajes` | `{"pregunta"}` (1 a 8000 caracteres) | `text/event-stream`, abajo |
 | `PATCH /v1/chat/conversaciones/{id}/mensajes/{mid}` | `{"conservar_en_insumo": bool}` | `{"mensaje": MensajeChat}`; 409 si la respuesta fue bloqueada |
@@ -184,8 +185,11 @@ gobernanza (PCE) ni memoria: no son tools del registro.
 
 ```
 python -m pytest railspec/packages/railspec-server/tests/test_chat_gate.py \
-  railspec/packages/railspec-server/tests/test_chat_servicio.py
+  railspec/packages/railspec-server/tests/test_chat_servicio.py \
+  railspec/packages/railspec-server/tests/test_chat_listado.py
 ```
 
-La interfaz se comprueba con `tsc` estricto y vitest (`sse.test.ts`,
-`referencias.test.ts`) cuando el paquete de la consola exista; ver su README.
+La interfaz vive en `railspec/packages/railspec-console/src/chat` (el shell de la
+consola la monta en `/<org>/<ws>/chat`); se comprueba con `tsc` estricto y vitest
+(`sse.test.ts`, `referencias.test.ts`, `ChatContexto.test.tsx` y las de
+`vistas/chat`); ver el README del paquete.

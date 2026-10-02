@@ -40,5 +40,5 @@ npm test           # vitest run
 - `src/vistas/`: login, tablero, unidad, grafo, auditoría, estadísticas, administración, configuración y chat.
 - `src/chat/`: el chat de contexto, autocontenido (solo depende de `react`); su README explica las props. La
   ruta `/$org/$ws/chat` lo carga de forma diferida (`vistas/chat/cargador.ts`) y le da el token, los
-  repositorios vinculados y la última conversación.
+  repositorios vinculados, la última conversación y un selector con las demás.
 - `src/pruebas/servidor.tsx`: `fetch` falso con rutas y datos de ejemplo para las pruebas de vistas.
