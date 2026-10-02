@@ -147,6 +147,7 @@ sobre otro commit es otra pregunta. Ver [proveedores.md](proveedores.md).
 
 | Variable | Uso |
 | --- | --- |
+| `RAILSPEC_POSTGRES_URL`, `RAILSPEC_POSTGRES_ESQUEMA` | Estado y checkpoints en Postgres en lugar de Mongo (excluyente con `RAILSPEC_MONGO_URI`); ver [estado-postgres.md](estado-postgres.md). |
 | `RAILSPEC_MONGO_URI`, `RAILSPEC_MONGO_DB` | Estado y checkpoints. Sin URI, el servidor solo arranca con `RAILSPEC_PERMITIR_DESARROLLO=1` (estado en memoria, solo desarrollo) y rechaza el arranque si no. |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Recurso de Azure Foundry. Sin clave, Entra ID. El resto de variables de proveedores, catálogo y contexto está en [proveedores.md](proveedores.md). |
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Anthropic directo (solo nivel `abierto`). |

@@ -636,4 +636,16 @@ def almacen_desde_uri(uri: str, db: str) -> AlmacenMongo:
     return AlmacenMongo(MongoClient(uri, tz_aware=True)[db])
 
 
-__all__ = ["AlmacenMongo", "almacen_desde_uri", "almacen_en_memoria"]
+def almacen_desde_postgres(url: str, esquema: str = "railspec") -> AlmacenMongo:
+    """Los mismos almacenes sobre Postgres (Supabase, Neon, Azure Database for PostgreSQL...).
+
+    ``AlmacenMongo`` solo usa la API de colecciones de pymongo; ``BaseDocumentosPg`` la ofrece sobre una
+    tabla JSONB (ver ``estado/postgres.py``), así que no hay una segunda implementación de las reglas.
+    """
+
+    from .postgres import BaseDocumentosPg
+
+    return AlmacenMongo(BaseDocumentosPg(url, esquema=esquema))
+
+
+__all__ = ["AlmacenMongo", "almacen_desde_postgres", "almacen_desde_uri", "almacen_en_memoria"]

@@ -711,6 +711,8 @@ FUERA_DEL_CONFIGMAP = {
     "RAILSPEC_CONSOLA_DIR": "la imagen la fija con ENV (Dockerfile)",
     "RAILSPEC_SECRETOS_DIR": "ruta de montaje de credencial_ref (proveedores.md)",
     "RAILSPEC_FOUNDRY_PROYECTO_API_VERSION": "versión de la API del proyecto de Foundry (proveedores.md)",
+    "RAILSPEC_POSTGRES_URL": "estado en Postgres en vez de Mongo; AKS usa Mongo (estado-postgres.md)",
+    "RAILSPEC_POSTGRES_ESQUEMA": "esquema de ese Postgres (estado-postgres.md)",
 }
 
 

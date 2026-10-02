@@ -8,7 +8,7 @@ from typing import Any
 from railspec.contracts.comun import Proveedor
 
 from .config import Configuracion, validar_arranque
-from .estado import CheckpointsMongo, almacen_desde_uri, almacen_en_memoria
+from .estado import CheckpointsMongo, almacen_desde_postgres, almacen_desde_uri, almacen_en_memoria
 from .motor import Motor, Nucleo
 from .motor.gobernanza import ProveedorGobernanza
 from .proveedores import Proveedores
@@ -50,8 +50,12 @@ def ensamblar(
     # Antes de abrir ninguna base: la configuración insegura no arranca (M4, B11).
     validar_arranque(config)
     if config.modo_memoria:
-        log.warning("sin RAILSPEC_MONGO_URI: estado en memoria, solo para desarrollo")
+        log.warning(
+            "sin RAILSPEC_MONGO_URI ni RAILSPEC_POSTGRES_URL: estado en memoria, solo para desarrollo"
+        )
         almacen = almacen_en_memoria()
+    elif config.postgres_url:
+        almacen = almacen_desde_postgres(config.postgres_url, config.postgres_esquema)
     else:
         almacen = almacen_desde_uri(config.mongo_uri, config.mongo_db)
     if proveedores is None:
@@ -161,7 +165,9 @@ def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dic
     """Comprobaciones ligeras de ``/healthz``: una réplica sin sus bases no debe recibir tráfico."""
 
     sondas: dict[str, Any] = {}
-    if not config.modo_memoria:
+    if config.postgres_url:
+        sondas["postgres"] = lambda: almacen.db.command("ping")
+    elif not config.modo_memoria:
         sondas["mongo"] = lambda: almacen.db.command("ping")
     if motor_grafo is not None and hasattr(motor_grafo, "ping"):
         sondas["falkordb"] = motor_grafo.ping
