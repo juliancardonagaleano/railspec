@@ -117,6 +117,7 @@ jobs:
             -e RAILSPEC_MONGO_URI=mongodb://mongo:27017 "$IMAGEN"
           for _ in $(seq 1 30); do curl -fsS localhost:8080/healthz && break; sleep 2; done
           curl -fsS localhost:8080/v1/tools > /dev/null
+          docker exec railspec git --version  # code.read del chat lo necesita
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/v1/tools/unit.start -d '{}')" = 401
           docker logs railspec
 

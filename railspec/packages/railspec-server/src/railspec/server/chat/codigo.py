@@ -76,7 +76,11 @@ class ClonesGit:
         return clon if clon.is_dir() else None
 
     def _git(self, clon: Path, *args: str) -> str | None:
-        r = subprocess.run(["git", "-C", str(clon), *args], capture_output=True, timeout=20, check=False)
+        # ``safe.directory`` solo de este clon: en un volumen montado (Azure Files, NFS) los archivos
+        # no son del usuario del contenedor y git se niega a leerlos ("dubious ownership"). La
+        # carpeta es de solo lectura para este proceso y ``_clon`` ya la acotó a ``raiz``.
+        orden = ["git", "-c", f"safe.directory={clon}", "-C", str(clon), *args]
+        r = subprocess.run(orden, capture_output=True, timeout=20, check=False)
         return r.stdout.decode("utf-8", errors="replace") if r.returncode == 0 else None
 
     def commit_canonico(self, vinculo: VinculoRepositorio) -> str | None:
