@@ -251,7 +251,8 @@ def test_la_credencial_se_guarda_con_permisos_cerrados_y_sin_restos(tmp_path):
     carpeta = almacen.ruta.parent
     assert stat.S_IMODE(carpeta.stat().st_mode) == 0o700
     assert stat.S_IMODE(almacen.ruta.stat().st_mode) == 0o600
-    assert [p.name for p in carpeta.iterdir()] == ["credenciales.json"]
+    # Solo el archivo y su candado (``bloqueo``): ningún temporal ni copia del token.
+    assert sorted(p.name for p in carpeta.iterdir()) == ["credenciales.json", "credenciales.json.lock"]
     guardado = json.loads(almacen.ruta.read_text())
     assert guardado["version"] == 1 and guardado["servidores"][URL]["access_token"] == TOKEN
     leida = almacen.leer(URL)
@@ -478,7 +479,7 @@ def _salida(capsys) -> tuple[dict | None, str]:
 
 def test_login_guarda_la_sesion_y_no_deja_ver_ningun_token(entorno, monkeypatch, capsys):
     github = GithubFalso(
-        [_pendiente(), _exito(expires_in=28800, refresh_token=REFRESCO, refresh_token_expires_in=1)]
+        [_pendiente(), _exito(expires_in=28800, refresh_token=REFRESCO, refresh_token_expires_in=15811200)]
     )
     _con_github(monkeypatch, github)
 
@@ -487,16 +488,32 @@ def test_login_guarda_la_sesion_y_no_deja_ver_ningun_token(entorno, monkeypatch,
     salida, error = _salida(capsys)
     assert (salida["servidor"], salida["login"], salida["github_id"]) == (URL, "ana", 7)
     assert salida["credenciales"] == str(entorno.ruta) and "no hace falta reiniciar" in salida["siguiente"]
-    assert "no se puede renovar" in salida["aviso_vencimiento"]
+    assert salida["renovable"] is True and "renueva solo" in salida["renovacion"]
+    assert "aviso_vencimiento" not in salida
     assert "https://github.com/login/device" in error and "ABCD-1234" in error
     for secreto in (TOKEN, REFRESCO, "dc-secreto"):
         assert secreto not in json.dumps(salida) and secreto not in error
     guardada = entorno.leer(URL)
     assert (guardada.access_token, guardada.client_id, guardada.login) == (TOKEN, CLIENT_ID, "ana")
     assert guardada.expira_en - guardada.obtenido_en == timedelta(seconds=28800)
-    # El refresh token no se usa (renovar exige el client secret de la App): no se deja en disco.
-    assert REFRESCO not in entorno.ruta.read_text() and "refresh" not in entorno.ruta.read_text()
+    # El refresh token se guarda para renovar la sesión (el archivo es 0600) y no se imprime ni se repite.
+    assert guardada.refresh_token == REFRESCO
+    assert guardada.refresh_expira_en - guardada.obtenido_en == timedelta(seconds=15811200)
+    assert REFRESCO not in repr(guardada)
     assert stat.S_IMODE(entorno.ruta.stat().st_mode) == 0o600
+
+
+def test_login_con_tokens_que_vencen_pero_sin_refresh_token_avisa_que_no_se_renovara(
+    entorno, monkeypatch, capsys
+):
+    _con_github(monkeypatch, GithubFalso([_exito(expires_in=28800)]))
+
+    assert cli.main(["login", "--client-id", CLIENT_ID]) == 0
+
+    salida, _ = _salida(capsys)
+    assert salida["renovable"] is False and "no entregó un refresh token" in salida["aviso_vencimiento"]
+    assert "renovacion" not in salida
+    assert entorno.leer(URL).refresh_token is None
 
 
 def test_login_recuerda_el_client_id_y_el_de_la_variable_vale_si_no_hay_flag(entorno, monkeypatch, capsys):
@@ -725,6 +742,37 @@ SERVIDOR_ECO = textwrap.dedent(
         }}
 
 
+    # Lo que hace railspec-server en /v1/auth/renovar: canjea el refresh token y rota el que entrega.
+    renovaciones: list[str] = []
+
+
+    @servidor.custom_route("/v1/auth/renovar", methods=["POST"])
+    async def renovar(request):
+        from starlette.responses import JSONResponse
+
+        refresh = (await request.json())["refresh_token"]
+        renovaciones.append(refresh)
+        if refresh != "ghr_vigente":
+            return JSONResponse(
+                {{"codigo": "refresh-token-invalido", "detalle": "GitHub no acepta el refresh token"}}, 401
+            )
+        return JSONResponse(
+            {{
+                "access_token": "ghu_renovado",
+                "expires_in": 28800,
+                "refresh_token": "ghr_rotado",
+                "refresh_token_expires_in": 15811200,
+            }}
+        )
+
+
+    @servidor.custom_route("/_renovaciones", methods=["GET"])
+    async def cuantas(request):
+        from starlette.responses import JSONResponse
+
+        return JSONResponse(renovaciones)
+
+
     servidor.add_tool(unit_list, name="unit_list", structured_output=False)
     servidor.run("streamable-http", host="127.0.0.1", port=int(sys.argv[1]))
     """
@@ -817,3 +865,34 @@ def test_el_proxy_prefiere_railspec_token_a_la_sesion_guardada(tmp_path, servido
 
     assert asyncio.run(asyncio.wait_for(flujo(), timeout=90)) == "Bearer ghu_del_entorno"
     assert os.environ.get(config.ENV_TOKEN) is None
+
+
+def test_el_proxy_renueva_la_sesion_vencida_una_sola_vez_y_manda_el_token_nuevo(tmp_path, servidor_eco):
+    raiz = repo_git(tmp_path / "repo")
+    config.escribir_config_repositorio(
+        raiz, config.ConfigRepositorio(org="acme", workspace="w", repositorio="r")
+    )
+    almacen = credenciales.AlmacenCredenciales(tmp_path / "cred" / "credenciales.json")
+    ahora = credenciales.ahora_utc()
+    almacen.guardar(
+        servidor_eco,
+        _credencial(
+            access_token="ghu_vencido",
+            obtenido_en=ahora - timedelta(hours=9),
+            expira_en=ahora - timedelta(hours=1),
+            refresh_token="ghr_vigente",
+            refresh_expira_en=ahora + timedelta(days=100),
+        ),
+    )
+    parametros = _parametros_proxy(raiz, servidor_eco, {config.ENV_CREDENCIALES: str(almacen.ruta)})
+
+    async def flujo() -> list[str]:
+        async with Client(stdio_client(parametros)) as cliente:
+            return [await _cabecera_vista(cliente), await _cabecera_vista(cliente)]
+
+    vistas = asyncio.run(asyncio.wait_for(flujo(), timeout=90))
+
+    assert vistas == ["Bearer ghu_renovado", "Bearer ghu_renovado"]
+    guardada = almacen.leer(servidor_eco)
+    assert (guardada.access_token, guardada.refresh_token) == ("ghu_renovado", "ghr_rotado")
+    assert httpx2.get(servidor_eco.removesuffix("/mcp") + "/_renovaciones").json() == ["ghr_vigente"]

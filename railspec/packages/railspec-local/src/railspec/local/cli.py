@@ -30,7 +30,7 @@ from uuid import UUID
 
 from railspec.contracts.comun import Arnes, NivelCodigo
 
-from . import __version__, adaptadores, config, credenciales, dispositivo, doctor, git, guardia
+from . import __version__, adaptadores, config, credenciales, dispositivo, doctor, git, guardia, renovacion
 from .adaptadores import usuario
 from .almacen import EXCLUIR_DE_GIT
 from .cliente import ClienteServidor
@@ -50,7 +50,7 @@ def crear_proxy(raiz: Path) -> ProxyLocal:
     if not cfg.url:
         raise ConfigInvalida(f"Falta {config.ENV_URL}: el endpoint MCP de railspec-server.")
     # RAILSPEC_TOKEN manda; sin él, la sesión de `railspec login`, releída en cada petición.
-    fuente = credenciales.FuenteToken(cfg.url, cfg.token, credenciales.AlmacenCredenciales())
+    fuente = renovacion.fuente_con_renovacion(cfg.url, cfg.token, credenciales.AlmacenCredenciales())
     return ProxyLocal(cfg, crear_cliente(cfg.url, fuente), cargar_indexador())
 
 
@@ -339,6 +339,12 @@ def _cmd_login(args: argparse.Namespace) -> int:
         github_id=persona.github_id if persona else None,
         obtenido_en=ahora,
         expira_en=ahora + timedelta(seconds=token.expires_in) if token.expires_in else None,
+        refresh_token=token.refresh_token,
+        refresh_expira_en=(
+            ahora + timedelta(seconds=token.refresh_expires_in)
+            if token.refresh_token and token.refresh_expires_in
+            else None
+        ),
     )
     almacen.guardar(url, credencial)
     salida: dict[str, Any] = {
@@ -346,15 +352,24 @@ def _cmd_login(args: argparse.Namespace) -> int:
         "login": credencial.login,
         "github_id": credencial.github_id,
         "expira_en": _iso(credencial.expira_en),
+        "renovable": credencial.refresh_token is not None,
         "credenciales": str(ruta),
         "siguiente": "el proxy usa esta sesión en su próxima llamada; no hace falta reiniciar el arnés",
     }
     if persona is None:
         salida["aviso"] = "GitHub no dijo de quién es el token; se guardó igual."
-    if credencial.expira_en is not None:
+    if credencial.expira_en is not None and credencial.refresh_token is not None:
+        hasta = (
+            f" hasta el {credencial.refresh_expira_en:%Y-%m-%d} UTC" if credencial.refresh_expira_en else ""
+        )
+        salida["renovacion"] = (
+            "Este token vence, pero el proxy lo renueva solo (a través del servidor) mientras lo uses"
+            f"{hasta}: pasado ese plazo sin renovarla, ejecuta `railspec login` otra vez."
+        )
+    elif credencial.expira_en is not None:
         salida["aviso_vencimiento"] = (
-            "Este token vence y no se puede renovar desde aquí (renovarlo exige el client secret de la App): "
-            "cuando venza, ejecuta `railspec login` otra vez."
+            "Este token vence y GitHub no entregó un refresh token con el que renovarlo: cuando venza, "
+            "ejecuta `railspec login` otra vez."
         )
     _imprimir(salida)
     return 0
@@ -379,7 +394,9 @@ def _cmd_logout(args: argparse.Namespace) -> int:
 def _cmd_whoami(args: argparse.Namespace) -> int:
     url = _url_servidor()
     almacen = credenciales.AlmacenCredenciales()
-    sesion = credenciales.FuenteToken(url, os.environ.get(config.ENV_TOKEN), almacen).sesion()
+    fuente = renovacion.fuente_con_renovacion(url, os.environ.get(config.ENV_TOKEN), almacen)
+    fuente.token()  # lo que haría el proxy ahora: con la sesión vencida y un refresh token vigente, renueva
+    sesion = fuente.sesion()
     salida: dict[str, Any] = {
         "servidor": url,
         "origen": {"entorno": config.ENV_TOKEN, "credenciales": "railspec login"}.get(sesion.origen),
@@ -399,7 +416,11 @@ def _cmd_whoami(args: argparse.Namespace) -> int:
             "obtenido_en": _iso(credencial.obtenido_en),
             "expira_en": _iso(credencial.expira_en),
             "vencida": sesion.vencida,
+            "renovable": credencial.refresh_token is not None,
+            "refresh_expira_en": _iso(credencial.refresh_expira_en),
         }
+        if fuente.renovada:
+            salida["renovada"] = "la sesión estaba vencida y se renovó con su refresh token"
     if sesion.problema:
         salida["problema"] = sesion.problema
     valida = sesion.token is not None

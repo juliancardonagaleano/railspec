@@ -39,6 +39,7 @@ def ensamblar(
         VerificadorOidcActions,
     )
     from .api.registro import AutorizadorRoles, Registro
+    from .api.renovacion import RenovadorGithub, router_renovacion
     from .api.superficies import aplicacion
     from .consola import montar_consola
     from .consola.almacen import AlmacenConsola
@@ -131,6 +132,7 @@ def ensamblar(
     sondas = _sondas(config, almacen, motor_grafo)
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
     app.include_router(router_chat(servicio_chat, identidad))
+    app.include_router(router_renovacion(RenovadorGithub(config.consola.github_app, cliente_github)))
     datos_consola = AlmacenConsola(almacen.db)
     catalogo = getattr(proveedores, "catalogo", None)
     if catalogo is not None and catalogo.registrar is None:
