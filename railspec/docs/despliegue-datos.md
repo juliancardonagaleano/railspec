@@ -272,10 +272,6 @@ renderizar, porque una errata no falla al arrancar: el chat se niega con 422
 `RAILSPEC_FOUNDRY_ZONA_DATOS` es `us` (o está vacía): ningún despliegue del
 recurso tendría esa región.
 
-Pendiente: `despliegue.md` y `chat.md` siguen describiendo esta variable como
-solo regiones de Azure; se actualizan cuando mergee el hilo que edita
-`despliegue.md`.
-
 ## CI
 
 - `railspec-ci.yml` tiene un job nuevo, `integracion`, que corre

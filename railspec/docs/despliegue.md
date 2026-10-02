@@ -6,7 +6,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
 | --- | --- |
 | `deploy/servidor/Dockerfile` | Imagen del servidor. Base fijada por digest, dependencias desde `requirements.lock` con `--require-hashes`, usuario 10001, raíz de solo lectura. |
 | `deploy/servidor/requirements.lock` | Lock con hashes de las dependencias de terceros. Se regenera con `deploy/servidor/bloquear.sh` al cambiar `requirements.in` o los `pyproject`. |
-| `deploy/k8s/*.yaml` | Namespace, ServiceAccount, ConfigMap, Deployment, Service, Ingress y PodDisruptionBudget, con `${VARIABLES}`. |
+| `deploy/k8s/*.yaml` | Namespace, ServiceAccount, ConfigMap, Deployment, Service, Ingress y PodDisruptionBudget, con `${VARIABLES}`; y, opcionales por bandera (Mongo y FalkorDB en el clúster, NetworkPolicy, respaldos, clones del chat), los de [despliegue-datos.md](despliegue-datos.md). |
 | `deploy/renderizar.py` | Sustituye las variables desde el entorno y falla si falta una obligatoria. Solo biblioteca estándar. |
 | `deploy/ci/reindexar.py` | Cliente de `graph.index` que usa el workflow de reindexado. |
 | `railspec-ci.yml` | Lint, pruebas de cada paquete por separado y validación de manifiestos con kubeconform. |
@@ -132,7 +132,10 @@ responde sin código. El renderizador avisa por stderr (`renderizar: aviso: …`
 cuando `RAILSPEC_CHAT_ZONA_DATOS` o `RAILSPEC_CHAT_CLONES_PVC` quedan vacías.
 
 - **Zona de datos.** `RAILSPEC_CHAT_ZONA_DATOS` lista las regiones de Azure
-  donde el chat puede enviar código. En `restringido` e `interno` solo sirve un
+  donde el chat puede enviar código; para un despliegue de Foundry con SKU
+  `DataZone*` la región es `zona-us` o `zona-eu`
+  ([despliegue-datos.md](despliegue-datos.md#zona-de-datos-del-chat)). En
+  `restringido` e `interno` solo sirve un
   despliegue de Foundry con región fija y esa región debe estar en la lista,
   escrita en minúsculas igual que la que devuelve Azure (una mayúscula no
   falla al arrancar: el chat se niega con 422 `perfil-insatisfacible`, y por
