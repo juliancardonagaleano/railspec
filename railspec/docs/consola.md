@@ -367,8 +367,23 @@ los formularios se remontan al subir la versión (`key={version}`) y los diálog
 se cierran al guardar, y el aviso sigue visible en el formulario nuevo o en la
 tarjeta que abrió el diálogo. Empezar otro guardado lo borra y la caché lo descarta
 cinco minutos después de que nadie lo mire; los borrados y el
-catálogo (que ya resume su sincronización) no lo usan. Un 409 sí se pierde con
-el remontaje: el formulario vuelve a la versión vigente sin explicarlo.
+catálogo (que ya resume su sincronización) no lo usan.
+
+Un 409 también sube la versión: la vista recarga y el formulario se remonta con
+lo vigente, y «Otra persona modificó este registro (versión actual N)» sigue ahí.
+`useGuardar` deja el 409 en la caché bajo la misma clave (`["conflicto", clave]`)
+y `error` lo devuelve aunque la mutación que lo recibió ya no exista, así que
+`<ErrorGuardado error={guardar.error} />` basta. Los cambios sin guardar de la
+persona se pierden con la recarga (el aviso lo dice: «cierra, revisa y vuelve a
+guardar»). El aviso se retira cuando empieza otro guardado, sea cual sea su
+resultado, y cuando el formulario se va de verdad: al desmontarse, si en el turno
+siguiente nadie lo lee, se descarta. El remontaje por versión monta al sustituto
+en el mismo ciclo y lo conserva; cerrar el diálogo, cambiar de pestaña de perfil
+o salir de la pantalla no, así que no reaparece la próxima vez. Solo se guardan
+los 409 (los únicos que recargan la versión) y solo con `aviso`. Los diálogos de las
+listas de organizaciones y de workspaces guardan una copia del registro al
+abrirse y no se remontan: tras un 409 conservan el aviso y los datos viejos hasta
+que se cierran y se vuelven a abrir.
 
 | Método y ruta | Qué hace |
 | --- | --- |
@@ -495,5 +510,3 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
 - Notificaciones de gates escalados y presupuestos (Teams o correo).
 - Un flujo de eventos por workspace (SSE) para el tablero, que hoy sondea cada
   15 s: sería una ruta nueva del servidor.
-- Explicar un 409 que recarga la versión: el formulario se remonta con los datos
-  vigentes y el aviso de conflicto se pierde.

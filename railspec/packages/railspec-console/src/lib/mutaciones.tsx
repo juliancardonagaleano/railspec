@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import { ErrorApi } from "../api/cliente";
 import { Aviso, ErrorVista } from "../componentes/Estados";
@@ -26,9 +27,14 @@ export interface OpcionesGuardado<R> {
 }
 
 const claveGuardado = (clave: string): QueryKey => ["guardado", clave];
+const claveConflicto = (clave: string): QueryKey => ["conflicto", clave];
 
 function fijarGuardado(cliente: QueryClient, clave: string, guardado: Guardado | null) {
   cliente.setQueryData(claveGuardado(clave), guardado);
+}
+
+function fijarConflicto(cliente: QueryClient, clave: string, conflicto: ErrorApi | null) {
+  cliente.setQueryData(claveConflicto(clave), conflicto);
 }
 
 /**
@@ -45,6 +51,35 @@ export function useGuardado(clave: string | undefined): Guardado | null {
   return clave ? (consulta.data ?? null) : null;
 }
 
+/**
+ * Último 409 de `clave`, o `null`. Lo escribe `useGuardar`. Un 409 sube la versión que vigila la vista,
+ * y los formularios con `key={version}` se remontan con los datos vigentes: el error de la mutación
+ * muere con el formulario viejo y el nuevo lo recoge de aquí.
+ *
+ * El aviso es de ese formulario y no debe quedar para la próxima vez: al desmontarse, si en el turno
+ * siguiente nadie más lo lee, se descarta. El remontaje monta al sustituto en el mismo ciclo y lo
+ * conserva; cerrar el diálogo, cambiar de pestaña o salir de la pantalla no.
+ */
+function useConflicto(clave: string | undefined): ErrorApi | null {
+  const cliente = useQueryClient();
+  const consulta = useQuery<ErrorApi | null>({
+    queryKey: claveConflicto(clave ?? ""),
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  useEffect(() => {
+    if (!clave) return;
+    return () => {
+      setTimeout(() => {
+        const entrada = cliente.getQueryCache().find({ queryKey: claveConflicto(clave), exact: true });
+        if (entrada && entrada.getObserversCount() === 0) cliente.removeQueries({ queryKey: claveConflicto(clave), exact: true });
+      }, 0);
+    };
+  }, [cliente, clave]);
+  return clave ? (consulta.data ?? null) : null;
+}
+
 function versionDe<R>(r: R, opciones: OpcionesGuardado<R>): number | null {
   if (opciones.version === null) return null;
   if (opciones.version) return opciones.version(r) ?? null;
@@ -57,6 +92,8 @@ function versionDe<R>(r: R, opciones: OpcionesGuardado<R>): number | null {
  * dadas; ante un 409 también las invalida para recargar la versión vigente.
  * Con `aviso` deja constancia del guardado (versión y avisos) bajo su `clave`; el resultado
  * se expone como `guardado` y lo anuncia `<AvisoGuardado>`. Empezar otro guardado lo borra.
+ * También con `aviso`, un 409 queda bajo la misma `clave` y `error` lo devuelve aunque el formulario
+ * se haya remontado con la versión nueva (ver `useConflicto`); `ErrorGuardado` lo explica.
  */
 export function useGuardar<V, R>(
   fn: (v: V) => Promise<R>,
@@ -67,10 +104,13 @@ export function useGuardar<V, R>(
   const clienteQuery = useQueryClient();
   const refrescar = () => invalidar.forEach((k) => void clienteQuery.invalidateQueries({ queryKey: k }));
   const guardado = useGuardado(aviso?.clave);
+  const conflicto = useConflicto(aviso?.clave);
   const mutacion = useMutation({
     mutationFn: fn,
     onMutate: () => {
-      if (aviso) fijarGuardado(clienteQuery, aviso.clave, null);
+      if (!aviso) return;
+      fijarGuardado(clienteQuery, aviso.clave, null);
+      fijarConflicto(clienteQuery, aviso.clave, null);
     },
     onSuccess: (r) => {
       if (aviso) fijarGuardado(clienteQuery, aviso.clave, { version: versionDe(r, aviso), avisos: aviso.avisos?.(r) ?? [], en: Date.now() });
@@ -78,10 +118,12 @@ export function useGuardar<V, R>(
       alExito?.(r);
     },
     onError: (e) => {
-      if (e instanceof ErrorApi && e.status === 409) refrescar();
+      if (!(e instanceof ErrorApi && e.status === 409)) return;
+      if (aviso) fijarConflicto(clienteQuery, aviso.clave, e);
+      refrescar();
     },
   });
-  return { ...mutacion, guardado };
+  return { ...mutacion, error: mutacion.error ?? conflicto, guardado };
 }
 
 const formatoHora = new Intl.DateTimeFormat("es", { timeStyle: "short" });

@@ -148,10 +148,15 @@ describe("presupuestos", () => {
     await user.click(guardar());
 
     await waitFor(() => expect(campo("Presupuesto mensual (USD)")).toHaveValue(900));
+    // El formulario se remontó con la versión 3 y el aviso de conflicto no se perdió con el viejo.
+    expect(screen.getByText(/Otra persona modificó este registro/)).toHaveTextContent("(versión actual 3)");
     await user.click(guardar());
     await waitFor(() => expect(s.de("PUT", "/orgs/acme/presupuestos")).toHaveLength(2));
     expect(s.de("PUT", "/orgs/acme/presupuestos").map((l) => l.cuerpo.version)).toEqual([2, 3]);
     expect(vigente.version).toBe(4);
+    // Guardar de nuevo retira el aviso y anuncia el guardado.
+    expect(await screen.findByText(/^Guardado · versión 4\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/Otra persona modificó este registro/)).toBeNull();
   });
 
   it("explica un 409 como conflicto de versión cuando la recarga aún no cambió el formulario", async () => {
