@@ -1,20 +1,21 @@
 # Railspec
 
-Plugin que da rieles SDD a arneses existentes (Claude Code y opencode en la
-primera ola): un motor remoto dicta órdenes de trabajo y verifica, un proxy
-MCP local ejecuta en el clon del desarrollador, y una consola web administra,
-mide y explora.
+Plugin que da rieles SDD a arneses existentes (Claude Code, OpenCode, Codex y
+GitHub Copilot CLI): un motor remoto dicta órdenes de trabajo y verifica, un
+proxy MCP local ejecuta en el clon del desarrollador, y una consola web
+administra, mide y explora.
 
-Vive dentro de `sdd-mcp` mientras madura; el kit actual (`.spec/`,
-`installer/`) queda como referencia y cantera de código, sin compatibilidad.
+Vive dentro de `sdd-mcp`, que también aloja el kit SDD (`.spec/`, `installer/`).
+Los dos pueden instalarse en el mismo repositorio sin pisarse, y las unidades del
+kit se traen a Railspec a demanda: ver [docs/migracion-kit.md](docs/migracion-kit.md).
 
 ## Estructura
 
 ```
 railspec/
   packages/
-    railspec-contracts/   contratos v1 (fase 1): modelos Pydantic y esquemas
-    railspec-server/      esqueleto del motor y del repositorio central (fases 2 y 4)
+    railspec-contracts/   contratos v1: modelos Pydantic y esquemas
+    railspec-server/      motor DAG, estado en Mongo, API MCP y HTTP, chat y consola (API)
     railspec-local/       proxy MCP local, CLI `railspec` y adaptadores de arnés
     railspec-graph/       grafo de código centralizado y RAG sobre FalkorDB
     railspec-console/     consola web (SPA React + Vite) que sirve railspec-server
@@ -41,7 +42,7 @@ python -m pytest railspec
 Las pruebas extremo a extremo (Mongo, FalkorDB, servidor y proxy por stdio) se
 saltan si Mongo y FalkorDB no responden: ver [integracion/README.md](integracion/README.md).
 
-Ver [docs/contratos.md](docs/contratos.md), [docs/grafo.md](docs/grafo.md) y
-[docs/proxy-local.md](docs/proxy-local.md). Consola web: [docs/consola.md](docs/consola.md).
-Despliegue en AKS:
-[docs/despliegue.md](docs/despliegue.md).
+Documentación: [contratos](docs/contratos.md), [motor](docs/motor.md),
+[proveedores](docs/proveedores.md), [grafo](docs/grafo.md), [proxy local](docs/proxy-local.md),
+[chat](docs/chat.md), [consola web](docs/consola.md), [despliegue en AKS](docs/despliegue.md) y
+[migración desde el kit SDD](docs/migracion-kit.md).

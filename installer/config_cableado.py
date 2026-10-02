@@ -108,7 +108,7 @@ def _replace_hooks_event(settings: dict, event: str, kit_hooks: list) -> None:
     hooks = settings.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         return
-    entries = hooks.get(event)
+    entries = hooks.get(event, [])
     if not isinstance(entries, list):
         return
     kept: list = []
@@ -298,6 +298,15 @@ def mezclar_opencode_jsonc(git_root: Path, kit_root: Path) -> None:
     data["agent"] = merged_agents
 
     _write_json(dest_path, data)
+
+
+def comprobar_legibles(git_root: Path) -> None:
+    """Falla (``CableadoError``) si algún archivo compartido del destino existe y no se puede
+    leer. El instalador lo llama antes de escribir nada: ``cablear`` fusiona con lo que hay,
+    y un JSON inválido no se pisa."""
+    _read_json(git_root / SETTINGS_REL)
+    _read_json(git_root / MCP_JSON_REL)
+    _read_jsonc(git_root / OPENCODE_JSONC_REL)
 
 
 def cablear(git_root: Path, kit_root: Path) -> None:

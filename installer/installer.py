@@ -28,6 +28,15 @@ Rutas huérfanas (P-1..P-3, CA-17..CA-23):
     - rutas que resuelven fuera de la raíz git, symlinks a fuera, o
       directorios en vez de archivos → nunca se borran (CA-19, CA-42).
 
+Archivos compartidos con Railspec (``installer/convivencia.py``):
+
+    - ``.mcp.json``, ``opencode.jsonc`` y ``.claude/settings.json`` no se copian:
+      los fusiona el cableado por el marcador ``_sdd_kit``, así que lo ajeno al
+      kit (la entrada ``railspec``, sus permisos y su hook) sobrevive a reinstalar;
+    - ``AGENTS.md`` sí se sobrescribe, pero conserva el bloque de Railspec;
+    - la línea base de estos cuatro es la de su parte del kit, no la del archivo
+      entero: lo que añade ``railspec instalar`` no es drift.
+
 Colisión de ruta nueva (CA-40):
 
     - ruta en el manifiesto que la línea base **no** registra y el destino
@@ -50,15 +59,22 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from installer.convivencia import (  # noqa: E402
+    ARCHIVO_DE_PROSA,
+    MEZCLADOS,
+    coincide,
+    conservar_bloque_railspec,
+    contenido_del_kit,
+    digest_de_instalacion,
+)
 from installer.git_target import GitTargetError, resolve_git_dir, resolve_git_root  # noqa: E402
 from installer.manifest import (  # noqa: E402
     DEFAULT_MANIFEST_PATH,
+    REPO_ROOT,
     ManifestError,
     get_kit_version,
     load_and_validate,
     read_install_record,
-    sha256_bytes,
-    sha256_file,
 )
 from installer.materializers.agents import main as agents_main  # noqa: E402
 from installer.materializers.commands import main as commands_main  # noqa: E402
@@ -317,6 +333,16 @@ def run_install(
         print(f"ERROR: {exc}", file=sys.stderr)
         return EXIT_OPERATIONAL_ERROR
 
+    # Los archivos compartidos se fusionan, no se pisan: si alguno existe y no se puede leer,
+    # se aborta antes de escribir nada.
+    try:
+        from installer.config_cableado import CableadoError, comprobar_legibles  # noqa: E402
+
+        comprobar_legibles(git_root)
+    except CableadoError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_OPERATIONAL_ERROR
+
     git_dir = resolve_git_dir(git_root)
     record_path = git_dir / INSTALL_RECORD_NAME
 
@@ -374,7 +400,7 @@ def run_install(
         if not actual.is_file():
             continue
         actual_bytes = actual.read_bytes()
-        drift = sha256_bytes(actual_bytes) != baseline_digest
+        drift = not coincide(rel, actual_bytes, baseline_digest)
         huérfanas.append((rel, "drift" if drift else ""))
 
     # Clasificación y escritura de cada par declarado en el manifiesto.
@@ -402,7 +428,13 @@ def run_install(
             if current_bytes is None:
                 status = "ausente"
                 ausente_paths.append(dest_rel)
-            elif sha256_bytes(current_bytes) != sha256_bytes(data):
+            elif dest_rel in MEZCLADOS:
+                # Archivo compartido: el cableado fusiona, no hay nada ajeno que sobrescribir.
+                status = "ok"
+            elif dest_rel == ARCHIVO_DE_PROSA and not contenido_del_kit(dest_rel, current_bytes).strip():
+                # Solo tenía el bloque de Railspec: no se pierde prosa de nadie.
+                status = "ok"
+            elif contenido_del_kit(dest_rel, current_bytes) != contenido_del_kit(dest_rel, data):
                 status = "sin clasificar"
                 sin_clasificar_paths.append(dest_rel)
             else:
@@ -411,12 +443,19 @@ def run_install(
             if current_bytes is None:
                 status = "ausente"
                 ausente_paths.append(dest_rel)
-            elif sha256_bytes(current_bytes) == baseline_digest:
+            elif coincide(dest_rel, current_bytes, baseline_digest):
                 status = "desactualizada"
                 desactualizada_count += 1
             else:
                 status = "drift"
                 drift_paths.append(dest_rel)
+        if dest_rel in MEZCLADOS and current_bytes is not None:
+            # `.mcp.json`, `opencode.jsonc` y `.claude/settings.json` ya existentes: los fusiona el
+            # cableado (más abajo), que conserva lo ajeno al kit, también lo que puso Railspec.
+            # Si faltan, se copian y el cableado los deja con la forma de siempre.
+            continue
+        if dest_rel == ARCHIVO_DE_PROSA:
+            data = conservar_bloque_railspec(data, current_bytes)
         dest_path.write_bytes(data)
         try:
             source_mode = source_file.stat().st_mode
@@ -483,7 +522,7 @@ def run_install(
     # Cableado de configuración (CA-45..CA-47, CA-51, CA-52).
     try:
         from installer.config_cableado import cablear  # noqa: E402
-        cablear(git_root, git_root)
+        cablear(git_root, REPO_ROOT)
     except Exception as exc:
         print(
             f"ERROR: cableado de configuración del entorno falló: {exc}",
@@ -497,7 +536,7 @@ def run_install(
         target = git_root / dest_rel
         if not target.is_file():
             continue
-        nueva_baseline[dest_rel] = sha256_file(target)
+        nueva_baseline[dest_rel] = digest_de_instalacion(dest_rel, target.read_bytes())
     aggregate_digest = _aggregate_digest_for_payload(pares)
 
     if registro_legible_antes and raw_record:

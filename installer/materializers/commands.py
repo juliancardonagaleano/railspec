@@ -49,6 +49,7 @@ from pathlib import Path
 import yaml
 
 from .agents import MaterializeError, split_frontmatter  # noqa: E402
+from .ajenos import PREFIJO_RAILSPEC  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_DIR = REPO_ROOT / ".agents" / "commands"
@@ -117,11 +118,15 @@ def find_orphans(
     manifest: dict,
     commands: list[Path],
 ) -> tuple[list[Path], list[str]]:
-    """Return mirror files and manifest entries with no counterpart in source."""
+    """Return mirror files and manifest entries with no counterpart in source.
+
+    ``railspec*.md`` (the ``/railspec`` command Railspec's adapter writes) is
+    not a kit command: it is never pruned.
+    """
     valid_rel = {src.relative_to(source_dir).as_posix() for src in commands}
 
     def is_prunable(rel: str) -> bool:
-        return rel not in valid_rel
+        return rel not in valid_rel and not rel.startswith(PREFIJO_RAILSPEC)
 
     mirror_orphan_files: list[Path] = []
     if mirror_dir.is_dir():

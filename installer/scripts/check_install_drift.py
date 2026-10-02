@@ -22,12 +22,69 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 INSTALL_RECORD_NAME = "sdd-kit-install-record.yaml"
 SKIP_MESSAGE = "sin línea base"
+
+# --- Convivencia con Railspec ----------------------------------------------
+# Copia de `installer/convivencia.py` (este script viaja solo al destino y no
+# puede importar el paquete `installer`); `test_convivencia_railspec.py` prueba
+# que las dos dan el mismo digest. En `.mcp.json`, `opencode.jsonc`,
+# `.claude/settings.json` y `AGENTS.md` el digest de línea base es el de la
+# parte del kit: lo que añade `railspec instalar` no es drift.
+_MEZCLADOS = {
+    ".mcp.json": (("mcpServers",),),
+    "opencode.jsonc": (("mcp",), ("agent",)),
+    ".claude/settings.json": (("hooks", "PreToolUse"), ("hooks", "PrePush")),
+}
+_BLOQUE_RAILSPEC = re.compile(rb"<!-- railspec:inicio[^>]*-->.*?<!-- railspec:fin -->\n?", re.DOTALL)
+_COMENTARIOS = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+_COMA_FINAL = re.compile(r'"(?:\\.|[^"\\])*"|,(\s*[}\]])', re.DOTALL)
+
+
+def _parte_del_kit(rel: str, data: bytes) -> bytes | None:
+    try:
+        texto = data.decode("utf-8")
+        texto = _COMENTARIOS.sub(lambda m: m.group(0) if m.group(0).startswith('"') else "", texto)
+        texto = _COMA_FINAL.sub(lambda m: m.group(1) if m.group(1) is not None else m.group(0), texto)
+        documento: Any = json.loads(texto) if texto.strip() else {}
+    except ValueError:
+        return None
+    if not isinstance(documento, dict):
+        return None
+    parte: dict[str, Any] = {}
+    for claves in _MEZCLADOS[rel]:
+        actual: Any = documento
+        for clave in claves:
+            actual = actual.get(clave) if isinstance(actual, dict) else None
+        marcada = lambda e: isinstance(e, dict) and e.get("_sdd_kit") is True  # noqa: E731
+        if isinstance(actual, dict):
+            entradas: Any = {k: v for k, v in actual.items() if marcada(v)}
+        elif isinstance(actual, list):
+            entradas = [e for e in actual if marcada(e)]
+        else:
+            continue
+        if entradas:
+            parte[".".join(claves)] = entradas
+    return json.dumps(parte, sort_keys=True, ensure_ascii=False).encode("utf-8")
+
+
+def _contenido_del_kit(rel: str, data: bytes) -> bytes:
+    if rel in _MEZCLADOS:
+        parte = _parte_del_kit(rel, data)
+        return data if parte is None else parte
+    if rel == "AGENTS.md":
+        encontrado = _BLOQUE_RAILSPEC.search(data)
+        if encontrado is None:
+            return data
+        antes, despues = data[: encontrado.start()], data[encontrado.end() :]
+        return (antes[:-1] if antes.endswith(b"\n\n") else antes) + despues
+    return data
 
 
 def _git_dir() -> Path:
@@ -64,11 +121,17 @@ def _read_yaml_simple(path: Path) -> dict | None:
     return data
 
 
-def _sha256_file(path: Path) -> str | None:
+def _coincide(rel: str, path: Path, expected: str) -> bool:
+    """El archivo es lo que registra ``expected``: por su parte del kit o, en registros
+    anteriores, entero."""
     try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        data = path.read_bytes()
     except OSError:
-        return None
+        return False
+    return expected in (
+        hashlib.sha256(_contenido_del_kit(rel, data)).hexdigest(),
+        hashlib.sha256(data).hexdigest(),
+    )
 
 
 def main() -> int:
@@ -104,8 +167,7 @@ def main() -> int:
         if not target.is_file():
             drift_paths.append(rel)
             continue
-        actual = _sha256_file(target)
-        if actual is None or actual != expected:
+        if not _coincide(rel, target, expected):
             drift_paths.append(rel)
 
     if not drift_paths:

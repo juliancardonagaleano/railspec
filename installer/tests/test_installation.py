@@ -238,6 +238,8 @@ def test_ca12_actual_root_is_accepted_regardless_of_path_case(tmp_path: Path) ->
     target.mkdir()
     _git_init(target)
     differently_cased = tmp_path / "casesensitivename"
+    if not differently_cased.exists():
+        pytest.skip("el sistema de archivos distingue mayúsculas: no hay otra grafía del mismo directorio")
 
     resolved = resolve_git_root(differently_cased)
 
