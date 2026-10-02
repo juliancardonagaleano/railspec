@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -53,9 +54,19 @@ class Resultado:
     integrado: str  # commit del merge de la unidad en la rama por defecto
     ci: Any = None
     local: dict[str, Any] = field(default_factory=dict)
+    previo: Any = None  # lo que devolvió ``antes_de_integrar``
 
 
-async def _recorrer(clon: Path, url: str, token: str, ci: Any = None) -> Resultado:
+async def _recorrer(
+    clon: Path,
+    url: str,
+    token: str,
+    antes_de_integrar: Callable[[str], Any] | None = None,
+    ci: Any = None,
+) -> Resultado:
+    """``antes_de_integrar(unidad)`` lee el estado previo a ``unit.integrate`` (p. ej. la superposición
+    de la unidad en el grafo, que tras integrar queda retenida hasta que CI reindexa el merge)."""
+
     base = git(clon, "rev-parse", "HEAD")
     if ci is not None:
         ci.reindexar(base)  # el canónico parte del commit inicial, como tras el primer push a main
@@ -73,6 +84,7 @@ async def _recorrer(clon: Path, url: str, token: str, ci: Any = None) -> Resulta
         git(worktree, "commit", "-q", "-m", f"railspec: {unidad}")
         git(worktree, "push", "-q", "origin", f"railspec/{unidad}")
         sync = await arnes.llamar("railspec_sync", {"unidad": unidad})
+        previo = antes_de_integrar(unidad) if antes_de_integrar else None
 
         # El PR se mergea (avance rápido de main): el commit que CI reindexará es el de la unidad.
         integrado = git(worktree, "rev-parse", "HEAD")
@@ -102,14 +114,22 @@ async def _recorrer(clon: Path, url: str, token: str, ci: Any = None) -> Resulta
             base,
             integrado,
             ci,
+            previo=previo,
         )
+
+
+def _superposicion(entorno, unidad: str) -> set[str | None]:
+    grafo = entorno.falkordb().select_graph(f"railspec:{ORG}:{WS}:{REPO}:u:{unidad}")
+    return {f[0] for f in grafo.query("MATCH (n) RETURN n.nombre").result_set}
 
 
 @pytest.fixture(scope="module")
 def ciclo(entorno, tmp_path_factory) -> Resultado:
     clon = preparar_repositorio(tmp_path_factory.mktemp("repo"), ORG, WS, REPO)
     ci = entorno.ci(clon.parent / "remoto.git", clon.parent) if CON_INDEXADOR else None
-    resultado = asyncio.run(_recorrer(clon, entorno.url, entorno.token, ci))
+    resultado = asyncio.run(
+        _recorrer(clon, entorno.url, entorno.token, lambda unidad: _superposicion(entorno, unidad), ci)
+    )
     resultado.local = json.loads((resultado.worktree / ".railspec" / "estado-local.json").read_text())
     yield resultado
     if not _usa_servidor_externo():
@@ -217,9 +237,11 @@ def test_delta_del_indice_llega_a_la_superposicion_del_grafo(ciclo, entorno):
     nombres = {x["nombre"] for x in s["delta_indice"]["simbolos_upsert"]}
     assert {"src.firma.firmar", "src.firma.verificar"} <= nombres
 
-    grafo = entorno.falkordb().select_graph(f"railspec:{ORG}:{WS}:{REPO}:u:{ciclo.unidad}")
-    filas = grafo.query("MATCH (n) RETURN n.nombre").result_set
-    assert {"src.firma.firmar", "src.firma.verificar"} <= {f[0] for f in filas}
+    # Estaba en la superposición al llegar a unit.integrate y sigue ahí tras integrar: se retiene
+    # hasta que CI reindexa el commit integrado (la retirada la comprueba la prueba de más abajo).
+    nuevos = {"src.firma.firmar", "src.firma.verificar"}
+    assert nuevos <= ciclo.previo
+    assert nuevos <= _superposicion(entorno, ciclo.unidad)
 
 
 def _meta(fk, grafo: str) -> dict[str, Any]:

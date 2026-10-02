@@ -25,9 +25,21 @@ CON_INDEXADOR = shutil.which("codebase-memory-mcp") is not None
 @pytest.fixture(scope="module")
 def consola(entorno, tmp_path_factory):
     clon = preparar_repositorio(tmp_path_factory.mktemp("repo-consola"), ORG, WS, REPO)
-    ciclo = asyncio.run(_recorrer(clon, entorno.url, entorno.token))
     base = entorno.url.removesuffix("/").removesuffix("/mcp")
     with httpx.Client(base_url=base, headers={"Authorization": f"Bearer {entorno.token}"}, timeout=30) as c:
+
+        def buscar_en_la_superposicion(unidad: str) -> httpx.Response:
+            # unit.integrate descarta la superposición de la unidad: la búsqueda se hace antes.
+            return c.post(
+                "/consola/api/tools/graph.query",
+                json={
+                    "alcance": {"org": ORG, "workspace": WS},
+                    "unidad": unidad,
+                    "consulta": {"verbo": "search", "texto": "firmar"},
+                },
+            )
+
+        ciclo = asyncio.run(_recorrer(clon, entorno.url, entorno.token, buscar_en_la_superposicion))
         yield ciclo, c
 
 
@@ -81,15 +93,7 @@ def test_tools_y_token_de_consola(consola, entorno):
     )
     assert ciclo.unidad in {u["unidad"] for u in lista["unidades"]}
     if CON_INDEXADOR:
-        r = c.post(
-            "/consola/api/tools/graph.query",
-            json={
-                "alcance": {"org": ORG, "workspace": WS},
-                "unidad": ciclo.unidad,
-                "consulta": {"verbo": "search", "texto": "firmar"},
-            },
-        )
-        resultados = _sin_codigo(r)["resultados"]
+        resultados = _sin_codigo(ciclo.previo)["resultados"]
         assert any(x["ref"].get("nombre") == "src.firma.firmar" for x in resultados)
 
     # El token rsc1 de la consola vale como Bearer en /v1 (lo usará el chat), pero solo se emite
