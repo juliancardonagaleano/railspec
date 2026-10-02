@@ -85,6 +85,7 @@ from railspec.contracts.tools import (
 from ..estado.checkpoints import nombre_workflow
 from ..estado.interfaces import EntradaPendiente, TipoEntrada
 from . import dag
+from .escaneo import hallazgos_de_secretos, resumen
 from .nucleo import Nucleo
 
 log = logging.getLogger("railspec.motor")
@@ -582,6 +583,21 @@ class Motor:
                     CodigoError.snapshot_invalido,
                     f"el vínculo fija nivel {esperado.value}; "
                     f"el snapshot declara {r.snapshot.nivel_codigo.value}",
+                    estado.version,
+                )
+            # El contrato exige hallazgos == 0, pero lo declara el cliente: se vuelve a escanear
+            # el texto que llegó. Rechazado, no se guarda ni se ingiere al grafo.
+            hallazgos = hallazgos_de_secretos(r.snapshot)
+            if hallazgos:
+                log.warning(
+                    "snapshot rechazado por secretos en %s/%s: %s",
+                    r.unidad.unidad,
+                    r.snapshot.repositorio,
+                    resumen(hallazgos),
+                )
+                raise ErrorNegocio(
+                    CodigoError.snapshot_invalido,
+                    f"el snapshot declara 0 hallazgos de secretos pero lleva: {resumen(hallazgos)}",
                     estado.version,
                 )
 

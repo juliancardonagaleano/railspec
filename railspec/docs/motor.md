@@ -14,6 +14,7 @@ toca, corre los gates y abre los checkpoints.
 | `contexto/` | Herramientas de contexto conectables por rol (PCE primero): implementan el proveedor de gobernanza del gate. Ver [proveedores.md](proveedores.md). |
 | `motor/artefactos.py` | Capa determinista: plantillas, secciones obligatorias, `CA-NN`, grupos del plan, comando de validación y tareas trazables. Sin tokens. |
 | `motor/gate.py` | Panel de críticos en paralelo (un lente por crítico), refutador para severidad alta y regla de convergencia. |
+| `motor/escaneo.py` | Reescaneo de secretos del texto de código de un snapshot (`diff` y fragmentos) con los patrones del proxy; lo usa `unit.report`. |
 | `motor/dag.py` | Nodos del DAG: triaje, redacción, gate, decisión humana, avance, implementación y cierre. |
 | `motor/motor.py` | Tools `unit.*` y `telemetry.query`; runner que reanuda el DAG desde el último checkpoint. |
 | `api/` | Registro único de tools (R1) expuesto por MCP en `/mcp` (proxy local, con el alias `nombre_mcp`: `unit_start`) y por HTTP en `/v1/tools/{nombre}` (consola, nombre canónico `unit.start`). El registro acepta las dos formas. |
@@ -60,6 +61,25 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
 - `unit.report` reconoce el reenvío de un reporte ya aceptado (misma orden y
   secuencia) y responde `secuencia-duplicada` en vez de `orden-no-vigente`, para
   que el proxy lo dé por entregado.
+- `unit.report` vuelve a escanear el texto de código del snapshot (`diff` y
+  `fragmentos[].texto`; solo existen en `interno` y `abierto`, en `restringido`
+  no hay nada que revisar) porque `escaneo_secretos.hallazgos == 0` lo declara
+  el cliente y el servidor no se fía. Usa los mismos 13 patrones y el mismo
+  criterio línea a línea que el proxy (`chat/secretos.py` copia
+  `railspec/local/secretos.py` y una prueba compara las dos listas). Un
+  hallazgo rechaza el reporte con `snapshot-invalido`, nombra tipo y ruta
+  (nunca el valor), no guarda el reporte ni el snapshot ni lo ingiere al grafo,
+  y deja solo un log de advertencia, sin evento de auditoría. La orden sigue
+  vigente: el proxy puede reportar de nuevo sin el secreto. Un falso positivo
+  se corrige en el patrón de los dos lados, nunca con un bypass.
+  - El diff incluye las líneas borradas y el proxy solo escanea el árbol
+    final: un cambio que retira un secreto ya commiteado se rechaza en
+    `abierto` porque el diff lleva el valor viejo.
+  - Las líneas de más de 1024 caracteres se revisan por tramos solapados (un
+    secreto de hasta 512 caracteres cabe entero en alguno): el texto lo manda
+    el cliente y `cadena-conexion` es cuadrática en una corrida larga de
+    `[a-z0-9+.-]`; sin tramos, un diff de 2 MB hecho a propósito ocuparía el
+    servidor media hora y así ocupa unos 3 s.
 - Sincronización (contrato 1.3): `sync.pull` pagina los eventos remoto→local;
   `sync.push` recibe la cola local→remoto del proxy, idempotente por id y sin
   huecos (`secuencia-con-hueco`). Esa dirección la numera solo el proxy: el
