@@ -440,6 +440,17 @@ export interface GraphQuerySalida {
   truncado?: boolean;
 }
 
+/** `GET …/unidades/{u}/commit-integrable`: sugerencia de `commit_integrado` al integrar. */
+export interface CommitIntegrable {
+  repositorio: string | null;
+  rama: string | null;
+  /** Punta de la rama por defecto en el clon del servidor; `null` si no hay (ver `motivo`). */
+  commit: string | null;
+  /** Commit al que llegó el índice canónico del grafo, si se pudo leer. */
+  commit_indexado: string | null;
+  motivo: "sin-vinculo" | "sin-clones" | "sin-clon" | null;
+}
+
 export interface RepositorioGrafo {
   repositorio: string;
   nivel_codigo: NivelCodigo;

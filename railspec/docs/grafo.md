@@ -55,8 +55,9 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 ## Superposición de una unidad integrada
 
 `unit.integrate` trae desde 1.4 `commit_integrado`: el commit resultante en la
-rama destino. El proxy lo manda (el que da el arnés o, si no, la punta de la
-rama por defecto del remoto tras un `git fetch`) y el servidor, en vez de
+rama destino. (La consola lo prellena con la punta del clon canónico y no deja
+integrar sin elegir; ver `consola.md`, «Aprobaciones e integración».) El proxy lo
+manda (el que da el arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`) y el servidor, en vez de
 descartar la superposición del repositorio primario, la **retiene**:
 `AlmacenGrafo.retener_superposicion` guarda `integrado` en su meta y la
 superposición sigue visible a las consultas con esa `unidad` (incluidos

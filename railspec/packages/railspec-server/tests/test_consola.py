@@ -889,6 +889,110 @@ def test_detalle_linea_de_tiempo_trazabilidad_y_resumen():
     correr(caso())
 
 
+def test_commit_integrable_sugiere_la_punta_del_clon_canonico():
+    from railspec.server.chat.codigo import FuenteEnMemoria
+
+    punta = "c" * 40
+
+    async def caso():
+        fuente = FuenteEnMemoria({}, {REPO: punta})
+        m = Montaje(nivel=NivelCodigo.restringido, fuente_codigo=fuente)
+        alcance = await _unidad_cerrada(m)
+        base = f"/consola/api/orgs/{ORG}/workspaces/{WS}/unidades/{alcance.unidad}/commit-integrable"
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        async with m.cliente("tk-ana") as c:
+            r = await c.get(base)
+            assert r.status_code == 200, r.text
+            assert r.json() == {
+                "repositorio": REPO,
+                "rama": "main",
+                "commit": punta,
+                "commit_indexado": None,
+                "motivo": None,
+            }
+            assert (await c.get(base.replace(alcance.unidad, "0099-no-existe"))).status_code == 404
+        async with m.cliente("tk-luis") as c:  # sin rol en el workspace
+            assert (await c.get(base)).status_code == 403
+
+    correr(caso())
+
+
+def test_commit_integrable_sin_clones_o_sin_clon_explica_el_motivo():
+    from railspec.server.chat.codigo import FuenteEnMemoria
+
+    async def caso():
+        asignar_ana = lambda m: asignar(m.almacen, Rol.lector, ANA_ID)  # noqa: E731
+        # Sin RAILSPEC_CHAT_CLONES: no hay fuente.
+        m = Montaje(nivel=NivelCodigo.restringido)
+        alcance = await _unidad_cerrada(m)
+        ruta = f"/consola/api/orgs/{ORG}/workspaces/{WS}/unidades/{alcance.unidad}/commit-integrable"
+        asignar_ana(m)
+        async with m.cliente("tk-ana") as c:
+            datos = (await c.get(ruta)).json()
+            assert datos["commit"] is None and datos["motivo"] == "sin-clones" and datos["rama"] == "main"
+        # Con fuente pero sin clon de este repositorio.
+        m = Montaje(nivel=NivelCodigo.restringido, fuente_codigo=FuenteEnMemoria({}, {}))
+        alcance = await _unidad_cerrada(m)
+        asignar_ana(m)
+        async with m.cliente("tk-ana") as c:
+            datos = (await c.get(ruta)).json()
+            assert datos["commit"] is None and datos["motivo"] == "sin-clon"
+        # Sin vínculo del repositorio (nivel None: no se guardó configuración).
+        m = Montaje(nivel=None, fuente_codigo=FuenteEnMemoria({}, {REPO: "c" * 40}))
+        alcance = await _unidad_cerrada(m)
+        asignar_ana(m)
+        async with m.cliente("tk-ana") as c:
+            datos = (await c.get(ruta)).json()
+            assert datos["commit"] is None and datos["motivo"] == "sin-vinculo" and datos["rama"] is None
+
+    correr(caso())
+
+
+def test_commit_integrable_trae_el_commit_del_indice_canonico_si_hay_grafo():
+    from types import SimpleNamespace
+
+    from railspec.server.chat.codigo import FuenteEnMemoria
+
+    punta = "c" * 40
+    acceso = SimpleNamespace(
+        espacio=lambda alcance: SimpleNamespace(meta=lambda: SimpleNamespace(commit=punta))
+    )
+
+    async def caso():
+        m = Montaje(
+            nivel=NivelCodigo.restringido,
+            fuente_codigo=FuenteEnMemoria({}, {REPO: punta}),
+            acceso_grafo=acceso,
+        )
+        alcance = await _unidad_cerrada(m)
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        async with m.cliente("tk-ana") as c:
+            r = await c.get(
+                f"/consola/api/orgs/{ORG}/workspaces/{WS}/unidades/{alcance.unidad}/commit-integrable"
+            )
+            assert r.json()["commit"] == punta and r.json()["commit_indexado"] == punta
+
+    correr(caso())
+
+
+def test_commit_integrable_con_clon_ilegible_no_tumba_la_consulta():
+    class FuenteRota:
+        def commit_canonico(self, vinculo):
+            raise OSError("volumen caído")
+
+    async def caso():
+        m = Montaje(nivel=NivelCodigo.restringido, fuente_codigo=FuenteRota())
+        alcance = await _unidad_cerrada(m)
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        async with m.cliente("tk-ana") as c:
+            r = await c.get(
+                f"/consola/api/orgs/{ORG}/workspaces/{WS}/unidades/{alcance.unidad}/commit-integrable"
+            )
+            assert r.status_code == 200 and r.json()["commit"] is None and r.json()["motivo"] == "sin-clon"
+
+    correr(caso())
+
+
 def test_eventos_en_vivo_sse_y_last_event_id():
     async def caso():
         m = Montaje()

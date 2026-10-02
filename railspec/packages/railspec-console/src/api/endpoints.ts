@@ -2,6 +2,7 @@ import { invocarTool, pedir } from "./cliente";
 import type {
   AlcanceUnidad,
   AsignacionRol,
+  CommitIntegrable,
   ConfigAuth,
   Decision,
   DetalleUnidad,
@@ -69,6 +70,8 @@ export const unidades = {
     pedir<LineaDeTiempo>(`${rutaUnidad(org, ws, u)}/linea-de-tiempo`),
   trazabilidad: (org: string, ws: string, u: string) =>
     pedir<Trazabilidad>(`${rutaUnidad(org, ws, u)}/trazabilidad`),
+  commitIntegrable: (org: string, ws: string, u: string) =>
+    pedir<CommitIntegrable>(`${rutaUnidad(org, ws, u)}/commit-integrable`),
   urlEventos: (org: string, ws: string, u: string) =>
     `/consola/api${rutaUnidad(org, ws, u)}/eventos?desde_remoto=0&desde_local=0`,
   iniciar: (entrada: UnitStartEntrada) => invocarTool<UnitStartSalida>("unit.start", entrada),

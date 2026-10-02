@@ -48,6 +48,9 @@ class ContextoConsola:
     tokens_desarrollo: dict[str, tuple[str, int]] = field(default_factory=dict)
     grafo: Any | None = None
     acceso_grafo: Any | None = None
+    #: ``FuenteCodigo`` del chat (clones canónicos de solo lectura); ``None`` sin ``RAILSPEC_CHAT_CLONES``.
+    #: La consola solo le pide la punta de la rama por defecto para sugerir el ``commit_integrado``.
+    fuente_codigo: Any | None = None
     #: ``Catalogo`` del servidor (lectura por API de cada proveedor); ``None`` sin proveedores de modelo.
     catalogo: Any | None = None
     #: Sin Mongo (solo desarrollo): toda persona sin asignaciones es ``desarrollador``.

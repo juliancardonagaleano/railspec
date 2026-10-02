@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace
+from railspec.contracts.estado import RolRepositorio
 from railspec.contracts.eventos import Direccion
 from railspec.contracts.repositorio import Rol
 from railspec.contracts.tools import TelemetryQueryEntrada
@@ -89,6 +90,59 @@ async def unidad(org: str, ws: str, unidad: str, request: Request) -> dict[str, 
         )
         vigente = resumen_orden(orden) if orden else None
     return {"estado": vista_estado(estado), "orden_vigente": vigente}
+
+
+@router.get("/orgs/{org}/workspaces/{ws}/unidades/{unidad}/commit-integrable")
+async def commit_integrable(org: str, ws: str, unidad: str, request: Request) -> dict[str, Any]:
+    """Sugerencia para ``commit_integrado`` al integrar: la punta de la rama por defecto del
+    repositorio primario en el clon canónico del servidor.
+
+    Es solo una sugerencia que la persona confirma: el clon lo actualiza el CronJob de clones, así
+    que puede ir por detrás del merge. Sin ``commit`` va ``motivo`` (``sin-clones``,
+    ``sin-vinculo``, ``sin-clon``) y la consola pide el sha o integrar sin conservar el grafo."""
+
+    ctx = await _lector(request, org, ws)
+    estado = _estado(ctx, _alcance_unidad(org, ws, unidad))
+    primario = next((r for r in estado.repositorios if r.rol == RolRepositorio.primario), None)
+    if primario is None:
+        return {
+            "repositorio": None,
+            "rama": None,
+            "commit": None,
+            "commit_indexado": None,
+            "motivo": "sin-vinculo",
+        }
+    return await asyncio.to_thread(_commit_integrable, ctx, org, ws, primario.repositorio)
+
+
+def _commit_integrable(ctx: ContextoConsola, org: str, ws: str, repositorio: str) -> dict[str, Any]:
+    salida: dict[str, Any] = {
+        "repositorio": repositorio,
+        "rama": None,
+        "commit": None,
+        "commit_indexado": None,
+        "motivo": None,
+    }
+    vinculo = ctx.datos.vinculo(AlcanceRepositorio(org=org, workspace=ws, repositorio=repositorio))
+    if vinculo is None:
+        salida["motivo"] = "sin-vinculo"
+        return salida
+    salida["rama"] = vinculo.rama_por_defecto
+    if ctx.fuente_codigo is None:
+        salida["motivo"] = "sin-clones"
+        return salida
+    try:
+        salida["commit"] = ctx.fuente_codigo.commit_canonico(vinculo)
+    except Exception:  # un clon ilegible no tumba el diálogo: la persona escribe el sha
+        salida["commit"] = None
+    if salida["commit"] is None:
+        salida["motivo"] = "sin-clon"
+    if ctx.acceso_grafo is not None:
+        try:
+            salida["commit_indexado"] = ctx.acceso_grafo.espacio(vinculo.alcance).meta().commit
+        except Exception:  # grafo caído o sin indexar: se muestra sin commit
+            pass
+    return salida
 
 
 @router.get("/orgs/{org}/workspaces/{ws}/unidades/{unidad}/linea-de-tiempo")
