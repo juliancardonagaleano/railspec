@@ -44,5 +44,5 @@ saltan si Mongo y FalkorDB no responden: ver [integracion/README.md](integracion
 
 Documentación: [contratos](docs/contratos.md), [motor](docs/motor.md),
 [proveedores](docs/proveedores.md), [grafo](docs/grafo.md), [proxy local](docs/proxy-local.md),
-[chat](docs/chat.md), [consola web](docs/consola.md), [despliegue en AKS](docs/despliegue.md) (bases, red, respaldos y clones: [despliegue-datos](docs/despliegue-datos.md)) y
+[chat](docs/chat.md), [consola web](docs/consola.md), [estado en Postgres](docs/estado-postgres.md), [despliegue en AKS](docs/despliegue.md) (bases, red, respaldos y clones: [despliegue-datos](docs/despliegue-datos.md)) y
 [migración desde el kit SDD](docs/migracion-kit.md).

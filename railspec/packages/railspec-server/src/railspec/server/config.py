@@ -2,10 +2,11 @@
 
 Convención fijada en ``railspec/docs/contratos.md`` § Variables de entorno: los
 valores llegan de Kubernetes Secrets. Nada aquí lee archivos ni tiene valores
-por defecto secretos. Sin Mongo configurado el servidor sería un entorno de
-desarrollo con almacenes en memoria (``modo_memoria``): solo arranca con
-``RAILSPEC_PERMITIR_DESARROLLO=1``, igual que los tokens de desarrollo junto a
-Mongo o a la GitHub App (``validar_arranque``).
+por defecto secretos. El estado vive en Mongo (``RAILSPEC_MONGO_URI``) o en Postgres
+(``RAILSPEC_POSTGRES_URL``, ver ``estado/postgres.py``). Sin ninguno de los dos el servidor sería
+un entorno de desarrollo con almacenes en memoria (``modo_memoria``): solo arranca con
+``RAILSPEC_PERMITIR_DESARROLLO=1``, igual que los tokens de desarrollo junto a una base
+o a la GitHub App (``validar_arranque``).
 """
 
 from __future__ import annotations
@@ -55,6 +56,10 @@ class ConfigAnthropic:
 class Configuracion:
     mongo_uri: str | None = None
     mongo_db: str = "railspec"
+    #: Estado en Postgres en vez de Mongo (Supabase, Neon, Azure Database for PostgreSQL). Excluyente.
+    postgres_url: str | None = None
+    #: Esquema de la tabla de documentos. No ``public``: Supabase lo expone por su API REST.
+    postgres_esquema: str = "railspec"
     foundry: ConfigFoundry | None = None
     anthropic: ConfigAnthropic | None = None
     pce_url: str | None = None
@@ -97,7 +102,11 @@ class Configuracion:
 
     @property
     def modo_memoria(self) -> bool:
-        return self.mongo_uri is None
+        return self.mongo_uri is None and self.postgres_url is None
+
+    @property
+    def base_persistente(self) -> bool:
+        return not self.modo_memoria
 
     @classmethod
     def desde_entorno(cls, entorno: Mapping[str, str] | None = None) -> Configuracion:
@@ -122,6 +131,8 @@ class Configuracion:
         return cls(
             mongo_uri=env.get("RAILSPEC_MONGO_URI") or None,
             mongo_db=env.get("RAILSPEC_MONGO_DB") or "railspec",
+            postgres_url=env.get("RAILSPEC_POSTGRES_URL") or None,
+            postgres_esquema=env.get("RAILSPEC_POSTGRES_ESQUEMA") or "railspec",
             foundry=foundry,
             anthropic=anthropic,
             pce_url=env.get("RAILSPEC_PCE_URL") or None,
@@ -161,10 +172,14 @@ def validar_arranque(config: Configuracion) -> None:
     Ambas se levantan solo con ``RAILSPEC_PERMITIR_DESARROLLO=1``, que además deja un WARNING.
     """
 
+    if config.mongo_uri and config.postgres_url:
+        raise ErrorConfiguracion(
+            "RAILSPEC_MONGO_URI y RAILSPEC_POSTGRES_URL a la vez: el estado vive en una sola base, quita una"
+        )
     if config.permitir_desarrollo:
         motivos = []
         if config.modo_memoria:
-            motivos.append("estado en memoria (sin RAILSPEC_MONGO_URI)")
+            motivos.append("estado en memoria (sin RAILSPEC_MONGO_URI ni RAILSPEC_POSTGRES_URL)")
         if config.tokens_desarrollo:
             motivos.append("tokens de desarrollo activos: no hay inicio de sesión con GitHub")
         log.warning(
@@ -175,14 +190,14 @@ def validar_arranque(config: Configuracion) -> None:
         return
     if config.modo_memoria:
         raise ErrorConfiguracion(
-            "sin RAILSPEC_MONGO_URI el servidor arranca en memoria y trata a toda persona autenticada "
-            "como desarrollador de cualquier organización: define RAILSPEC_MONGO_URI o, solo en "
-            "desarrollo, RAILSPEC_PERMITIR_DESARROLLO=1"
+            "sin RAILSPEC_MONGO_URI ni RAILSPEC_POSTGRES_URL el servidor arranca en memoria y trata a toda "
+            "persona autenticada como desarrollador de cualquier organización: define RAILSPEC_MONGO_URI "
+            "(o RAILSPEC_POSTGRES_URL) o, solo en desarrollo, RAILSPEC_PERMITIR_DESARROLLO=1"
         )
-    if config.tokens_desarrollo and (config.mongo_uri or config.consola.github_app is not None):
+    if config.tokens_desarrollo and (config.base_persistente or config.consola.github_app is not None):
         raise ErrorConfiguracion(
             "RAILSPEC_TOKENS_DESARROLLO sustituye la identidad de GitHub y habilita el acceso por token "
-            "de desarrollo, pero hay Mongo o GitHub App configurados: quita la variable (¿clave "
+            "de desarrollo, pero hay una base de datos o GitHub App configuradas: quita la variable (¿clave "
             "sobrante en el Secret?) o, solo en desarrollo, define RAILSPEC_PERMITIR_DESARROLLO=1"
         )
 

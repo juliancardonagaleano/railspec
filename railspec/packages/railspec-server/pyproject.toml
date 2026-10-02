@@ -13,9 +13,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Motor en producción: Mongo, proveedores de modelo y superficies MCP/HTTP.
+# Motor en producción: Mongo (o Postgres, ver estado/postgres.py), proveedores de modelo y superficies MCP/HTTP.
 motor = [
   "pymongo>=4.8,<5",
+  "psycopg[binary,pool]>=3.2,<4",
   "agent-framework-anthropic>=1.0.0b260918",
   "agent-framework-foundry>=1.13",
   # SDK oficiales de los adaptadores de proveedor (Claude por Messages API, resto por chat completions).
@@ -38,6 +39,7 @@ test-motor = [
   "mcp>=2.2,<3",
   "fastapi>=0.115",
   "pymongo>=4.8,<5",
+  "psycopg[binary,pool]>=3.2,<4",
   "pyjwt[crypto]>=2.8,<3",
   "railspec-graph==0.1.0",
 ]

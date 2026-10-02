@@ -7,6 +7,8 @@ networkx>=3.2,<4
 falkordb>=1.0,<2
 agent-framework-core>=1.19,<2
 pymongo>=4.8,<5
+# Estado en Postgres (RAILSPEC_POSTGRES_URL): psycopg 3 con libpq incluido y su pool de conexiones.
+psycopg[binary,pool]>=3.2,<4
 agent-framework-anthropic>=1.0.0b260918
 agent-framework-foundry>=1.13
 anthropic>=0.116

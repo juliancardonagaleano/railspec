@@ -232,6 +232,7 @@ Convención para las fases 2 y 4; los valores vienen de Kubernetes Secrets.
 | Variable | Uso |
 |---|---|
 | `RAILSPEC_MONGO_URI`, `RAILSPEC_MONGO_DB` | Estado, checkpoints, telemetría |
+| `RAILSPEC_POSTGRES_URL`, `RAILSPEC_POSTGRES_ESQUEMA` | Lo mismo en Postgres en lugar de Mongo; excluyente con `RAILSPEC_MONGO_URI` ([estado-postgres.md](estado-postgres.md)) |
 | `RAILSPEC_FALKORDB_URL` | Grafo central y vectores |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Proveedor primario (sin clave = Entra ID) |
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Adaptador de Anthropic tras bandera |
