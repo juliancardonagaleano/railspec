@@ -211,7 +211,9 @@ for rel in (".mcp.json", "opencode.jsonc", ".claude/settings.json"):
 # 5. AGENTS.md es del kit: se queda solo el bloque de Railspec, si lo hay.
 agentes = raiz / "AGENTS.md"
 if agentes.is_file():
-    bloque = re.search(r"<!-- railspec:inicio.*?<!-- railspec:fin -->\n?", agentes.read_text(encoding="utf-8"), re.S)
+    bloque = re.search(
+        r"<!-- railspec:inicio.*?<!-- railspec:fin -->\n?", agentes.read_text(encoding="utf-8"), re.S
+    )
     if bloque:
         agentes.write_text(bloque.group(0), encoding="utf-8")
     else:
