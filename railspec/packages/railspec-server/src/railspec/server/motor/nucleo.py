@@ -155,6 +155,15 @@ class Nucleo:
         ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
         return self.almacen.perfil(ws, estado.perfil) or perfil_por_defecto(ws, estado.perfil)
 
+    def perfil_inicial(self, ws: AlcanceWorkspace, pedido: Perfil | None) -> Perfil:
+        """Perfil con el que nace una unidad: el pedido, si no el del workspace, si no ``estandar``."""
+
+        if pedido is not None:
+            return pedido
+        leer_ws = getattr(self.almacen, "workspace", None)
+        workspace = leer_ws(ws) if leer_ws else None
+        return workspace.perfil_por_defecto if workspace else Perfil.estandar
+
     def nivel(self, estado: EstadoUnidad, repositorio: str | None = None) -> NivelCodigo:
         repo = repositorio or primario(estado)
         vinculo = self.almacen.vinculo(
