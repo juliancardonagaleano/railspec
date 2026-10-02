@@ -45,6 +45,8 @@ export function mensajePorStatus(status: number): string {
       return "Los datos enviados no son válidos.";
     case 501:
       return "El servidor aún no implementa esta operación.";
+    case 502:
+      return "Un servicio externo del que depende el servidor falló.";
     default:
       return status >= 500 ? "Error del servidor." : `Error inesperado (${status}).`;
   }

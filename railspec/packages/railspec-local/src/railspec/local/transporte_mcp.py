@@ -18,7 +18,7 @@ from mcp.client.streamable_http import streamable_http_client
 from railspec.contracts.tools import nombre_mcp
 
 from .cliente import error_desde
-from .errores import RespuestaInvalida, SinConexion
+from .errores import RespuestaInvalida, ServidorRechazo, SinConexion
 
 
 class TransporteMcpHttp:
@@ -90,10 +90,21 @@ class TransporteMcpHttp:
         if datos is None:
             datos = _json_de_contenido(resultado.content)
         if resultado.is_error:
-            raise error_desde(datos if isinstance(datos, dict) else {})
+            if isinstance(datos, dict) and "codigo" in datos:
+                raise error_desde(datos)
+            # Sin ``ErrorTool``: el servidor rechazó la identidad (texto plano), no la tool.
+            raise ServidorRechazo(tool, _texto_de_contenido(resultado.content))
         if not isinstance(datos, dict):
             raise RespuestaInvalida(f"{tool}: el servidor no devolvió un objeto JSON")
         return datos
+
+
+def _texto_de_contenido(contenido: list[Any]) -> str:
+    for bloque in contenido:
+        texto = getattr(bloque, "text", None)
+        if texto:
+            return str(texto).strip()[:500]
+    return ""
 
 
 def _json_de_contenido(contenido: list[Any]) -> Any:

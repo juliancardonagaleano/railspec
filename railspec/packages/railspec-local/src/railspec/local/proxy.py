@@ -11,6 +11,7 @@ y siempre devuelve el control a ``unit_advance``.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 from collections.abc import Callable
@@ -622,19 +623,39 @@ class ProxyLocal:
                 "siguiente": "unit_advance",
             }
 
-    async def integrar(self, unidad: str | None, especificacion_viva: str, pr_url: str | None = None) -> Json:
+    async def integrar(
+        self,
+        unidad: str | None,
+        especificacion_viva: str,
+        pr_url: str | None = None,
+        commit_integrado: str | None = None,
+    ) -> Json:
+        """``unit.integrate``. El commit resultante en la rama destino (1.4) lo da el arnés o, si
+        no, es la punta de la rama por defecto del remoto: el servidor conserva la superposición
+        de la unidad en el grafo hasta que el índice canónico alcance ese commit. Sin remoto o sin
+        red no se manda y el servidor la descarta al integrar."""
+
         almacen = self._almacen(unidad)
         with almacen.cerrojo():
             estado = almacen.leer()
+            if commit_integrado is None:
+                commit_integrado = await asyncio.to_thread(git.punta_de_destino, Path(estado.worktree))
             salida = await self.cliente.llamar(
                 "unit.integrate",
                 UnitIntegrateEntrada(
-                    unidad=estado.unidad, especificacion_viva=especificacion_viva, pr_url=pr_url
+                    unidad=estado.unidad,
+                    especificacion_viva=especificacion_viva,
+                    pr_url=pr_url,
+                    commit_integrado=commit_integrado,
                 ),
                 EstadoSalida,
             )
             almacen.escribir(estado.model_copy(update={"espejo_remoto": salida.estado}))
-            return {"unidad": estado.unidad.unidad, "integrada": salida.estado.integracion is not None}
+            return {
+                "unidad": estado.unidad.unidad,
+                "integrada": salida.estado.integracion is not None,
+                "commit_integrado": commit_integrado,
+            }
 
     async def listar(self, **filtros: Any) -> Json:
         entrada = UnitListEntrada(alcance=self._alcance_ws(), **filtros)

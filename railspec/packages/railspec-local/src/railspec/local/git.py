@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -116,6 +117,48 @@ def commit_empujado(repo: Path, rama: str) -> str | None:
         f"refs/remotes/*/{rama}",
     )
     return salida.splitlines()[0] if salida else None
+
+
+def punta_de_destino(repo: Path, remoto: str = "origin", espera_s: int = 30) -> str | None:
+    """Commit con el que la rama por defecto de ``remoto`` recibe lo que una unidad integra.
+
+    Solo vale lo recién traído: sin red, sin permiso o pasado ``espera_s`` devuelve ``None``, porque
+    una referencia vieja nombraría un commit que el índice canónico ya dejó atrás. Tampoco hay
+    commit sin remoto o sin rama, ni si el repositorio no usa SHA-1 (el contrato pide 40 hex)."""
+
+    try:
+        rama = texto(repo, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{remoto}/HEAD").removeprefix(
+            f"{remoto}/"
+        )
+    except ErrorGit:
+        rama = next((r for r in ("main", "master") if _existe_ref(repo, f"refs/remotes/{remoto}/{r}")), None)
+    if rama is None:
+        return None
+    try:
+        traida = subprocess.run(
+            ["git", "-C", str(repo), "fetch", "--quiet", remoto, rama],
+            capture_output=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            timeout=espera_s,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if traida.returncode != 0:
+        return None
+    try:
+        commit = texto(repo, "rev-parse", "--verify", f"refs/remotes/{remoto}/{rama}^{{commit}}")
+    except ErrorGit:
+        return None
+    return commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None
+
+
+def _existe_ref(repo: Path, ref: str) -> bool:
+    try:
+        git(repo, "rev-parse", "--verify", "--quiet", ref)
+    except ErrorGit:
+        return False
+    return True
 
 
 def hash_arbol(repo: Path) -> str:

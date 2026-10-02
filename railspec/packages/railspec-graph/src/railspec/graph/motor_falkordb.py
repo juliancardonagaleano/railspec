@@ -92,18 +92,20 @@ class MotorFalkor:
         return Meta(**d)
 
     def escribir_meta(self, grafo: str, meta: Meta) -> None:
-        texto = json.dumps(
-            {
-                "commit": meta.commit,
-                "unidad": meta.unidad,
-                "borrados": sorted(set(meta.borrados)),
-                "aristas_borradas": sorted({tuple(a) for a in meta.aristas_borradas}),
-                "base": meta.base,
-                "lotes": meta.lotes,
-                "recibidos": sorted(set(meta.recibidos)),
-            }
-        )
-        self._escribir(grafo, "MERGE (m:Meta) SET m.json = $j", {"j": texto})
+        datos = {
+            "commit": meta.commit,
+            "unidad": meta.unidad,
+            "borrados": sorted(set(meta.borrados)),
+            "aristas_borradas": sorted({tuple(a) for a in meta.aristas_borradas}),
+            "base": meta.base,
+            "lotes": meta.lotes,
+            "recibidos": sorted(set(meta.recibidos)),
+        }
+        if meta.integrado is not None:
+            # Solo las superposiciones retenidas lo llevan: durante un despliegue gradual una
+            # réplica anterior sigue leyendo el resto de las metas, que no cambian de forma.
+            datos["integrado"] = meta.integrado
+        self._escribir(grafo, "MERGE (m:Meta) SET m.json = $j", {"j": json.dumps(datos)})
 
     # --- símbolos y aristas ------------------------------------------------
     def upsert_simbolos(self, grafo: str, simbolos: list[dict]) -> None:

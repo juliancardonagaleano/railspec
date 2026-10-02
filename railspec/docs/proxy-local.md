@@ -15,14 +15,22 @@ pip install codebase-memory-mcp       # opcional: indexado local (delta de símb
 railspec instalar --org acme --workspace certificados --repositorio certificados-api \
   --arnes claude-code --arnes opencode   # también: --arnes codex, --arnes copilot
 export RAILSPEC_URL=https://railspec.example/mcp   # endpoint MCP del servidor
-export RAILSPEC_TOKEN=...                          # token de usuario de la GitHub App de Railspec (o un rsc1 de la consola)
+export RAILSPEC_TOKEN=...                          # token de usuario de la GitHub App de Railspec
 ```
 
 `railspec instalar` escribe `.railspec/config.json` (versionable, sin
 secretos: org, workspace, slug del repositorio, nivel de código, arnés) y el
 adaptador de cada arnés. `--nivel` fija el nivel del vínculo; si falta rige
 `restringido`. `railspec instalar --verificar` informa deriva sin escribir.
-El token nunca se escribe en disco. El comando `railspec` tiene que estar en
+El token nunca se escribe en disco. No sirve un token `rsc1` de la consola (vale
+solo en `/v1` y el chat, no en `/mcp`). El servidor identifica a la persona con
+él y, si la GitHub App tiene el permiso de miembros de la organización, lee sus
+equipos de GitHub (cinco minutos de caché): un rol asignado a un equipo vale en
+el arnés igual que en la consola ([consola.md](consola.md#autorización)).
+Cuando el servidor no acepta el token, el proxy lo dice con el motivo del
+servidor y qué revisar (`RAILSPEC_TOKEN`); cuando se niega una tool por rol, el
+mensaje trae el rol que pide, el que tienes y, si no hay equipos resueltos, que
+solo cuentan los roles asignados a tu persona. El comando `railspec` tiene que estar en
 el `PATH` que ve el arnés (el binario de la release en `~/.local/bin` o
 `pipx install railspec-local`); si no lo está, `instalar` lo avisa. El arnés
 lo usa para el proxy (`railspec mcp`) y para los hooks (`railspec hook`).
@@ -334,7 +342,8 @@ viaja: el servidor lo deriva del token.
 | `unit_checkpoint` | `unit.approve` | Formulario al humano (elicitation) |
 | `unit_approve` | `unit.approve` | — |
 | `unit_set_mode` | `unit.set_mode` | Solo a petición del humano (1.2) |
-| `unit_integrate`, `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
+| `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
+| `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
 | `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |

@@ -44,12 +44,50 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
   su delta siempre es base..árbol de trabajo. Sus borrados son lápidas que
   ocultan símbolos y aristas del canónico.
 - Una consulta con `unidad` ve canónico más superposición; sin ella, solo
-  canónico. El servidor llama `descartar_superposicion` en `unit.integrate`:
-  desde ahí el código de la unidad llega al canónico con el reindexado de CI.
+  canónico. El código de la unidad llega al canónico con el reindexado de CI
+  del commit integrado, y mientras tanto la superposición sigue ahí (ver
+  [Superposición de una unidad integrada](#superposición-de-una-unidad-integrada)).
 - El servidor ingiere cada snapshot de `unit.report` con
   `AlmacenGrafo.ingerir` (es decir, `ingerir_snapshot`): las exclusiones del
   vínculo se vuelven a aplicar en el servidor. Un fallo del grafo se registra
   y no tumba el reporte, que ya está guardado.
+
+## Superposición de una unidad integrada
+
+`unit.integrate` trae desde 1.4 `commit_integrado`: el commit resultante en la
+rama destino. El proxy lo manda (el que da el arnés o, si no, la punta de la
+rama por defecto del remoto tras un `git fetch`) y el servidor, en vez de
+descartar la superposición del repositorio primario, la **retiene**:
+`AlmacenGrafo.retener_superposicion` guarda `integrado` en su meta y la
+superposición sigue visible a las consultas con esa `unidad` (incluidos
+`impact` y `trace`) hasta que el canónico alcance ese commit. Sin
+`commit_integrado`, o si el canónico ya está en él, se borra al integrar, y
+también se borran al integrar las de los repositorios transversales: el
+contrato trae un solo commit.
+
+`IndexadorCanonico` retira las retenidas
+(`AlmacenGrafo.retirar_superposiciones`) justo después de avanzar el canónico:
+
+- las que `integraron` en ese mismo commit;
+- todas las retenidas cuando el índice es **completo** (sin
+  `commit_anterior`): CI usa el índice completo cuando no puede encadenar el
+  delta (corridas saltadas o fallidas entre dos commits, force-push), y esa es
+  la única señal con la que declara que re-afirma la rama entera. El servidor
+  no tiene git y no puede ordenar un commit anterior de otro, así que no hay
+  una tercera regla;
+- el reenvío de un commit ya aplicado (tras una caída entre avanzar el
+  canónico y retirar) repite el retiro de las integradas en él.
+
+Las superposiciones de unidades en curso no llevan `integrado` y no se
+tocan. Límites conocidos: si `commit_integrado` no llega nunca al canónico
+(otra rama que la por defecto, o el merge no se empujó) la superposición
+queda retenida hasta el siguiente índice completo (`workflow_dispatch` con
+`completo`) o hasta borrar el repositorio; y un índice completo de un commit
+anterior al integrado, poco probable porque CI encadena las corridas, retira
+antes de tiempo (el efecto es el de antes: el código de la unidad falta hasta
+que CI llegue a su commit). Al desplegar, una réplica anterior no lee la meta
+de una superposición retenida (falla solo la consulta con esa `unidad`);
+las metas del canónico no cambian de forma.
 
 ## Comparación base contra snapshot (impacto)
 
@@ -83,7 +121,7 @@ trabajo, lo que un grupo anterior ya había cambiado no se atribuye al nuevo.
 
 - Las trazas `(unidad, criterio, símbolo)` viven en un grafo aparte por
   repositorio, `railspec:<org>:<workspace>:<repositorio>:t`, que sobrevive a
-  reindexados y al descarte de la superposición; se borra con el
+  reindexados y al retiro de la superposición; se borra con el
   repositorio. Se acumulan: un reporte posterior no borra las anteriores.
 - Las exclusiones del vínculo se aplican antes de enlazar.
 - El gate de código lista por criterio cuántos símbolos tiene enlazados, o
@@ -133,7 +171,9 @@ delta por lotes. `IndexadorCanonico.recibir(entrada, vinculo)`:
   reinicios y a varias réplicas) y solo al llegar el último aplica todo al
   canónico, recalcula la analítica y borra la preparación;
 - reenviar un lote o un commit ya aplicado es idempotente;
-- vuelve a aplicar las exclusiones del vínculo.
+- vuelve a aplicar las exclusiones del vínculo;
+- tras avanzar el canónico retira las superposiciones de unidades integradas
+  que ese commit cubre (ver arriba).
 
 ## Referencias entre repositorios
 
@@ -168,10 +208,3 @@ RAILSPEC_FALKORDB_URL=redis://localhost:6379 python -m pytest railspec/packages/
 
 Con `RAILSPEC_FALKORDB_URL` cada prueba corre también contra FalkorDB real,
 en una organización propia que se borra al terminar.
-
-## Pendiente
-
-- La superposición se descarta en `unit.integrate`, antes de que el
-  reindexado de CI traiga el commit integrado: en ese intervalo el canónico
-  aún no tiene el código de la unidad. Cerrarlo exige saber el commit de
-  integración (hoy `unit.integrate` solo trae `pr_url`).

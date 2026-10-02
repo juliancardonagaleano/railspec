@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import mcp.types as types
+import pytest
 from local_fabricas import ServidorDoble, crear_proxy, orden_implementar
 from mcp import Client
 from railspec.local.servidor_mcp import crear_servidor
@@ -159,3 +160,43 @@ def test_transporte_llama_al_servidor_por_alias_mcp():
     transporte._abrir = abrir
     assert asyncio.run(transporte.llamar("unit.set_mode", {})) == {"ok": True}
     assert llamadas == ["unit_set_mode"]
+
+
+def test_transporte_explica_un_rechazo_de_identidad_en_vez_de_una_respuesta_invalida():
+    from railspec.local.errores import ErrorServidor, ServidorRechazo
+    from railspec.local.transporte_mcp import TransporteMcpHttp
+
+    resultados = []
+
+    class ClienteFalso:
+        async def call_tool(self, nombre, argumentos):
+            return resultados.pop(0)
+
+    transporte = TransporteMcpHttp("http://railspec.invalid/mcp", "token")
+
+    async def abrir():
+        return ClienteFalso()
+
+    transporte._abrir = abrir
+    # El servidor contesta con texto plano cuando no acepta el token: antes salía "fuera de contrato: {}".
+    resultados.append(
+        types.CallToolResult(
+            content=[types.TextContent(type="text", text="GitHub no reconoce el token (404)")], is_error=True
+        )
+    )
+    with pytest.raises(ServidorRechazo) as exc:
+        asyncio.run(transporte.llamar("unit.status", {}))
+    texto = str(exc.value)
+    assert "GitHub no reconoce el token (404)" in texto and "RAILSPEC_TOKEN" in texto and "rsc1" in texto
+    # Sin ningún texto sigue diciendo qué revisar.
+    resultados.append(types.CallToolResult(content=[], is_error=True))
+    with pytest.raises(ServidorRechazo, match="sin detalle"):
+        asyncio.run(transporte.llamar("unit.status", {}))
+    # Un ErrorTool del contrato sigue siendo un ErrorServidor tipado (el rol que falta, por ejemplo).
+    cuerpo = {
+        "codigo": "fuera-de-alcance",
+        "detalle": "unit.start exige rol desarrollador en acme/ws; tienes lector",
+    }
+    resultados.append(types.CallToolResult(content=[], structured_content=cuerpo, is_error=True))
+    with pytest.raises(ErrorServidor, match="tienes lector"):
+        asyncio.run(transporte.llamar("unit.start", {}))

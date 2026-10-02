@@ -158,6 +158,9 @@ si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo `RAILSPEC_PERMITIR_DESARROLLO=1`
   cierre. No se pueden refrescar sin guardar el token de GitHub del usuario, y
   la consola decide no guardarlo. Quitar una *asignación* de rol en Railspec sí
   surte efecto de inmediato: los roles se leen de la base en cada petición.
+- **Equipos y el inicio de sesión.** Si GitHub falla justo al leer los equipos
+  durante el inicio de sesión, la sesión nace sin equipos y así sigue hasta que
+  expire o se vuelva a iniciar; el arnés, que los relee, no tiene ese límite.
 - **Administradores de plataforma.** `RAILSPEC_CONSOLA_ADMINS` es configuración
   del ConfigMap: añadir o quitar a alguien exige cambiar el ConfigMap y
   reiniciar las réplicas (no hay edición desde la consola). Tras el reinicio la
@@ -215,7 +218,22 @@ Las tools llamadas desde la consola (`POST /consola/api/tools/{nombre}`) pasan
 por el mismo registro que MCP y `/v1/tools`, y los roles de equipo valen igual
 por las tres vías: la identidad del token devuelve un actor con los equipos de
 GitHub de la persona y el autorizador los suma a las asignaciones personales
-(la misma consulta que usa la consola).
+(la misma consulta que usa la consola). La regla de qué asignaciones cuentan y
+cuál gana es una sola función (`api/roles.py`, `rol_efectivo`) que usan los
+dos autorizadores (el del arnés y el de la consola) y el chat, y una prueba
+(`test_roles_paridad.py`) compara ambos sobre la misma matriz de personas,
+equipos y alcances.
+
+Una diferencia es deliberada: **administrar la plataforma**
+(`RAILSPEC_CONSOLA_ADMINS`) solo vale en la consola, donde actúa como `org-admin`
+en toda organización. Por el arnés (`/mcp` y `/v1`, también con el `rsc1` de esa
+persona) no da ningún rol: para arrancar unidades ahí hace falta una asignación
+como a cualquiera, de modo que nadie gana permisos por el arnés que no tuviera
+ya. La consola sí permite asignársela (es `org-admin`).
+
+Una tool negada por rol responde `fuera-de-alcance` con el rol que pide, el que
+tienes y, si no hay rol y el token no trae equipos, que solo cuentan los roles
+asignados a la persona.
 
 | Token | Equipos |
 | --- | --- |
@@ -224,11 +242,50 @@ GitHub de la persona y el autorizador los suma a las asignaciones personales
 | Token de desarrollo | Ninguno: asignar el rol como persona. |
 | OIDC de Actions | No aplica: el alcance lo fija la tool. |
 
+Leer los equipos falla cerrado (sin permiso o sin respuesta de GitHub no hay
+equipos) pero solo se recuerda una respuesta definitiva: equipos leídos, o
+GitHub diciendo que este token no puede verlos (401, 403, 404). Un fallo
+pasajero (429, 5xx, límite de tasa, red) no se guarda, de modo que quien
+trabaja desde el arnés recupera sus roles de equipo en la siguiente llamada y
+no a los cinco minutos; lo que se devuelva mientras tanto nunca es más que lo
+que GitHub confirmó.
+
 Los equipos no se guardan en el estado ni en la auditoría. Un token `rsc1`
 vencido o con la carga alterada no es actor (401), y un rol de equipo vale solo
 en la organización y el workspace en que se asignó. Un cambio de membresía se
 nota al renovar el token de GitHub (cinco minutos) o al volver a iniciar
 sesión (el `rsc1` conserva los equipos del login).
+
+## Catálogo de modelos
+
+Configuración → Catálogo de modelos muestra, por proveedor, si el servidor lo
+tiene (`configurado`), de dónde lee (`declarados`, `proyecto` de Foundry o
+`api`), cuántos modelos hay guardados para la organización y cuándo se
+leyeron, y cómo salió el último intento. Un `org-admin` puede sincronizar todos
+los proveedores o uno solo. No pide ni guarda credenciales: usa las del
+servidor (`RAILSPEC_FOUNDRY_*`, `RAILSPEC_ANTHROPIC_*`), y la lectura es la que
+ya describe [proveedores.md](proveedores.md#catálogo-de-modelos).
+
+- **Estado persistido.** Cada lectura real deja un documento por
+  organización y proveedor en la colección `catalogo_estado` (`_id`
+  `org/proveedor`), también las automáticas que dispara `unit.start` al caducar
+  el TTL; así es el mismo en todas las réplicas. Lleva el resultado, quién
+  sincronizó (o `automatica`), cuántos modelos rigen, `leido_en` y, si falló,
+  `{codigo, detalle}`. No lleva URLs, credenciales ni cuerpos de respuesta.
+- **Un fallo no borra nada.** Si un proveedor falla, la organización conserva su
+  catálogo anterior (el último leído o el guardado en Mongo) y el estado dice
+  que falló y por qué. Los códigos de error son los de
+  [proveedores.md](proveedores.md#catálogo-de-modelos).
+- **Reutilización.** Dos sincronizaciones seguidas del mismo proveedor llaman una
+  sola vez a su API (`reutilizada: true` si se aprovechó una lectura de hace
+  menos de 30 s, aunque la haya hecho otra organización).
+- **Auditoría.** Cada sincronización queda en el workspace reservado `org` como
+  `cambio-configuracion` con `entidad: catalogo`, `accion: sincronizar`,
+  `resultado` (`ok`, `parcial` o `error`), el total de modelos y el resultado por
+  proveedor (`foundry: ok`, `anthropic: error:autenticacion`), también cuando falla.
+- **Sin credenciales reales, sin inventar.** La forma de la respuesta del proyecto
+  de Foundry sigue sin verificarse contra un recurso real: si no coincide con la
+  esperada, el estado dice `forma` en vez de mostrar un catálogo vacío.
 
 ## Vínculos de repositorio
 
@@ -306,7 +363,9 @@ Entidades de configuración = JSON del contrato (`railspec/schemas/v1`), con
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar. |
 | `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. La URL es `https://github.com/<owner>/<repo>` del `github_org` de la organización (422 si no). |
-| `GET /orgs/{org}/catalogo`, `POST …/catalogo/sincronizar` | Catálogo de modelos. Sincronizar responde 501 hasta que el servidor sepa leer el catálogo de cada proveedor. |
+| `GET /orgs/{org}/catalogo` | Catálogo de modelos guardado para la organización (lector). |
+| `GET /orgs/{org}/catalogo/estado` | Por proveedor: si el servidor lo tiene configurado, de qué fuentes lee, cuántos modelos hay guardados, cuándo se leyeron y cómo salió el último intento (quién, cuándo, resultado, error saneado). Lector. |
+| `POST /orgs/{org}/catalogo/sincronizar?proveedor=` | Lee ya el catálogo de todos los proveedores o del indicado. `org-admin`. 200 con el estado de cada uno si alguno se leyó (`resultado`: `ok` o `parcial`), 502 si todos los pedidos fallaron, 404 si el servidor no tiene ese proveedor, 422 si no existe, 409 si el servidor no tiene proveedores de modelo. Ver «Catálogo de modelos». |
 | `GET/PUT /orgs/{org}/perfiles[/{nombre}]?workspace=` | Perfiles; validados contra el catálogo (422 si un modelo no está o no admite el effort, las salidas estructuradas o el contexto pedidos; aviso si no hay catálogo de ese proveedor). |
 | `GET/PUT /orgs/{org}/presupuestos?workspace=` | Presupuestos. |
 | `GET /orgs/{org}/proveedores-contexto?workspace=`, `PUT/DELETE …/{rol}/{nombre}` | Proveedores de contexto; credenciales solo como `secret://<org>--<nombre>/<clave>` (namespace de la organización). La `url` debe ser de un host permitido por la plataforma. Solo `org-admin` fija `url` y `credencial_ref`; los demás roles reciben `credencial_configurada` en vez de `credencial_ref`. |
@@ -367,7 +426,6 @@ del compose, `python -m pytest railspec/integracion`. El job `consola` de
 
 ## Pendiente
 
-- Sincronizar el catálogo de modelos por API de cada proveedor (hoy 501).
 - Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el
   repositorio; hoy la consola edita las `exclusiones` del vínculo).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).

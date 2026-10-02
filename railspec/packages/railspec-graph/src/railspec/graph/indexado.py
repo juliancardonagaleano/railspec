@@ -13,6 +13,9 @@ Reglas:
   esté en ese commit; sin él es un índice completo que reemplaza al canónico.
 - Reenviar un lote o un commit ya aplicado es idempotente.
 - Las exclusiones del vínculo se vuelven a aplicar aquí, como en la ingesta.
+- Al avanzar el canónico se retiran las superposiciones de unidades integradas
+  que el nuevo commit cubre (``AlmacenGrafo.retirar_superposiciones``): las
+  integradas en ese commit y, con un índice completo, todas las retenidas.
 """
 
 from __future__ import annotations
@@ -51,6 +54,9 @@ class IndexadorCanonico:
         canon = self._acceso.espacio(alcance)
         vigente = canon.meta().commit
         if vigente == entrada.commit:
+            # Un reenvío tras una caída entre avanzar el canónico y retirar las superposiciones;
+            # solo las integradas en este commit, no las que integraron después de aplicado.
+            self._grafo.retirar_superposiciones(alcance, entrada.commit, completo=False)
             return GraphIndexSalida(commit=entrada.commit, lotes_recibidos=entrada.lotes, aplicado=True)
         if entrada.commit_anterior is not None and entrada.commit_anterior != vigente:
             raise IndiceDesfasado(
@@ -93,6 +99,9 @@ class IndexadorCanonico:
         canon.fijar_embeddings(prep.leer_embeddings([s["id"] for s in simbolos]))
         canon.fijar_meta(Meta(commit=entrada.commit))
         self._grafo.recalcular_analitica(entrada.alcance)
+        self._grafo.retirar_superposiciones(
+            entrada.alcance, entrada.commit, completo=entrada.commit_anterior is None
+        )
 
 
 class _Estado:

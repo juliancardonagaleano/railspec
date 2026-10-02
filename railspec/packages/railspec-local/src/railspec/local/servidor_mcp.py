@@ -166,10 +166,15 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
 
     @_errores
     async def unit_integrate(
-        especificacion_viva: str, pr_url: str | None = None, unidad: str | None = None
+        especificacion_viva: str,
+        pr_url: str | None = None,
+        unidad: str | None = None,
+        commit_integrado: str | None = None,
     ) -> dict[str, Any]:
-        """Registra que el resultado de una unidad cerrada se integró (spec viva y PR)."""
-        return await proxy().integrar(unidad, especificacion_viva, pr_url)
+        """Registra que el resultado de una unidad cerrada se integró (spec viva y PR).
+        `commit_integrado` es el sha del commit resultante en la rama destino; si falta, se usa la
+        punta de la rama por defecto del remoto."""
+        return await proxy().integrar(unidad, especificacion_viva, pr_url, commit_integrado)
 
     @_errores
     async def unit_status(unidad: str | None = None) -> dict[str, Any]:

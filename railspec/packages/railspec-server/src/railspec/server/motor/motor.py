@@ -642,7 +642,7 @@ class Motor:
 
         self._estado(e.unidad)
         nuevo = self.n.escribir(e.unidad, integrar, actor)
-        self._descartar_superposiciones(nuevo)
+        self._liberar_superposiciones(nuevo, e.commit_integrado)
         self.n.emitir(
             e.unidad, UnidadIntegrada(especificacion_viva=e.especificacion_viva, pr_url=e.pr_url), actor
         )
@@ -652,26 +652,31 @@ class Motor:
             actor,
             especificacion_viva=e.especificacion_viva,
             pr_url=e.pr_url,
+            commit_integrado=e.commit_integrado,
         )
         return EstadoSalida(estado=nuevo)
 
-    def _descartar_superposiciones(self, estado: EstadoUnidad) -> None:
-        """Integrada la unidad, su código llega al canónico por el reindexado de CI; su
-        superposición sobra. Las trazas ``CA-NN`` se quedan (grafo aparte)."""
+    def _liberar_superposiciones(self, estado: EstadoUnidad, commit_integrado: str | None) -> None:
+        """Integrada la unidad, su código llega al canónico por el reindexado de CI.
 
+        Con ``commit_integrado`` la superposición del repositorio primario se retiene hasta que
+        ``graph.index`` lleve el canónico a ese commit, para que las consultas de la unidad no
+        pierdan su código en ese intervalo; el contrato trae un solo commit, así que las de los
+        repositorios transversales, y todas si no hay commit, se descartan al integrar. Las
+        trazas ``CA-NN`` se quedan (grafo aparte)."""
+
+        retener = getattr(self.n.grafo, "retener_superposicion", None) if commit_integrado else None
         descartar = getattr(self.n.grafo, "descartar_superposicion", None)
-        if descartar is None:
-            return
         u = estado.unidad
         for r in estado.repositorios:
+            alcance = AlcanceRepositorio(org=u.org, workspace=u.workspace, repositorio=r.repositorio)
             try:
-                descartar(
-                    AlcanceRepositorio(org=u.org, workspace=u.workspace, repositorio=r.repositorio),
-                    u.unidad,
-                    r.base_commit,
-                )
+                if retener is not None and r.rol == RolRepositorio.primario:
+                    retener(alcance, u.unidad, commit_integrado)
+                elif descartar is not None:
+                    descartar(alcance, u.unidad, r.base_commit)
             except Exception as exc:  # el grafo informa, no decide
-                log.warning("superposición de %s/%s no descartada: %s", u.unidad, r.repositorio, exc)
+                log.warning("superposición de %s/%s no liberada: %s", u.unidad, r.repositorio, exc)
 
     # --- lecturas ---------------------------------------------------------------------------------------
 

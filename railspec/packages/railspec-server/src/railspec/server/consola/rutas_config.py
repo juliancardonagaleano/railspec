@@ -18,8 +18,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import Field
-from railspec.contracts.comun import Fase, Perfil, Presupuesto, Riesgo
+from railspec.contracts.comun import Fase, Perfil, Presupuesto, Proveedor, Riesgo
 from railspec.contracts.repositorio import (
     EventoAuditoria,
     ModeloCatalogo,
@@ -89,12 +90,117 @@ async def catalogo(org: str, request: Request) -> list[dict[str, Any]]:
     return [_json(m) for m in ctx.datos.catalogo(org)]
 
 
+def _iso(fecha: Any) -> str | None:
+    return fecha.isoformat() if fecha is not None else None
+
+
+def _aviso_proveedor(nombre: str, configurado: bool, fuentes: list[str], modelos: int) -> str | None:
+    if not configurado:
+        return (
+            f"{nombre} ya no está configurado en este servidor; el catálogo guardado es el de la "
+            "última lectura."
+            if modelos
+            else None
+        )
+    if fuentes:
+        return None
+    if nombre == Proveedor.foundry.value:
+        return (
+            "Foundry no tiene despliegues declarados ni proyecto en este servidor "
+            "(RAILSPEC_FOUNDRY_DESPLIEGUES o RAILSPEC_FOUNDRY_PROYECTO): el catálogo queda vacío y "
+            "ningún perfil se puede satisfacer."
+        )
+    return f"{nombre} no tiene fuente de catálogo en este servidor: el catálogo queda vacío."
+
+
+@router.get("/orgs/{org}/catalogo/estado")
+async def estado_catalogo(org: str, request: Request) -> dict[str, Any]:
+    """Por proveedor: si el servidor lo tiene, cuántos modelos hay guardados y cómo salió la última lectura.
+
+    El último intento sale de Mongo (``catalogo_estado``), así que es el mismo en todas las réplicas;
+    no lleva URLs ni credenciales, solo el resultado y un error ya saneado.
+    """
+
+    ctx = await _lectura(request, org, None)
+    cat = ctx.catalogo
+    modelos = ctx.datos.catalogo(org)
+    estados = {e["proveedor"]: e for e in ctx.datos.estados_catalogo(org)}
+    configurados = {p.value for p in cat.proveedores} if cat is not None else set()
+    nombres = sorted(configurados | {m.proveedor.value for m in modelos} | set(estados))
+    filas = []
+    for nombre in nombres:
+        propios = [m for m in modelos if m.proveedor.value == nombre]
+        fuentes = cat.fuentes(Proveedor(nombre)) if nombre in configurados else []
+        intento = estados.get(nombre)
+        filas.append(
+            {
+                "proveedor": nombre,
+                "configurado": nombre in configurados,
+                "fuentes": fuentes,
+                "modelos": len(propios),
+                "leido_en": _iso(max((m.leido_en for m in propios), default=None)),
+                "ultimo_intento": {k: v for k, v in intento.items() if k not in ("org", "proveedor")}
+                if intento
+                else None,
+                "aviso": _aviso_proveedor(nombre, nombre in configurados, fuentes, len(propios)),
+            }
+        )
+    return {"sincronizable": bool(configurados), "proveedores": filas}
+
+
 @router.post("/orgs/{org}/catalogo/sincronizar")
-async def sincronizar_catalogo(org: str, request: Request) -> dict[str, Any]:
-    await _escritura(request, org, None)
-    # La lectura del catálogo por API de cada proveedor vive en ``proveedores``
-    # (otro hilo); hasta que exista, la consola solo muestra lo que haya en Mongo.
-    raise HTTPException(501, "la sincronización del catálogo aún no está disponible en este servidor")
+async def sincronizar_catalogo(org: str, request: Request, proveedor: str | None = None) -> Any:
+    """Lee ya el catálogo de los proveedores (o de uno, con ``?proveedor=``) y lo guarda en la organización.
+
+    200 con el estado de cada proveedor si alguno se leyó (un proveedor que falla conserva su catálogo
+    anterior y trae su ``error``); 502 si todos los pedidos fallaron; 409 si el servidor no tiene
+    proveedores de modelo. Dos lecturas seguidas del mismo proveedor llaman una sola vez a su API
+    (``reutilizada``). Se audita siempre, también cuando falla.
+    """
+
+    ctx, actor = await _escritura(request, org, None)
+    cat = ctx.catalogo
+    if cat is None or not cat.proveedores:
+        raise HTTPException(
+            409,
+            "este servidor no tiene proveedores de modelo configurados (RAILSPEC_FOUNDRY_ENDPOINT, "
+            "RAILSPEC_ANTHROPIC_HABILITADO): no hay catálogo que sincronizar",
+        )
+    pedidos: list[Proveedor] | None = None
+    if proveedor is not None:
+        try:
+            p = Proveedor(proveedor)
+        except ValueError:
+            raise HTTPException(422, f"proveedor desconocido: {proveedor}") from None
+        if not cat.cubre(p):
+            raise HTTPException(404, f"{proveedor} no está configurado en este servidor")
+        pedidos = [p]
+    estados = await cat.sincronizar(org, pedidos, por=actor.login)
+    fallidos = [e for e in estados if e.resultado == "error"]
+    resultado = "ok" if not fallidos else "error" if len(fallidos) == len(estados) else "parcial"
+    total = sum(e.modelos for e in estados)
+    detalle_auditoria: dict[str, str | int | bool] = {
+        "entidad": "catalogo",
+        "accion": "sincronizar",
+        "resultado": resultado,
+        "modelos": total,
+    }
+    for e in estados:
+        detalle_auditoria[e.proveedor.value] = f"error:{e.error.codigo}" if e.error else "ok"
+    if any(e.reutilizada for e in estados):
+        detalle_auditoria["reutilizada"] = True
+    ctx.auditar(actor, org, None, EventoAuditoria.cambio_configuracion, **detalle_auditoria)
+    cuerpo: dict[str, Any] = {
+        "resultado": resultado,
+        "modelos": total,
+        "proveedores": [
+            {k: v for k, v in e.a_doc().items() if k not in ("org", "origen", "por")} for e in estados
+        ],
+    }
+    if resultado == "error":
+        cuerpo["detalle"] = "; ".join(f"{e.proveedor.value}: {e.error.detalle}" for e in fallidos if e.error)
+        return JSONResponse(cuerpo, status_code=502)
+    return cuerpo
 
 
 def validar_perfil(roles: dict[str, RequisitoRol], catalogo: list[ModeloCatalogo]) -> list[str]:
