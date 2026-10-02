@@ -1,10 +1,15 @@
 """Acceso a datos de la consola sobre la misma base Mongo que el motor.
 
 Mismas reglas que ``estado/mongo.py``: toda consulta lleva su organización y,
-si el dato cuelga de un workspace, también el workspace. La única excepción
-es ``asignaciones_de_sujeto``, que busca por persona en todas las
-organizaciones para armar ``GET /yo``; solo devuelve las asignaciones de esa
-persona.
+si el dato cuelga de un workspace, también el workspace, aunque se busque por
+``_id``. Las excepciones son datos de la organización entera o de la plataforma:
+``organizaciones`` y ``organizacion`` (una organización es su propio espacio de
+nombres), ``workspaces`` (los de una organización), ``roles``, ``rol``,
+``asignaciones`` y ``catalogo`` (por organización; el workspace de una asignación
+lo mira quien la leyó para decidir si puede tocarla) y ``asignaciones_de_sujeto``,
+que busca por persona en todas las organizaciones para armar ``GET /yo``; solo
+devuelve las asignaciones de esa persona. ``test_aislamiento_almacenes`` lista cada
+método con su regla.
 
 Las colecciones y la forma de sus claves son las de ``COLECCIONES`` en los
 contratos y las que ya escribe ``AlmacenMongo.guardar_configuracion``
@@ -154,10 +159,16 @@ class AlmacenConsola:
         return self._uno("roles", {"org": org, "_id": id_}, AsignacionRol)
 
     def guardar_rol(self, a: AsignacionRol) -> AsignacionRol:
-        return self._guardar("roles", {"org": a.org, "_id": str(a.id)}, a, None)
+        return self._guardar("roles", {"org": a.org, "workspace": a.workspace, "_id": str(a.id)}, a, None)
 
     def borrar_rol(self, org: str, id_: str) -> bool:
-        return self.db.roles.delete_one({"org": org, "_id": id_}).deleted_count == 1
+        """Borra la asignación en su propio workspace (el que quien llama ya leyó con ``rol``)."""
+
+        actual = self.rol(org, id_)
+        if actual is None:
+            return False
+        filtro = {"org": org, "workspace": actual.workspace, "_id": id_}
+        return self.db.roles.delete_one(filtro).deleted_count == 1
 
     def asignaciones(self, org: str, github_id: int, equipos: frozenset[int]) -> list[AsignacionRol]:
         filtro = {"org": org, "$or": filtro_sujetos(github_id, equipos)}

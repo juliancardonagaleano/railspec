@@ -6,8 +6,11 @@ cookie ni los tokens de esa sesión valen en ninguna réplica. El registro caduc
 solo (índice TTL sobre ``_expira``): cuando la sesión revocada ya habría
 expirado por su propia fecha, el id deja de hacer falta.
 
-Misma base Mongo que el resto de la consola; no lleva organización porque no es
-un dato de ningún workspace (solo ids aleatorios de sesión).
+Misma base Mongo que el resto de la consola. Es la excepción a la regla de que toda
+consulta lleva organización y workspace: una sesión es de una persona, no de un
+workspace, y el registro guarda solo el id aleatorio de sesión (``sid``) y su
+caducidad, sin ningún dato de organización. Por eso ``revocar`` y ``revocada`` van por
+``sid`` solo.
 """
 
 from __future__ import annotations
