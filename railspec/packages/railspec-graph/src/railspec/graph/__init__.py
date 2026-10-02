@@ -11,11 +11,12 @@ Capas, de abajo arriba:
 - ``analitica``: clusters, procesos y riesgo de impacto; ``almacen`` añade la
   comparación base contra snapshot y las trazas ``CA-NN``.
 - ``rag`` e ``ingesta``: recuperación por referencias e ingesta de snapshots.
-- ``indexado``: ``graph.index``, el canónico por lotes desde CI.
+- ``indexado``: ``graph.index``, el canónico por lotes desde CI; también barre
+  lo abandonado (``AlmacenGrafo.limpiar_huerfanos``).
 """
 
 from .acceso import AccesoGrafo, Espacio, FueraDeWorkspace, RepositorioNoVisible
-from .almacen import AlmacenGrafo, AlmacenVectores, CodificadorConsulta, Impacto
+from .almacen import AlmacenGrafo, AlmacenVectores, CodificadorConsulta, Huerfanos, Impacto
 from .indexado import IndexadorCanonico, IndiceDesfasado, IndiceRechazado
 from .ingesta import SnapshotRechazado, ingerir_snapshot
 from .memoria import MotorMemoria
@@ -31,6 +32,7 @@ __all__ = [
     "CodificadorConsulta",
     "Espacio",
     "FueraDeWorkspace",
+    "Huerfanos",
     "Impacto",
     "IndexadorCanonico",
     "IndiceDesfasado",

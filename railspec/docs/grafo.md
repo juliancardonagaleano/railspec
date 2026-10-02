@@ -15,11 +15,11 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 | `motor_falkordb` | `MotorFalkor`: un grafo físico de FalkorDB por nombre, vectores en el propio nodo (índice vectorial coseno, 768). |
 | `memoria` | `MotorMemoria`: doble de pruebas con la misma semántica. |
 | `acceso` | Único módulo de acceso a datos: construye los nombres de grafo e impone el filtro de workspace. |
-| `almacen` | `AlmacenGrafo` (`GraphStore`) y `AlmacenVectores` (`VectorStore`), con superposiciones por unidad. |
+| `almacen` | `AlmacenGrafo` (`GraphStore`) y `AlmacenVectores` (`VectorStore`), con superposiciones por unidad y su limpieza (`limpiar_huerfanos`). |
 | `analitica` | Clusters (Louvain con semilla fija), procesos desde puntos de entrada y nivel de riesgo. |
 | `rag` | `RecuperadorContexto`: k-NN por repositorio visible y expansión por el grafo; devuelve referencias. |
 | `ingesta` | `ingerir_snapshot`: aplica el delta de un snapshot con la política del vínculo y enlaza los `CA-NN` de las tareas completadas. |
-| `indexado` | `IndexadorCanonico`: `graph.index`, el canónico por lotes desde CI (contrato 1.1). |
+| `indexado` | `IndexadorCanonico`: `graph.index`, el canónico por lotes desde CI (contrato 1.1), y el barrido de lo abandonado. |
 
 ## Espacios de nombres
 
@@ -93,8 +93,10 @@ de 1.4: las integradas en el commit del índice y, si el índice es completo
 En los dos casos el reenvío de un commit ya aplicado (tras una caída entre
 avanzar el canónico y retirar) repite el retiro de lo que cubre.
 
-Las superposiciones de unidades en curso no llevan `integrado` y no se
-tocan. Límites conocidos:
+Las superposiciones de unidades en curso no llevan `integrado` y este retiro
+no las toca; si nadie las retoma, las borra el barrido de [lo
+abandonado](#lo-abandonado-superposiciones-y-preparaciones). Límites
+conocidos:
 
 - Si `commit_integrado` no llega nunca al canónico (otra rama que la por
   defecto, el merge no se empujó, o un force-push lo borró de la historia) o
@@ -113,7 +115,53 @@ tocan. Límites conocidos:
   gana campos y habla la versión del cliente (`version_contrato` 1.4 a un
   cliente 1.4), así que sigue validándola. Una réplica anterior no
   lee la meta de una superposición retenida (falla solo la consulta con esa
-  `unidad`); las metas del canónico no cambian de forma.
+  `unidad`); las metas del canónico no cambian de forma, y el sello de
+  actividad de las demás (`actualizado`, ver abajo) va como propiedad aparte
+  del nodo `Meta`, no dentro de su json, para que una réplica anterior las
+  siga leyendo.
+
+## Lo abandonado: superposiciones y preparaciones
+
+Dos cosas se quedan a medias cuando nadie vuelve a tocarlas: la superposición
+de una unidad que se abandonó, y el grafo de preparación `...:i:<commit>` de un
+índice que nunca completó (una corrida de CI que falló entre lotes).
+`AlmacenGrafo.limpiar_huerfanos(alcance, superposicion, indexado)` las borra:
+
+| Qué | Se borra cuando | Variable | Defecto |
+|---|---|---|---|
+| Superposición sin `integrado` | Sin snapshot nuevo desde hace N días | `RAILSPEC_GRAFO_SUPERPOSICION_DIAS` | `30` (la retención por defecto de los snapshots) |
+| Preparación `:i:<commit>` | Sin lotes nuevos desde hace N horas | `RAILSPEC_GRAFO_INDEXADO_HORAS` | `24` |
+
+- Cada una lleva en su `Meta` el instante de su última actividad
+  (`actualizado`, UTC): lo sella cada snapshot que reconstruye la
+  superposición y cada lote **nuevo** de una preparación; reenviar un lote ya
+  recibido no cuenta.
+- Un grafo sin sello (de antes de esta versión) no se borra por un tiempo que
+  nadie vio pasar: el primer barrido lo sella (sin tocar el resto de su meta) y
+  el plazo cuenta desde ahí.
+- Las superposiciones retenidas (con `integrado`) **no caducan por tiempo**:
+  salen cuando un índice las cubre (`commits_cubiertos`) o con `retirar_todas`
+  (ver arriba). El canónico y las trazas `CA-NN` nunca se tocan, ni nada de
+  otros repositorios.
+- `IndexadorCanonico` barre el repositorio del índice tras cada índice aplicado
+  (también al reenviar uno ya aplicado) y al llegar el **primer** lote de un
+  commit nuevo, así que un repositorio cuyo índice nunca completa tampoco
+  acumula preparaciones. Un repositorio que no recibe `graph.index` no se
+  barre: no hay otro disparador.
+- Lo borrado se registra (INFO, logger `railspec.graph.indexado`: superposiciones
+  e índices sin completar, por repositorio). La respuesta de `graph.index` no
+  cambia, y si el barrido falla (FalkorDB caído) se registra con su traza y el
+  índice sigue su curso.
+- Las variables se leen al construir `IndexadorCanonico` (el servidor lo hace al
+  arrancar); `0` desactiva ese lado y admiten fracciones (`0.5`). Un valor que
+  no es un número, negativo, `nan`, `inf` o desmesurado impide arrancar, con
+  el nombre de la variable. En las pruebas, `AlmacenGrafo(acceso, reloj=...)`
+  inyecta el reloj y `IndexadorCanonico(..., superposicion_dias=, indexado_horas=)`
+  los plazos.
+- El barrido no toma lock. Si una unidad vuelve a la vida justo cuando se borra
+  su superposición, el siguiente snapshot la reconstruye completa (siempre es
+  base..árbol de trabajo); si llega un lote de un índice tras 24 horas de
+  silencio justo en ese instante, el índice no completa y CI lo repite.
 
 ## Comparación base contra snapshot (impacto)
 
@@ -200,7 +248,9 @@ delta por lotes. `IndexadorCanonico.recibir(entrada, vinculo)`:
 - vuelve a aplicar las exclusiones del vínculo;
 - tras avanzar el canónico retira las superposiciones de unidades integradas
   que ese commit cubre, según los `commits_cubiertos` que declara CI (ver
-  arriba).
+  arriba);
+- borra lo abandonado del repositorio (ver [Lo
+  abandonado](#lo-abandonado-superposiciones-y-preparaciones)).
 
 ## Referencias entre repositorios
 
@@ -219,8 +269,12 @@ repositorio destino no es visible, la referencia se corta al resolver.
 - `ingerir_snapshot` rechaza un snapshot de otro repositorio o workspace, o
   que declare un nivel más abierto que el del vínculo, y vuelve a aplicar
   las exclusiones del vínculo en el servidor.
-- Los embeddings llegan calculados en local (int8, 768); el servidor solo
-  los guarda y consulta.
+- El servidor nunca calcula embeddings de código: guarda y consulta los que
+  lleguen (int8, 768, `Embedding.vector_b64`) y la búsqueda semántica usa el
+  vector de la consulta que calcula el proxy (1.1). Hoy el indexador local
+  (`codebase-memory-mcp` 0.11) no expone sus vectores, así que los deltas
+  viajan sin embeddings y la búsqueda semántica espera a un codificador local
+  ([proxy-local.md](proxy-local.md#pendiente)).
 - El RAG devuelve referencias tipadas, nunca texto; el arnés las resuelve
   contra su clon y el chat, con `code.read`.
 

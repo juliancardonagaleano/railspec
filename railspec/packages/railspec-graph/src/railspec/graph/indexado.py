@@ -18,12 +18,23 @@ Reglas:
   cubre lo declara CI en ``commits_cubiertos`` (1.5): las integradas en ese
   commit o en alguno de los declarados. Sin la lista (cliente 1.4): las
   integradas en ese commit y, con un índice completo, todas las retenidas.
+- Lo abandonado se borra (``AlmacenGrafo.limpiar_huerfanos``) tras cada índice
+  aplicado y al llegar el primer lote de un commit nuevo, así que un índice
+  que nunca completa no deja su preparación para siempre: las superposiciones
+  de unidades sin actividad desde hace ``RAILSPEC_GRAFO_SUPERPOSICION_DIAS``
+  (30) y las preparaciones sin lotes nuevos desde hace
+  ``RAILSPEC_GRAFO_INDEXADO_HORAS`` (24); ``0`` lo desactiva. La respuesta de
+  ``graph.index`` no cambia y un fallo del barrido solo se registra.
 """
 
 from __future__ import annotations
 
 import logging
+import math
+import os
+from datetime import datetime, timedelta
 
+from railspec.contracts.comun import AlcanceRepositorio
 from railspec.contracts.repositorio import VinculoRepositorio
 from railspec.contracts.tools import GraphIndexEntrada, GraphIndexSalida
 
@@ -35,6 +46,11 @@ from .motor import AristaMotor, Meta
 log = logging.getLogger(__name__)
 
 _COMPLETO = "completo"
+#: Variables que fijan cuándo caduca lo abandonado (``0`` = nunca); se leen al construir el indexador.
+VAR_SUPERPOSICION_DIAS = "RAILSPEC_GRAFO_SUPERPOSICION_DIAS"
+VAR_INDEXADO_HORAS = "RAILSPEC_GRAFO_INDEXADO_HORAS"
+SUPERPOSICION_DIAS = 30.0
+INDEXADO_HORAS = 24.0
 
 
 class IndiceRechazado(ValueError):
@@ -45,10 +61,41 @@ class IndiceDesfasado(IndiceRechazado):
     """``commit_anterior`` no es el commit del canónico: falta un push intermedio o llegó tarde."""
 
 
+def _plazo(valor: float | None, variable: str, defecto: float, unidad: str) -> timedelta | None:
+    """``valor`` explícito, si no la variable de entorno, si no el defecto; ``0`` = sin caducidad."""
+
+    if valor is None:
+        crudo = (os.environ.get(variable) or "").strip()
+        try:
+            valor = float(crudo) if crudo else defecto
+        except ValueError:
+            raise ValueError(f"{variable} debe ser un número de {unidad}, no {crudo!r}") from None
+    if not math.isfinite(valor) or valor < 0:
+        raise ValueError(f"{variable} debe ser un número de {unidad} mayor o igual que 0, no {valor!r}")
+    if valor == 0:
+        return None
+    try:
+        return timedelta(**{unidad: valor})
+    except OverflowError:
+        raise ValueError(f"{variable} es demasiado grande: {valor!r} {unidad}") from None
+
+
 class IndexadorCanonico:
-    def __init__(self, acceso: AccesoGrafo, grafo: AlmacenGrafo) -> None:
+    """``superposicion_dias`` e ``indexado_horas`` (``0`` = nunca caduca) sustituyen a las variables de
+    entorno; sin ellos se leen aquí, al construir, y una variable inválida impide arrancar."""
+
+    def __init__(
+        self,
+        acceso: AccesoGrafo,
+        grafo: AlmacenGrafo,
+        *,
+        superposicion_dias: float | None = None,
+        indexado_horas: float | None = None,
+    ) -> None:
         self._acceso = acceso
         self._grafo = grafo
+        self._superposicion = _plazo(superposicion_dias, VAR_SUPERPOSICION_DIAS, SUPERPOSICION_DIAS, "days")
+        self._indexado = _plazo(indexado_horas, VAR_INDEXADO_HORAS, INDEXADO_HORAS, "hours")
 
     def recibir(self, entrada: GraphIndexEntrada, vinculo: VinculoRepositorio) -> GraphIndexSalida:
         alcance = entrada.alcance
@@ -63,6 +110,7 @@ class IndexadorCanonico:
             # Un reenvío tras una caída entre avanzar el canónico y retirar las superposiciones;
             # solo lo que este commit cubre, no lo que se integró en un commit posterior.
             self._retirar(entrada, completo=False)
+            self._limpiar(alcance)
             return _salida(entrada, entrada.lotes, aplicado=True)
         if entrada.commit_anterior is not None and entrada.commit_anterior != vigente:
             raise IndiceDesfasado(
@@ -72,6 +120,7 @@ class IndexadorCanonico:
         prep = self._acceso.espacio_indexado(alcance, entrada.commit)
         estado = _Estado.leer(prep)
         estado.validar(entrada)
+        primero = estado.lotes is None  # esta preparación acaba de nacer
         if entrada.lote not in estado.recibidos:
             delta = filtrar_delta(entrada.delta, list(vinculo.exclusiones))
             prep.upsert_simbolos([_props(s) for s in delta.simbolos_upsert])
@@ -82,13 +131,16 @@ class IndexadorCanonico:
             estado.aristas_borradas |= {
                 (a.origen, a.destino, a.relacion.value) for a in delta.aristas_borradas
             }
-            estado.escribir(prep, entrada)
+            estado.escribir(prep, entrada, self._grafo.ahora())
 
         if len(estado.recibidos) < entrada.lotes:
+            if primero:
+                self._limpiar(alcance)  # un repositorio cuyo índice nunca completa no llega al otro barrido
             return _salida(entrada, len(estado.recibidos), aplicado=False)
 
         self._aplicar(canon, prep, estado, entrada)
         prep.borrar()
+        self._limpiar(alcance)
         return _salida(entrada, entrada.lotes, aplicado=True)
 
     def _aplicar(self, canon: Espacio, prep: Espacio, estado: _Estado, entrada: GraphIndexEntrada) -> None:
@@ -104,6 +156,31 @@ class IndexadorCanonico:
         canon.fijar_meta(Meta(commit=entrada.commit))
         self._grafo.recalcular_analitica(entrada.alcance)
         self._retirar(entrada, completo=entrada.commit_anterior is None)
+
+    def _limpiar(self, alcance: AlcanceRepositorio) -> None:
+        """Barre lo abandonado del repositorio. Nunca falla el índice: ya se aplicó o quedó guardado."""
+
+        if self._superposicion is None and self._indexado is None:
+            return
+        try:
+            borrado = self._grafo.limpiar_huerfanos(alcance, self._superposicion, self._indexado)
+        except Exception:
+            log.exception(
+                "no se pudo limpiar lo abandonado de %s/%s/%s",
+                alcance.org,
+                alcance.workspace,
+                alcance.repositorio,
+            )
+            return
+        if borrado:
+            log.info(
+                "grafo de %s/%s/%s: abandonado y borrado, superposiciones %s, índices sin completar %s",
+                alcance.org,
+                alcance.workspace,
+                alcance.repositorio,
+                borrado.superposiciones,
+                borrado.indexados,
+            )
 
     def _retirar(self, entrada: GraphIndexEntrada, completo: bool) -> None:
         retiradas = self._grafo.retirar_superposiciones(
@@ -152,7 +229,7 @@ class _Estado:
         if self.lotes != entrada.lotes or self.base != (entrada.commit_anterior or _COMPLETO):
             raise IndiceRechazado("los lotes de un mismo commit no coinciden en total o en commit_anterior")
 
-    def escribir(self, prep: Espacio, entrada: GraphIndexEntrada) -> None:
+    def escribir(self, prep: Espacio, entrada: GraphIndexEntrada, ahora: datetime) -> None:
         prep.fijar_meta(
             Meta(
                 commit=entrada.commit,
@@ -161,5 +238,6 @@ class _Estado:
                 base=entrada.commit_anterior or _COMPLETO,
                 lotes=entrada.lotes,
                 recibidos=sorted(self.recibidos),
+                actualizado=ahora,
             )
         )

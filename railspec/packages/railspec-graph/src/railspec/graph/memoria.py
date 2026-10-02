@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from .motor import AristaMotor, Cluster, Meta, Proceso, Traza
 
@@ -51,6 +52,11 @@ class MotorMemoria:
 
     def escribir_meta(self, grafo: str, meta: Meta) -> None:
         self._g(grafo).meta = copy.deepcopy(meta)
+
+    def sellar(self, grafo: str, instante: datetime) -> None:
+        g = self._grafos.get(grafo)
+        if g is not None and g.meta.actualizado is None:
+            g.meta.actualizado = instante
 
     # --- símbolos y aristas ------------------------------------------------
     def upsert_simbolos(self, grafo: str, simbolos: list[dict]) -> None:
