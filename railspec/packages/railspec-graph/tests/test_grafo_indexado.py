@@ -16,6 +16,7 @@ from railspec.graph import (
 from railspec.graph.motor import Meta
 
 COMMIT_3 = "3" * 40
+COMMIT_4 = "4" * 40
 
 
 @pytest.fixture
@@ -25,9 +26,16 @@ def piezas(motor, org):
     return grafo, IndexadorCanonico(acceso, grafo), vinculo(org, NivelCodigo.restringido)
 
 
-def _entrada(v, commit, d, lote=1, lotes=1, anterior=None, rama="main"):
+def _entrada(v, commit, d, lote=1, lotes=1, anterior=None, rama="main", cubiertos=None):
     return GraphIndexEntrada(
-        alcance=v.alcance, rama=rama, commit=commit, commit_anterior=anterior, lote=lote, lotes=lotes, delta=d
+        alcance=v.alcance,
+        rama=rama,
+        commit=commit,
+        commit_anterior=anterior,
+        lote=lote,
+        lotes=lotes,
+        delta=d,
+        commits_cubiertos=cubiertos,
     )
 
 
@@ -262,3 +270,123 @@ def test_el_commit_integrado_sobrevive_a_la_persistencia_de_la_meta(piezas, moto
     meta = AccesoGrafo(motor).espacio(v.alcance, UNIDAD).meta()
     assert (meta.integrado, meta.unidad, meta.commit) == (COMMIT_2, UNIDAD, COMMIT_1)
     assert meta.borrados == []
+
+
+# --- commits_cubiertos (contrato 1.5) ---------------------------------------------------
+
+
+def _retenida(grafo, v, unidad, integrado, simbolo_nuevo):
+    grafo.aplicar_delta(v.alcance, COMMIT_1, delta(simbolos=[simbolo_nuevo]), unidad)
+    assert grafo.retener_superposicion(v.alcance, unidad, integrado) is True
+
+
+def test_la_cobertura_declarada_retira_la_integrada_en_un_commit_que_ci_se_salto(piezas, motor, org):
+    """La unidad se integró en COMMIT_2, CI nunca indexó COMMIT_2 y el delta salta a COMMIT_3."""
+
+    grafo, idx, v = piezas
+    nuevo = _unidad_con_marca_de_agua(piezas)
+    grafo.retener_superposicion(v.alcance, UNIDAD, COMMIT_2)
+
+    idx.recibir(
+        _entrada(v, COMMIT_3, delta(simbolos=[nuevo]), anterior=COMMIT_1, cubiertos=[COMMIT_3, COMMIT_2]),
+        v,
+    )
+    assert _sups(motor, v) == []
+    assert "pdf.marca_agua" in _sin_unidad(grafo, org, v)
+
+
+def test_sin_cobertura_un_delta_solo_retira_las_integradas_en_su_commit(piezas, motor, org):
+    """Un cliente 1.4 no declara nada: la regla de 1.4 sigue vigente."""
+
+    grafo, idx, v = piezas
+    nuevo = _unidad_con_marca_de_agua(piezas)
+    grafo.retener_superposicion(v.alcance, UNIDAD, COMMIT_2)
+
+    idx.recibir(_entrada(v, COMMIT_3, delta(simbolos=[nuevo]), anterior=COMMIT_1), v)
+    assert _sups(motor, v) == [UNIDAD]
+
+
+def test_una_cobertura_vacia_solo_cubre_el_commit_del_indice(piezas, motor, org):
+    grafo, idx, v = piezas
+    nuevo = _unidad_con_marca_de_agua(piezas)
+    grafo.retener_superposicion(v.alcance, UNIDAD, COMMIT_2)
+    otra = simbolo("api", "src/rev.py", "funcion", "pdf.revocar")
+    _retenida(grafo, v, OTRA_UNIDAD, COMMIT_3, otra)
+
+    idx.recibir(_entrada(v, COMMIT_3, delta(simbolos=[nuevo]), anterior=COMMIT_1, cubiertos=[]), v)
+    assert _sups(motor, v) == [UNIDAD]  # COMMIT_2 no se declaró; COMMIT_3 es el del índice
+
+
+def test_un_indice_completo_con_cobertura_no_retira_lo_integrado_despues(piezas, motor, org):
+    """Premature retirement de 1.4: el índice completo de COMMIT_3 llega cuando ya se integró en COMMIT_4."""
+
+    grafo, idx, v = piezas
+    _unidad_con_marca_de_agua(piezas)
+    grafo.retener_superposicion(v.alcance, UNIDAD, COMMIT_2)
+    pendiente = simbolo("api", "src/rev.py", "funcion", "pdf.revocar")
+    _retenida(grafo, v, OTRA_UNIDAD, COMMIT_4, pendiente)
+    en_curso = simbolo("api", "src/ver.py", "funcion", "pdf.verificar")
+    grafo.aplicar_delta(v.alcance, COMMIT_1, delta(simbolos=[en_curso]), "0003-verificar-pdf")
+
+    idx.recibir(_entrada(v, COMMIT_3, Api().delta(), cubiertos=[COMMIT_3, COMMIT_2, COMMIT_1]), v)
+    assert _sups(motor, v) == [OTRA_UNIDAD, "0003-verificar-pdf"]
+    assert "pdf.revocar" in _con_unidad(grafo, org, v, OTRA_UNIDAD)  # sigue visible hasta COMMIT_4
+
+
+def test_un_indice_completo_sin_cobertura_retira_todas_las_retenidas(piezas, motor, org):
+    """La limpieza manual (``--sin-cobertura``): retira también la integrada en un commit posterior."""
+
+    grafo, idx, v = piezas
+    _unidad_con_marca_de_agua(piezas)
+    grafo.retener_superposicion(v.alcance, UNIDAD, COMMIT_4)
+
+    idx.recibir(_entrada(v, COMMIT_3, Api().delta()), v)
+    assert _sups(motor, v) == []
+
+
+def test_el_reenvio_del_commit_aplicado_retira_tambien_lo_que_su_cobertura_declara(piezas, motor, org):
+    grafo, idx, v = piezas
+    nuevo = _unidad_con_marca_de_agua(piezas)
+    idx.recibir(
+        _entrada(v, COMMIT_3, delta(simbolos=[nuevo]), anterior=COMMIT_1, cubiertos=[COMMIT_3, COMMIT_2]), v
+    )
+    sup = AccesoGrafo(motor).espacio(v.alcance, UNIDAD)
+    sup.fijar_meta(Meta(commit=COMMIT_1, unidad=UNIDAD, integrado=COMMIT_2))  # la caída dejó esta
+
+    reenvio = _entrada(v, COMMIT_3, delta(), anterior=COMMIT_1, cubiertos=[COMMIT_3, COMMIT_2])
+    assert idx.recibir(reenvio, v).aplicado
+    assert _sups(motor, v) == []
+
+
+def test_en_varios_lotes_vale_la_cobertura_del_lote_que_aplica(piezas, motor, org):
+    grafo, idx, v = piezas
+    nuevo = _unidad_con_marca_de_agua(piezas)
+    grafo.retener_superposicion(v.alcance, UNIDAD, COMMIT_2)
+    cubiertos = [COMMIT_3, COMMIT_2]
+
+    d1, d2 = delta(simbolos=[nuevo]), delta()
+    idx.recibir(_entrada(v, COMMIT_3, d1, lote=1, lotes=2, anterior=COMMIT_1, cubiertos=cubiertos), v)
+    assert _sups(motor, v) == [UNIDAD]  # el canónico todavía no avanzó
+    idx.recibir(_entrada(v, COMMIT_3, d2, lote=2, lotes=2, anterior=COMMIT_1, cubiertos=cubiertos), v)
+    assert _sups(motor, v) == []
+
+
+def test_la_respuesta_habla_la_version_del_cliente(piezas):
+    """Un cliente 1.4 valida ``version_contrato`` contra 1.0 a 1.4: no se le responde 1.5."""
+
+    _, idx, v = piezas
+
+    def entrada(version, lote):
+        return GraphIndexEntrada(
+            alcance=v.alcance,
+            rama="main",
+            commit=COMMIT_1,
+            lote=lote,
+            lotes=2,
+            delta=Api().delta(),
+            version_contrato=version,
+        )
+
+    assert idx.recibir(entrada("1.4", 1), v).version_contrato == "1.4"  # parcial
+    assert idx.recibir(entrada("1.4", 2), v).version_contrato == "1.4"  # aplica
+    assert idx.recibir(entrada("1.5", 2), v).version_contrato == "1.5"  # reenvío ya aplicado

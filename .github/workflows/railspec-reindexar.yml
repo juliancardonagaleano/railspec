@@ -2,6 +2,8 @@
 # codebase-memory-mcp calcula el delta en el runner y railspec/deploy/ci/reindexar.py
 # lo sube por lotes a graph.index (HTTP) con un token OIDC de GitHub Actions
 # como actor de servicio. El servidor nunca indexa ni calcula embeddings.
+# Desde el contrato 1.5 declara en commits_cubiertos los commits de la rama que cada índice
+# incorpora, para que el servidor retire solo las superposiciones de unidades ya cubiertas.
 #
 # Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
 #   RAILSPEC_URL           URL base del servidor, sin /mcp (si falta, el job no corre)
@@ -19,6 +21,10 @@ on:
     inputs:
       completo:
         description: "Forzar índice completo"
+        type: boolean
+        default: false
+      retirar_todas:
+        description: "Índice completo sin declarar commits cubiertos: retira todas las superposiciones retenidas, también las varadas"
         type: boolean
         default: false
 
@@ -54,10 +60,13 @@ jobs:
         env:
           ANTERIOR: ${{ github.event_name == 'push' && github.event.before || '' }}
           COMPLETO: ${{ inputs.completo }}
+          RETIRAR_TODAS: ${{ inputs.retirar_todas }}
           REPOSITORIO: ${{ vars.RAILSPEC_REPOSITORIO || github.event.repository.name }}
         run: |
+          OPCIONES=()
           if [ "$COMPLETO" = "true" ]; then ANTERIOR=""; fi
-          python railspec/deploy/ci/reindexar.py \
+          if [ "$RETIRAR_TODAS" = "true" ]; then ANTERIOR=""; OPCIONES+=(--sin-cobertura); fi
+          python railspec/deploy/ci/reindexar.py "${OPCIONES[@]}" \
             --servidor "${{ vars.RAILSPEC_URL }}" \
             --org "${{ vars.RAILSPEC_ORGANIZACION }}" \
             --workspace "${{ vars.RAILSPEC_WORKSPACE }}" \

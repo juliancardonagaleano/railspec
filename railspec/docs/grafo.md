@@ -66,28 +66,54 @@ también se borran al integrar las de los repositorios transversales: el
 contrato trae un solo commit.
 
 `IndexadorCanonico` retira las retenidas
-(`AlmacenGrafo.retirar_superposiciones`) justo después de avanzar el canónico:
+(`AlmacenGrafo.retirar_superposiciones`) justo después de avanzar el canónico.
+El servidor no tiene git y no puede ordenar un commit de otro: lo que cubre
+un índice lo declara CI.
 
-- las que `integraron` en ese mismo commit;
-- todas las retenidas cuando el índice es **completo** (sin
-  `commit_anterior`): CI usa el índice completo cuando no puede encadenar el
-  delta (corridas saltadas o fallidas entre dos commits, force-push), y esa es
-  la única señal con la que declara que re-afirma la rama entera. El servidor
-  no tiene git y no puede ordenar un commit anterior de otro, así que no hay
-  una tercera regla;
-- el reenvío de un commit ya aplicado (tras una caída entre avanzar el
-  canónico y retirar) repite el retiro de las integradas en él.
+**Con `commits_cubiertos` (contrato 1.5).** `graph.index` trae la lista de
+commits de la rama por defecto que el índice incorpora, los más recientes
+primero y a lo sumo 1000: `reindexar.py` la calcula con
+`git rev-list --first-parent` (`commit_anterior..commit` en un delta; los
+últimos 1000 de `commit` en un índice completo; las puntas de la rama, que es
+lo que `commit_integrado` toma, son primeros padres). Se retiran las
+retenidas cuyo `integrado` es el commit del índice o está en la lista, y nada
+más: el índice completo ya no arrasa con todas. Así una unidad integrada en un
+commit que CI nunca indexó (corrida cancelada o saltada: GitHub descarta las
+intermedias y el siguiente delta parte de un commit que el canónico no tiene)
+se retira con el índice que lo alcanza, y una integrada en un commit posterior
+al índice espera a su propio índice en vez de perder su código antes de
+tiempo. Una lista vacía declara que no se cubre más que el commit del índice.
+En un índice por lotes la lista viaja igual en todos; vale la del lote que
+aplica el commit.
+
+**Sin `commits_cubiertos` (cliente 1.4, o `--sin-cobertura`).** Vale la regla
+de 1.4: las integradas en el commit del índice y, si el índice es completo
+(sin `commit_anterior`), todas las retenidas.
+
+En los dos casos el reenvío de un commit ya aplicado (tras una caída entre
+avanzar el canónico y retirar) repite el retiro de lo que cubre.
 
 Las superposiciones de unidades en curso no llevan `integrado` y no se
-tocan. Límites conocidos: si `commit_integrado` no llega nunca al canónico
-(otra rama que la por defecto, o el merge no se empujó) la superposición
-queda retenida hasta el siguiente índice completo (`workflow_dispatch` con
-`completo`) o hasta borrar el repositorio; y un índice completo de un commit
-anterior al integrado, poco probable porque CI encadena las corridas, retira
-antes de tiempo (el efecto es el de antes: el código de la unidad falta hasta
-que CI llegue a su commit). Al desplegar, una réplica anterior no lee la meta
-de una superposición retenida (falla solo la consulta con esa `unidad`);
-las metas del canónico no cambian de forma.
+tocan. Límites conocidos:
+
+- Si `commit_integrado` no llega nunca al canónico (otra rama que la por
+  defecto, el merge no se empujó, o un force-push lo borró de la historia) o
+  queda fuera de los 1000 commits que declara un índice completo, la
+  superposición queda retenida. Se limpia con el lanzamiento manual de
+  `railspec-reindexar` con `retirar_todas`: un índice completo sin
+  cobertura, que retira todas las retenidas, también las que ningún índice
+  cubre.
+- Una unidad integrada cuando el canónico ya pasó de su commit (el arnés
+  entrega un commit viejo) no se retira por sí sola: el servidor no guarda
+  qué commits cubrió ya. El proxy manda la punta de la rama tras un
+  `git fetch`, así que no ocurre en el camino normal.
+- Al desplegar, un servidor 1.4 rechaza `commits_cubiertos` y la versión 1.5
+  con 422; `reindexar.py` lo detecta y sube el índice sin la lista (regla de
+  1.4) mientras no se actualice el servidor. La respuesta de `graph.index` no
+  gana campos y habla la versión del cliente (`version_contrato` 1.4 a un
+  cliente 1.4), así que sigue validándola. Una réplica anterior no
+  lee la meta de una superposición retenida (falla solo la consulta con esa
+  `unidad`); las metas del canónico no cambian de forma.
 
 ## Comparación base contra snapshot (impacto)
 
@@ -173,7 +199,8 @@ delta por lotes. `IndexadorCanonico.recibir(entrada, vinculo)`:
 - reenviar un lote o un commit ya aplicado es idempotente;
 - vuelve a aplicar las exclusiones del vínculo;
 - tras avanzar el canónico retira las superposiciones de unidades integradas
-  que ese commit cubre (ver arriba).
+  que ese commit cubre, según los `commits_cubiertos` que declara CI (ver
+  arriba).
 
 ## Referencias entre repositorios
 

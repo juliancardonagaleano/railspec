@@ -34,7 +34,7 @@ CLAVE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 OTRA_CLAVE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 REPO_GH = f"{ORG}/{REPO}"
 ALCANCE = AlcanceRepositorio(org=ORG, workspace=WS, repositorio=REPO)
-COMMIT_1, COMMIT_2 = "1" * 40, "2" * 40
+COMMIT_1, COMMIT_2, COMMIT_3, COMMIT_4 = "1" * 40, "2" * 40, "3" * 40, "4" * 40
 
 
 class ClavesLocales:
@@ -168,9 +168,13 @@ def simbolo(nombre: str) -> Simbolo:
     )
 
 
-def lote(i: int, n: int, *simbolos: Simbolo, commit=COMMIT_1, anterior=None, rama="main") -> dict:
+def lote(
+    i: int, n: int, *simbolos: Simbolo, commit=COMMIT_1, anterior=None, rama="main", cubiertos=None, **extra
+) -> dict:
     delta = DeltaIndice(motor=MotorIndice(version="0.11.0"), simbolos_upsert=list(simbolos))
     return {
+        **({} if cubiertos is None else {"commits_cubiertos": cubiertos}),
+        **extra,
         "alcance": ALCANCE.model_dump(),
         "rama": rama,
         "commit": commit,
@@ -233,6 +237,87 @@ def test_graph_index_por_lotes_avanza_el_canonico():
             )
             assert r.status_code == 200 and r.json()["aplicado"] is True
             assert acceso.espacio(ALCANCE).meta().commit == COMMIT_2
+
+    asyncio.run(caso())
+
+
+def _retener(grafo: AlmacenGrafo, unidad: str, integrado: str) -> None:
+    """Una unidad en curso (su superposición) que se integró en ``integrado``."""
+
+    delta = DeltaIndice(motor=MotorIndice(version="0.11.0"), simbolos_upsert=[simbolo(unidad)])
+    grafo.aplicar_delta(ALCANCE, COMMIT_1, delta, unidad)
+    assert grafo.retener_superposicion(ALCANCE, unidad, integrado) is True
+
+
+def test_graph_index_con_commits_cubiertos_retira_solo_lo_cubierto():
+    async def caso():
+        async with servidor() as (c, acceso):
+            r = await c.post("/v1/tools/graph.index", json=lote(1, 1, simbolo("firmar")), headers=_oidc())
+            assert r.status_code == 200
+            grafo = AlmacenGrafo(acceso)
+            _retener(grafo, "0001-salto", COMMIT_2)  # CI nunca indexó COMMIT_2
+            _retener(grafo, "0002-justo", COMMIT_3)  # el commit del índice
+            _retener(grafo, "0003-despues", COMMIT_4)  # integrada después: espera su índice
+
+            r = await c.post(
+                "/v1/tools/graph.index",
+                json=lote(
+                    1,
+                    1,
+                    simbolo("revocar"),
+                    commit=COMMIT_3,
+                    anterior=COMMIT_1,
+                    cubiertos=[COMMIT_3, COMMIT_2],
+                ),
+                headers=_oidc(),
+            )
+            assert r.status_code == 200 and r.json()["aplicado"] is True
+            assert acceso.superposiciones(ALCANCE) == ["0003-despues"]
+
+            r = await c.post(
+                "/v1/tools/graph.index",
+                json=lote(1, 1, commit=COMMIT_4, anterior=COMMIT_3, cubiertos=[COMMIT_4]),
+                headers=_oidc(),
+            )
+            assert r.status_code == 200 and acceso.superposiciones(ALCANCE) == []
+
+    asyncio.run(caso())
+
+
+def test_graph_index_de_un_cliente_14_sigue_con_la_regla_de_1_4():
+    async def caso():
+        async with servidor() as (c, acceso):
+            await c.post("/v1/tools/graph.index", json=lote(1, 1, simbolo("firmar")), headers=_oidc())
+            grafo = AlmacenGrafo(acceso)
+            _retener(grafo, "0001-salto", COMMIT_2)
+            _retener(grafo, "0002-justo", COMMIT_3)
+
+            r = await c.post(
+                "/v1/tools/graph.index",
+                json=lote(1, 1, commit=COMMIT_3, anterior=COMMIT_1, version_contrato="1.4"),
+                headers=_oidc(),
+            )
+            assert r.status_code == 200 and r.json()["aplicado"] is True
+            assert r.json()["version_contrato"] == "1.4"  # el cliente 1.4 valida la respuesta que recibe
+            assert acceso.superposiciones(ALCANCE) == ["0001-salto"]  # solo la del commit del índice
+
+            # Un índice completo sin lista retira todas, como en 1.4.
+            r = await c.post(
+                "/v1/tools/graph.index",
+                json=lote(1, 1, simbolo("firmar"), commit=COMMIT_4, version_contrato="1.4"),
+                headers=_oidc(),
+            )
+            assert r.status_code == 200 and acceso.superposiciones(ALCANCE) == []
+
+    asyncio.run(caso())
+
+
+def test_graph_index_rechaza_commits_cubiertos_mal_formados():
+    async def caso():
+        async with servidor() as (c, _):
+            r = await c.post("/v1/tools/graph.index", json=lote(1, 1, cubiertos=["main"]), headers=_oidc())
+            assert r.status_code == 422
+            assert [e["ruta"] for e in r.json()["errores"]] == ["commits_cubiertos.0"]
 
     asyncio.run(caso())
 

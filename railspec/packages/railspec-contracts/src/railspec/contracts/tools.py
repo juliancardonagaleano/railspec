@@ -545,6 +545,9 @@ class GraphQuerySalida(Mensaje):
 
 # --- graph.index (solo CI) -----------------------------------------------------------
 
+#: Tope de ``GraphIndexEntrada.commits_cubiertos`` (desde 1.5): unos 43 KB por lote.
+MAX_COMMITS_CUBIERTOS = 1000
+
 
 class GraphIndexEntrada(Mensaje):
     """Desde 1.1: un job de CI sube el índice del canónico tras cada push.
@@ -564,6 +567,21 @@ class GraphIndexEntrada(Mensaje):
     lote: int = Field(ge=1)
     lotes: int = Field(ge=1, le=10_000)
     delta: DeltaIndice
+    commits_cubiertos: list[Commit] | None = Field(
+        default=None,
+        max_length=MAX_COMMITS_CUBIERTOS,
+        description=(
+            "Desde 1.5: los commits de la rama por defecto que este índice incorpora al canónico, "
+            "los más recientes primero y a lo sumo MAX_COMMITS_CUBIERTOS: CI calcula "
+            "`git rev-list --first-parent commit_anterior..commit` (o, en un índice completo, "
+            "`git rev-list --first-parent -n N commit`). Puede incluir `commit`. El servidor no "
+            "tiene git: con esta lista retira, al avanzar el canónico, solo las superposiciones "
+            "retenidas de unidades integradas en `commit` o en alguno de estos commits. Una lista "
+            "vacía declara que no cubre más que `commit`. Ausente (clientes 1.4) = regla de 1.4: "
+            "las integradas en `commit` y, con índice completo, todas las retenidas. Viaja igual "
+            "en todos los lotes del commit; vale la del lote que lo aplica."
+        ),
+    )
 
     @model_validator(mode="after")
     def _lotes(self) -> GraphIndexEntrada:

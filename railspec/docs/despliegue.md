@@ -288,6 +288,14 @@ misma del servidor) es la audiencia del token.
   no hay commit anterior utilizable (rama nueva, force-push) o si el servidor
   responde 409 `base-commit-distinto` (el canónico no está en esa base). Un
   lanzamiento manual con `completo` fuerza el completo.
+- Desde el contrato 1.5 cada índice declara en `commits_cubiertos` los
+  commits que incorpora (`git rev-list --first-parent`, hasta 1000) y el
+  servidor retira solo las superposiciones de unidades integradas en ellos.
+  Si una superposición quedó retenida sin que ningún índice la cubra, un
+  lanzamiento manual con `retirar_todas` sube un índice completo sin cobertura
+  y retira todas las retenidas. Despliega primero el servidor: uno 1.4 rechaza
+  la lista con 422 y `reindexar.py` sube entonces el índice sin ella (regla de
+  1.4, con lo que el índice completo vuelve a retirar todas las retenidas).
 - Otros errores detienen el job sin reintentar: 401 token inválido, 403
   `fuera-de-alcance` (repositorio o rama distintos de los del vínculo), 404
   sin vínculo, 422 `snapshot-invalido` (lotes de un commit que no casan).

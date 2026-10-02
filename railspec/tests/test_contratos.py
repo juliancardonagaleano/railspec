@@ -25,9 +25,11 @@ from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import AsignacionRol, RegistroAuditoria, VinculoRepositorio
 from railspec.contracts.snapshot import Snapshot, id_simbolo
 from railspec.contracts.tools import (
+    MAX_COMMITS_CUBIERTOS,
     TOOLS,
     Efecto,
     GraphIndexEntrada,
+    GraphIndexSalida,
     GraphQueryEntrada,
     GraphQuerySalida,
     Superficie,
@@ -476,6 +478,53 @@ def test_graph_index_lotes_coherentes() -> None:
     GraphIndexEntrada.model_validate(base)
     _rechaza(GraphIndexEntrada, {**base, "lote": 3}, "lote mayor")
     _rechaza(GraphIndexEntrada, {**base, "commit_anterior": f.BASE}, "igual a commit")
+
+
+# --- Contrato 1.5: commits cubiertos por un índice -----------------------------------------
+
+
+def _entrada_index(**extra: Any) -> dict[str, Any]:
+    return {
+        "alcance": f.ALCANCE_REPO.model_dump(),
+        "rama": "main",
+        "commit": f.BASE,
+        "lote": 1,
+        "lotes": 1,
+        "delta": f.snapshot().delta_indice.model_dump(mode="json"),
+        **extra,
+    }
+
+
+def test_graph_index_sin_commits_cubiertos_sigue_valiendo_como_en_1_4() -> None:
+    """Un cliente 1.4 no conoce el campo: el mensaje es válido y no declara cobertura."""
+
+    entrada = GraphIndexEntrada.model_validate(_entrada_index(version_contrato="1.4"))
+    assert entrada.commits_cubiertos is None
+    assert "commits_cubiertos" not in entrada.model_dump(mode="json", exclude_none=True)
+
+
+def test_graph_index_commits_cubiertos_vacia_no_es_ausente() -> None:
+    entrada = GraphIndexEntrada.model_validate(_entrada_index(commits_cubiertos=[]))
+    assert entrada.commits_cubiertos == []
+    assert entrada.model_dump(mode="json", exclude_none=True)["commits_cubiertos"] == []
+
+
+def test_graph_index_commits_cubiertos_son_commits_y_tienen_tope() -> None:
+    GraphIndexEntrada.model_validate(_entrada_index(commits_cubiertos=[f.BASE] * MAX_COMMITS_CUBIERTOS))
+    _rechaza(
+        GraphIndexEntrada,
+        _entrada_index(commits_cubiertos=[f.BASE] * (MAX_COMMITS_CUBIERTOS + 1)),
+        "at most",
+    )
+    _rechaza(GraphIndexEntrada, _entrada_index(commits_cubiertos=["main"]), "String should match pattern")
+
+
+def test_graph_index_salida_no_cambia_en_1_5() -> None:
+    """Un cliente 1.4 valida la respuesta con campos prohibidos: la salida no gana campos.
+
+    El servidor además responde con la ``version_contrato`` del cliente (ver el test de graph.index)."""
+
+    assert set(GraphIndexSalida.model_fields) == {"version_contrato", "commit", "lotes_recibidos", "aplicado"}
 
 
 def test_id_simbolo_es_la_convencion_publicada() -> None:

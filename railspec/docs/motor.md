@@ -47,8 +47,9 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   (ver `grafo.md`). El grafo informa, no genera hallazgos deterministas.
 - `unit.report` ingiere el snapshot en el grafo con la política del vínculo y
   enlaza los criterios de las tareas completadas; `unit.integrate` retiene
-  la superposición de la unidad en el repositorio primario hasta que
-  `graph.index` lleve el canónico a `commit_integrado` y descarta las de los
+  la superposición de la unidad en el repositorio primario hasta que un
+  `graph.index` cubra `commit_integrado` (el propio commit del índice o uno de
+  los `commits_cubiertos` que declara CI desde 1.5) y descarta las de los
   demás (todas, si no hay commit); ver `grafo.md`.
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el

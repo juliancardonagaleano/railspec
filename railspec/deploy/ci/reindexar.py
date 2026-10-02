@@ -1,4 +1,4 @@
-"""Reindexado del grafo canónico desde CI: ``graph.index`` por lotes (contrato 1.1).
+"""Reindexado del grafo canónico desde CI: ``graph.index`` por lotes (contrato 1.1; cobertura 1.5).
 
 Lo corre el workflow ``railspec-reindexar.yml`` en cada push a la rama por
 defecto, con el repositorio clonado en ``--raiz`` y el commit empujado
@@ -11,7 +11,14 @@ desprotegido. Pasos:
    (``codebase-memory-mcp`` vía ``railspec.local.indexador_cbm``) y las
    exclusiones de secretos del proxy (por defecto más ``.railspecignore``).
    El servidor nunca indexa ni calcula embeddings de código.
-3. Lo parte en lotes y llama ``POST {servidor}/v1/tools/graph.index`` con un
+3. Declara en ``commits_cubiertos`` (1.5) los commits de la rama que el índice
+   incorpora (``git rev-list --first-parent``, a lo sumo ``MAX_COMMITS_CUBIERTOS``):
+   el servidor no tiene git y con eso retira solo las superposiciones de las
+   unidades integradas en alguno de ellos. ``--sin-cobertura`` habla 1.4 (sin la
+   lista): el índice completo retira todas las retenidas, que es como se limpian
+   las que quedaron varadas. Un servidor 1.4 rechaza la lista con 422 y entonces
+   se sube sin ella.
+4. Lo parte en lotes y llama ``POST {servidor}/v1/tools/graph.index`` con un
    token OIDC de GitHub Actions como actor de servicio. Si el servidor dice
    que el canónico no está en el commit base, repite con índice completo.
 
@@ -31,18 +38,20 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
 from railspec.contracts.comun import AlcanceRepositorio
 from railspec.contracts.snapshot import DeltaIndice
-from railspec.contracts.tools import GraphIndexEntrada, GraphIndexSalida
+from railspec.contracts.tools import MAX_COMMITS_CUBIERTOS, GraphIndexEntrada, GraphIndexSalida
 
 #: Código con el que el servidor rechaza un delta cuya base no es el
 #: canónico vigente; entonces se reintenta con índice completo.
 CODIGOS_DESFASE = {"base-commit-distinto"}
 CERO = "0" * 40
+#: Versión con la que se habla sin ``commits_cubiertos``: servidores 1.4 y ``--sin-cobertura``.
+VERSION_SIN_COBERTURA = "1.4"
 
 
 class Indexador(Protocol):
@@ -60,6 +69,17 @@ class RechazoServidor(ErrorReindexado):
         super().__init__(f"graph.index respondió {estado}: {json.dumps(cuerpo, ensure_ascii=False)[:500]}")
         self.estado = estado
         self.codigo = cuerpo.get("codigo")
+        self.errores = cuerpo.get("errores") or []
+
+    @property
+    def rechaza_cobertura(self) -> bool:
+        """422 de un servidor 1.4: no conoce ``commits_cubiertos`` ni la versión 1.5."""
+
+        return self.estado == 422 and any(
+            str(e.get("ruta", "")).split(".")[0] in ("commits_cubiertos", "version_contrato")
+            for e in self.errores
+            if isinstance(e, dict)
+        )
 
 
 # --- git ------------------------------------------------------------------------------
@@ -95,16 +115,43 @@ class Plan:
     rutas: list[str]
     base: str
     commit_anterior: str | None
+    #: Commits que el índice incorpora (1.5); ``None`` = no se declaran (1.4).
+    cubiertos: list[str] | None = None
 
     @property
     def completo(self) -> bool:
         return self.commit_anterior is None
 
+    def sin_cobertura(self) -> Plan:
+        return replace(self, cubiertos=None)
+
+
+def commits_cubiertos(raiz: Path, commit: str, anterior: str | None) -> list[str]:
+    """Los commits de la rama por defecto que el índice de ``commit`` incorpora.
+
+    Primeros padres, del más reciente al más antiguo y a lo sumo ``MAX_COMMITS_CUBIERTOS``:
+    ``commit_integrado`` es siempre la punta de la rama en algún momento, y las puntas son
+    primeros padres. Si hay más, se declaran los más recientes: lo que queda fuera se retira
+    más tarde, nunca antes. Si git falla se declara solo ``commit``."""
+
+    rango = commit if anterior is None else f"{anterior}..{commit}"
+    try:
+        salida = _git(raiz, "rev-list", "--first-parent", f"--max-count={MAX_COMMITS_CUBIERTOS}", rango)
+    except ErrorReindexado as exc:
+        print(f"reindexar: no se pudo enumerar commits_cubiertos ({exc}); se declara solo el commit")
+        return [commit]
+    return salida.split()
+
 
 def plan_completo(raiz: Path, commit: str) -> Plan:
     arbol_vacio = _git(raiz, "hash-object", "-t", "tree", "/dev/null").strip()
     rutas = [r for r in _git(raiz, "ls-tree", "-r", "-z", "--name-only", commit).split("\0") if r]
-    return Plan(rutas=rutas, base=arbol_vacio, commit_anterior=None)
+    return Plan(
+        rutas=rutas,
+        base=arbol_vacio,
+        commit_anterior=None,
+        cubiertos=commits_cubiertos(raiz, commit, None),
+    )
 
 
 def planificar(raiz: Path, commit: str, anterior: str | None) -> Plan:
@@ -113,7 +160,12 @@ def planificar(raiz: Path, commit: str, anterior: str | None) -> Plan:
     if not _existe(raiz, anterior) or not _es_ancestro(raiz, anterior, commit):
         return plan_completo(raiz, commit)
     salida = _git(raiz, "diff", "--name-only", "--no-renames", "-z", anterior, commit)
-    return Plan(rutas=sorted(r for r in salida.split("\0") if r), base=anterior, commit_anterior=anterior)
+    return Plan(
+        rutas=sorted(r for r in salida.split("\0") if r),
+        base=anterior,
+        commit_anterior=anterior,
+        cubiertos=commits_cubiertos(raiz, commit, anterior),
+    )
 
 
 # --- lotes ----------------------------------------------------------------------------
@@ -245,6 +297,8 @@ def _subir(
             lote=i,
             lotes=len(lotes),
             delta=parte,
+            commits_cubiertos=plan.cubiertos,
+            **({} if plan.cubiertos is not None else {"version_contrato": VERSION_SIN_COBERTURA}),
         )
         salida = enviar(entrada, url, token, transporte, espera_s=espera_s)
         print(f"lote {i}/{len(lotes)}: recibidos={salida.lotes_recibidos} aplicado={salida.aplicado}")
@@ -252,6 +306,31 @@ def _subir(
     if not salida.aplicado:
         raise ErrorReindexado("el servidor recibió todos los lotes pero no aplicó el commit")
     return salida
+
+
+def _subir_o_degradar(
+    plan: Plan,
+    delta: DeltaIndice,
+    alcance: AlcanceRepositorio,
+    rama: str,
+    commit: str,
+    url: str,
+    token: Callable[[], str],
+    tamano: int,
+    transporte: Transporte,
+    espera_s: float,
+) -> GraphIndexSalida:
+    """``_subir``; un servidor 1.4 que rechaza ``commits_cubiertos`` recibe el índice sin la lista."""
+
+    try:
+        return _subir(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
+    except RechazoServidor as exc:
+        if plan.cubiertos is None or not exc.rechaza_cobertura:
+            raise
+        print("el servidor no admite commits_cubiertos (contrato 1.4): se sube sin cobertura")
+        return _subir(
+            plan.sin_cobertura(), delta, alcance, rama, commit, url, token, tamano, transporte, espera_s
+        )
 
 
 def reindexar(
@@ -267,20 +346,25 @@ def reindexar(
     tamano: int = 2000,
     transporte: Transporte = transporte_http,
     espera_s: float = 2.0,
+    cobertura: bool = True,
 ) -> GraphIndexSalida:
     url = servidor.rstrip("/") + "/v1/tools/graph.index"
     plan = planificar(raiz, commit, anterior)
+    if not cobertura:
+        plan = plan.sin_cobertura()
     print(f"{'índice completo' if plan.completo else 'delta'}: {len(plan.rutas)} rutas")
     delta = indexador.delta(raiz, alcance.repositorio, plan.base, plan.rutas, excluir)
     try:
-        return _subir(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
+        return _subir_o_degradar(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
     except RechazoServidor as exc:
         if plan.completo or exc.codigo not in CODIGOS_DESFASE:
             raise
         print(f"canónico desfasado ({exc.codigo}): se reintenta con índice completo")
     plan = plan_completo(raiz, commit)
+    if not cobertura:
+        plan = plan.sin_cobertura()
     delta = indexador.delta(raiz, alcance.repositorio, plan.base, plan.rutas, excluir)
-    return _subir(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
+    return _subir_o_degradar(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -297,6 +381,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--raiz", type=Path, default=Path.cwd())
     p.add_argument("--tamano-lote", type=int, default=2000)
+    p.add_argument(
+        "--sin-cobertura",
+        action="store_true",
+        help=(
+            "No declarar commits_cubiertos (contrato 1.4): un índice completo retira todas las "
+            "superposiciones retenidas, también las varadas."
+        ),
+    )
     a = p.parse_args(argv)
     if not a.audiencia.strip():
         p.error("--audiencia vacía: define la variable RAILSPEC_OIDC_AUDIENCIA del repositorio")
@@ -321,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
             indexador,
             secretos.exclusiones(raiz),
             a.tamano_lote,
+            cobertura=not a.sin_cobertura,
         )
     except ErrorReindexado as exc:
         print(f"reindexar: {exc}", file=sys.stderr)

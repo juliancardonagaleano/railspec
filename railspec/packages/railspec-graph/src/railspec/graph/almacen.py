@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 from collections import deque
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -300,21 +301,30 @@ class AlmacenGrafo:
         return True
 
     def retirar_superposiciones(
-        self, alcance: AlcanceRepositorio, aplicado: str, completo: bool
+        self,
+        alcance: AlcanceRepositorio,
+        aplicado: str,
+        completo: bool,
+        cubiertos: Collection[str] | None = None,
     ) -> list[str]:
         """El canónico acaba de avanzar a ``aplicado``: borra las retenidas que ese commit cubre.
 
-        Cubre las integradas en ``aplicado`` y, con un índice ``completo`` (CI perdió la cadena de
-        deltas: corridas saltadas o fallidas entre dos commits), todas las retenidas. El servidor no
-        tiene git, así que no puede ordenar un commit anterior de otro; el índice completo es lo
-        único con lo que CI declara que re-afirma la rama entera. Las superposiciones sin
-        ``integrado`` son de unidades en curso y no se tocan. Devuelve las unidades retiradas."""
+        El servidor no tiene git, así que no puede ordenar un commit de otro; lo que cubre un
+        índice lo declara CI. Con ``cubiertos`` (contrato 1.5: los commits de la rama que el índice
+        incorpora) se retiran las integradas en ``aplicado`` o en alguno de ellos, y ``completo`` no
+        amplía nada: una integrada en un commit posterior espera a su propio índice. Sin
+        ``cubiertos`` (cliente 1.4) vale la regla de 1.4: las integradas en ``aplicado`` y, con un
+        índice ``completo`` (CI perdió la cadena de deltas), todas las retenidas. Las superposiciones
+        sin ``integrado`` son de unidades en curso y no se tocan. Devuelve las unidades retiradas."""
 
+        cubre = None if cubiertos is None else {aplicado, *cubiertos}
         retiradas = []
         for unidad in self._acceso.superposiciones(alcance):
             sup = self._acceso.espacio(alcance, unidad)
             integrado = sup.meta().integrado
-            if integrado is not None and (completo or integrado == aplicado):
+            if integrado is None:
+                continue
+            if (integrado in cubre) if cubre is not None else (completo or integrado == aplicado):
                 sup.borrar()
                 retiradas.append(unidad)
         return retiradas
