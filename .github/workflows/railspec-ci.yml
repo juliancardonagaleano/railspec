@@ -30,7 +30,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: python -m pip install ruff
+      # ruff fijado: su formato cambia entre versiones. Para subirla, correr ruff check y
+      # ruff format --check con la nueva y arreglar lo que marque; railspec/deploy/tests/
+      # test_workflows_ruff.py falla si queda sin versión exacta.
+      - run: python -m pip install ruff==0.16.10
       - run: ruff check --config railspec/pyproject.toml railspec
       - run: ruff format --config railspec/pyproject.toml --check railspec
 
@@ -64,8 +67,12 @@ jobs:
             pruebas: railspec/packages/railspec-local
             falkordb: false
             indexador: true
+          # railspec-graph sin falkordb: test_despliegue.py comprueba que los plazos que acepta el renderizador
+          # los acepta también railspec.graph.indexado (si no, esa prueba se salta).
           - paquete: despliegue
-            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest pyyaml
+            instalar: >-
+              -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local
+              -e railspec/packages/railspec-graph pytest pyyaml
             pruebas: railspec/deploy/tests
             falkordb: false
             indexador: false

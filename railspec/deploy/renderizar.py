@@ -15,6 +15,7 @@ import os
 import re
 import sys
 from collections.abc import Mapping
+from datetime import timedelta
 from pathlib import Path
 
 DIRECTORIO = Path(__file__).resolve().parent / "k8s"
@@ -104,6 +105,18 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
         "",
         "owner/repo separados por comas que pueden llamar graph.index. Obligatoria con audiencia.",
     ),
+    # Los defectos son los de railspec-graph (SUPERPOSICION_DIAS e INDEXADO_HORAS en indexado.py): una
+    # prueba comprueba que no se separen.
+    "RAILSPEC_GRAFO_SUPERPOSICION_DIAS": (
+        "30",
+        "Días sin snapshot nuevo tras los que se borra la superposición de una unidad no integrada "
+        "(0 = nunca; admite fracciones).",
+    ),
+    "RAILSPEC_GRAFO_INDEXADO_HORAS": (
+        "24",
+        "Horas sin lotes nuevos tras las que se borra la preparación de un índice que no completó "
+        "(0 = nunca; admite fracciones).",
+    ),
     "RAILSPEC_CONSOLA_ADMINS": ("", "github_id que administran la plataforma en la consola (coma)."),
     "RAILSPEC_CONSOLA_SESION_HORAS": ("4", "Vida de la sesión de la consola, en horas (1 a 24)."),
     "RAILSPEC_CONSOLA_AUTH_LIMITE": (
@@ -184,6 +197,7 @@ _REGION_CHAT = r"(?:zona-(?:us|eu)|[a-z0-9]+)"
 _NOMBRE_K8S = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 _ETIQUETA_K8S = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
 _CANTIDAD = re.compile(r"[1-9][0-9]*(Mi|Gi|Ti)")
+_PLAZO = re.compile(r"[0-9]+(\.[0-9]+)?")
 _CRON = re.compile(r"[0-9*/,-]+( +[0-9*/,-]+){4}")
 # owner de GitHub (letras, dígitos y guiones) y repositorio sin ``.`` ni ``..``: va a un ``cd`` y un
 # ``mkdir`` del CronJob, así que no puede salirse del volumen de clones.
@@ -226,6 +240,7 @@ def valores(entorno: Mapping[str, str]) -> dict[str, str]:
             "usar la forma despliegue=modelo[:SKU], no JSON"
         )
     _validar_oidc(salida)
+    _validar_grafo(salida)
     _validar_consola(salida)
     _validar_chat(salida)
     _validar_datos(salida)
@@ -250,6 +265,24 @@ def _entero(salida: Mapping[str, str], nombre: str, minimo: int, maximo: int | N
     if not re.fullmatch(r"\d+", valor) or int(valor) < minimo or (maximo is not None and int(valor) > maximo):
         rango = f"de {minimo} a {maximo}" if maximo is not None else f">= {minimo}"
         raise ErrorRender(f"{nombre} debe ser un entero {rango} (el servidor no arranca con otro valor)")
+
+
+def _validar_grafo(salida: Mapping[str, str]) -> None:
+    """Lo que acepta ``railspec.graph.indexado._plazo`` (o menos): ahí un valor inválido tumba el arranque."""
+
+    for nombre, unidad in (
+        ("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"),
+        ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours"),
+    ):
+        valor = salida[nombre]
+        if not _PLAZO.fullmatch(valor):
+            raise ErrorRender(
+                f"{nombre} debe ser un número decimal mayor o igual que 0 (0 = nunca caduca; p. ej. 0.5)"
+            )
+        try:
+            timedelta(**{unidad: float(valor)})
+        except OverflowError:
+            raise ErrorRender(f"{nombre} es demasiado grande: {valor}") from None
 
 
 def _validar_consola(salida: Mapping[str, str]) -> None:

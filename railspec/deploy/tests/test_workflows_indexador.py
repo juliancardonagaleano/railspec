@@ -11,75 +11,24 @@ rango (``>=``, ``~=``), y si la CI deja de correr las pruebas del instalador del
 from __future__ import annotations
 
 import re
-import shlex
 import textwrap
-from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 import yaml
+from _workflows import WORKFLOWS, requisitos
 from railspec.local import indexador_cbm
 
-WORKFLOWS = Path(__file__).resolve().parents[3] / ".github" / "workflows"
 PAQUETE = re.compile(r"codebase[-_.]memory[-_.]mcp(?![\w.-])", re.IGNORECASE)
 #: La forma con la que los workflows piden la versión fijada: correcta por construcción.
 DERIVADA = "$(python -m railspec.local.indexador_cbm)"
 #: Sustituye a DERIVADA antes de partir en palabras, para que valga con o sin comillas.
 MARCA = "@derivada@"
-SEPARADORES = {"&&", "||", ";", "|"}
-#: Claves que solo rotulan (nombre de un paso, descripción de una entrada): mencionan el paquete sin
-#: instalarlo.
-ROTULOS = {"name", "description"}
-
-
-def _textos(nodo, clave: str | None = None) -> Iterator[tuple[str | None, str]]:
-    """Cada cadena del YAML con la clave que la contiene, salvo los rótulos."""
-    if isinstance(nodo, dict):
-        for k, v in nodo.items():
-            if k not in ROTULOS:
-                yield from _textos(v, k)
-    elif isinstance(nodo, list):
-        for v in nodo:
-            yield from _textos(v, clave)
-    elif isinstance(nodo, str):
-        yield clave, nodo
-
-
-def _ordenes(texto: str) -> Iterator[list[str]]:
-    """Las órdenes de un guion de shell, ya partidas en palabras: sin comentarios, con las
-    continuaciones (``\\``) unidas y cada tramo de un ``&&``, ``||``, ``;`` o ``|`` aparte."""
-    for linea in texto.replace(DERIVADA, MARCA).replace("\\\n", " ").splitlines():
-        linea = re.sub(r"(^|\s)#.*$", "", linea).strip()
-        if not linea:
-            continue
-        try:
-            palabras = shlex.split(linea)
-        except ValueError:  # comillas sin cerrar: mejor una partición burda que callar
-            palabras = linea.split()
-        orden: list[str] = []
-        for palabra in [*palabras, ";"]:
-            if palabra in SEPARADORES:
-                if orden:
-                    yield orden
-                orden = []
-            else:
-                orden.append(palabra)
 
 
 def _requisitos(texto_yaml: str) -> list[str]:
-    """Cada palabra con la que el workflow pide instalar el indexador, tal como la verá pip.
+    """Cada palabra con la que el workflow pide instalar el indexador, tal como la verá pip."""
 
-    En un ``run`` solo cuentan las líneas con ``install`` (``codebase-memory-mcp --version`` lo
-    ejecuta, no lo instala). En cualquier otra clave (la lista ``instalar`` de la matriz, un ``with``)
-    toda mención es un requisito: el workflow la pasará luego a pip."""
-
-    requisitos = []
-    for clave, texto in _textos(yaml.safe_load(texto_yaml)):
-        for palabras in _ordenes(texto):
-            if clave == "run" and "install" not in palabras:
-                continue
-            requisitos += [p for p in palabras if PAQUETE.search(p)]
-    return requisitos
+    return requisitos(texto_yaml, PAQUETE, {DERIVADA: MARCA})
 
 
 def _fijado(requisito: str) -> bool:
