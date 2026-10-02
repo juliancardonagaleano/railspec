@@ -85,7 +85,10 @@ tokens de desarrollo si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo
 `python3 railspec/deploy/renderizar.py --variables` imprime esta tabla. El
 significado de las variables de proveedores, catálogo y contexto, y las que
 no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
-`RAILSPEC_SECRETOS_DIR`), está en [proveedores.md](proveedores.md).
+`RAILSPEC_SECRETOS_DIR`), está en [proveedores.md](proveedores.md). Las dos que
+fijan cuándo se borra lo abandonado en el grafo (`RAILSPEC_GRAFO_*`) tampoco
+pasan por el renderizador: ver [Lo que queda a
+medias](#lo-que-queda-a-medias).
 
 | Variable | Defecto | Uso |
 | --- | --- | --- |
@@ -316,9 +319,40 @@ del vínculo. La identidad de servicio no tiene rol en ninguna organización ni
 workspace: `graph.index` es la única tool que la admite (`tipos_actor`), así
 que un OIDC válido no puede leer unidades, órdenes, telemetría ni grafo.
 
+### Lo que queda a medias
+
+Una corrida de CI que falla entre lotes deja en FalkorDB el grafo de
+preparación `...:i:<commit>` del índice, y una unidad que nadie retoma deja su
+superposición. El servidor los borra solo (paquete `railspec-graph`; ver
+[grafo.md](grafo.md#lo-abandonado-superposiciones-y-preparaciones)); no hay
+nada que limpiar a mano.
+
+| Variable | Defecto | Uso |
+| --- | --- | --- |
+| `RAILSPEC_GRAFO_SUPERPOSICION_DIAS` | `30` | Días sin snapshot nuevo tras los que se borra la superposición de una unidad no integrada (la retención por defecto de los snapshots; este plazo es del servidor, no del vínculo). Las integradas esperan a que un índice cubra su commit y no caducan por tiempo. |
+| `RAILSPEC_GRAFO_INDEXADO_HORAS` | `24` | Horas sin lotes nuevos tras las que se borra la preparación de un índice que no completó. |
+
+- `0` desactiva cada una y admiten fracciones (`0.5`). El servidor las lee al
+  arrancar: un valor que no es un número, negativo o desmesurado impide
+  arrancar, con el nombre de la variable en el error.
+- Hoy no pasan por `renderizar.py` ni por el ConfigMap: con los valores por
+  defecto no hay nada que hacer.
+- El barrido corre cuando llega un `graph.index` del repositorio (un índice
+  aplicado, o el primer lote de un commit nuevo), así que un repositorio que
+  no se indexa no se barre. Lo borrado queda en el log del servidor (INFO,
+  `railspec.graph.indexado`); la respuesta de `graph.index` no cambia.
+- Un sello de actividad nuevo acompaña a las superposiciones y preparaciones
+  que se escriban desde ahora; las que ya existen se sellan en el primer
+  barrido y su plazo cuenta desde ese momento.
+
 ## Pendiente fuera de este directorio
 
-- El indexador local por CLI de `codebase-memory-mcp` pagina de a unas 60 a
-  180 filas y cada llamada cuesta unos 4 s de arranque, así que un índice
-  completo de un repositorio mediano tarda decenas de minutos (el job tiene
-  60 de límite). Es del paquete `railspec-local`.
+- **Tiempo de un índice completo.** El job usa el mismo indexador que el
+  proxy (`railspec.local.indexador_cbm`): una sola sesión MCP por stdio con
+  `codebase-memory-mcp` por delta, con el arranque (unos 6 s) pagado una vez y
+  unas cien filas por página ([proxy-local.md](proxy-local.md#indexador-local));
+  solo si la sesión no arranca vuelve al modo `cli`, que paga el arranque en
+  cada página. No hay una medición de un índice completo de un repositorio
+  grande contra el límite de 60 minutos del job (`timeout-minutes` de
+  `railspec-reindexar.yml`); si una corrida se pasa, lo que dejó a medias lo
+  borra el barrido de arriba.

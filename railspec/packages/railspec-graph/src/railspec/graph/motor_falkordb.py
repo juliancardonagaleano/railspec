@@ -2,7 +2,8 @@
 
 Esquema por grafo:
 
-- ``(:Meta {json})``: commit, unidad y lápidas de la superposición.
+- ``(:Meta {json, actualizado})``: commit, unidad y lápidas de la superposición en el json;
+  la última actividad (ISO 8601, UTC) aparte.
 - ``(:Simbolo {id, nombre, tipo, ruta, linea_inicio, linea_fin, sha256, stub, embedding})``;
   un stub solo lleva ``id`` y ``stub = true``.
 - ``(:Simbolo)-[:REL {tipo}]->(:Simbolo)``.
@@ -16,6 +17,7 @@ licencia comercial o cambiar a otro ``MotorGrafo``.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from .motor import PROPIEDADES_SIMBOLO, AristaMotor, Cluster, Meta, Proceso, Traza
@@ -84,12 +86,25 @@ class MotorFalkor:
         return sorted(n for n in self._db.list_graphs() if n.startswith(prefijo))
 
     def leer_meta(self, grafo: str) -> Meta:
-        filas = self._leer(grafo, "MATCH (m:Meta) RETURN m.json")
+        filas = self._leer(grafo, "MATCH (m:Meta) RETURN m.json, m.actualizado")
         if not filas:
             return Meta()
-        d = json.loads(filas[0][0])
+        crudo, actualizado = filas[0]
+        # Sin json: ``sellar`` llegó antes que la primera ``escribir_meta`` del grafo.
+        d = json.loads(crudo) if crudo else {}
         d["aristas_borradas"] = [tuple(a) for a in d.get("aristas_borradas", [])]
+        if actualizado:
+            d["actualizado"] = datetime.fromisoformat(actualizado)
         return Meta(**d)
+
+    def sellar(self, grafo: str, instante: datetime) -> None:
+        # ``existe`` antes: una consulta sobre una clave que no está crearía un grafo vacío.
+        if self.existe(grafo):
+            self._escribir(
+                grafo,
+                "MERGE (m:Meta) SET m.actualizado = coalesce(m.actualizado, $a)",
+                {"a": instante.isoformat()},
+            )
 
     def escribir_meta(self, grafo: str, meta: Meta) -> None:
         datos = {
@@ -105,7 +120,14 @@ class MotorFalkor:
             # Solo las superposiciones retenidas lo llevan: durante un despliegue gradual una
             # réplica anterior sigue leyendo el resto de las metas, que no cambian de forma.
             datos["integrado"] = meta.integrado
-        self._escribir(grafo, "MERGE (m:Meta) SET m.json = $j", {"j": json.dumps(datos)})
+        # ``actualizado`` es propiedad del nodo y no va en el json: toda superposición y todo grafo de
+        # preparación lo llevan, y una réplica anterior no admite claves que no conoce al leerlo.
+        actualizado = meta.actualizado.isoformat() if meta.actualizado else None
+        self._escribir(
+            grafo,
+            "MERGE (m:Meta) SET m.json = $j, m.actualizado = $a",
+            {"j": json.dumps(datos), "a": actualizado},
+        )
 
     # --- símbolos y aristas ------------------------------------------------
     def upsert_simbolos(self, grafo: str, simbolos: list[dict]) -> None:

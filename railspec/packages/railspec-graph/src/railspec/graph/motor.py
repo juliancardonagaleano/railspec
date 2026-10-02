@@ -16,6 +16,7 @@ embedding. Nunca texto de código, en ningún nivel.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 #: Propiedades de un símbolo persistidas por el motor. Una prueba verifica
@@ -63,6 +64,12 @@ class Meta:
     solo los usa el grafo de preparación de ``graph.index``. ``integrado`` lo
     pone ``unit.integrate`` en la superposición de una unidad ya integrada: el
     commit que el índice canónico debe alcanzar para que pueda retirarse.
+
+    ``actualizado`` (UTC) es la última actividad de una superposición (cada
+    snapshot la reconstruye) o de un grafo de preparación (cada lote nuevo): lo
+    que ``limpiar_huerfanos`` compara para borrar lo abandonado. Sin valor, el
+    primer barrido lo sella (``MotorGrafo.sellar``). Lo lleva el motor aparte
+    del resto de la meta para que una réplica anterior siga leyéndola.
     """
 
     commit: str | None = None
@@ -73,6 +80,7 @@ class Meta:
     lotes: int | None = None
     recibidos: list[int] = field(default_factory=list)
     integrado: str | None = None
+    actualizado: datetime | None = None
 
 
 @runtime_checkable
@@ -87,6 +95,13 @@ class MotorGrafo(Protocol):
     def leer_meta(self, grafo: str) -> Meta: ...
 
     def escribir_meta(self, grafo: str, meta: Meta) -> None: ...
+
+    def sellar(self, grafo: str, instante: datetime) -> None:
+        """Fija ``actualizado`` solo si el grafo no lo tiene.
+
+        No toca el resto de la meta y no crea el grafo: es atómico frente a un
+        ``escribir_meta`` concurrente, que ya trae su propio sello.
+        """
 
     # --- símbolos y aristas ------------------------------------------------
     def upsert_simbolos(self, grafo: str, simbolos: list[dict]) -> None:

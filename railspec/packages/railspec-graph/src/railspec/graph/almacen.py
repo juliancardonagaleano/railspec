@@ -18,6 +18,10 @@
 - Las trazas ``CA-NN`` enlazan cada criterio de una unidad con los símbolos
   que cambiaron al completar sus tareas; viven en un grafo aparte por
   repositorio que sobrevive a reindexados e integraciones (verbo ``trace``).
+- Lo abandonado se barre con ``limpiar_huerfanos``: la superposición de una
+  unidad sin actividad (ni snapshot nuevo) desde hace N días y la preparación
+  de un índice sin lotes nuevos desde hace N horas. Las superposiciones
+  retenidas (``integrado``) no caducan por tiempo.
 - Grafo y vectores comparten grafo físico (el embedding es propiedad del
   nodo), así que borrar un repositorio por cualquiera de los dos borra ambos.
 """
@@ -26,8 +30,9 @@ from __future__ import annotations
 
 import base64
 from collections import deque
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from railspec.contracts.comun import AlcanceRepositorio
@@ -178,6 +183,17 @@ class Impacto:
         return propios + self.afectados
 
 
+@dataclass
+class Huerfanos:
+    """Lo que ``limpiar_huerfanos`` borró: unidades (superposiciones) y commits (preparaciones)."""
+
+    superposiciones: list[str] = field(default_factory=list)
+    indexados: list[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.superposiciones or self.indexados)
+
+
 @dataclass(frozen=True)
 class Alcanzado:
     distancia: int
@@ -224,9 +240,21 @@ def resolver(vistas: list[Vista], ids: list[str]) -> dict[str, tuple[Vista, dict
 class AlmacenGrafo:
     """Implementa ``railspec.contracts.almacen.GraphStore``."""
 
-    def __init__(self, acceso: AccesoGrafo, codificador: CodificadorConsulta | None = None) -> None:
+    def __init__(
+        self,
+        acceso: AccesoGrafo,
+        codificador: CodificadorConsulta | None = None,
+        *,
+        reloj: Callable[[], datetime] | None = None,
+    ) -> None:
         self._acceso = acceso
         self._codificador = codificador
+        self._reloj = reloj or (lambda: datetime.now(UTC))
+
+    def ahora(self) -> datetime:
+        """El instante con que se sella la actividad de una superposición o de un índice (UTC)."""
+
+        return self._reloj()
 
     # --- escritura ---------------------------------------------------------
     def aplicar_delta(
@@ -261,6 +289,7 @@ class AlmacenGrafo:
                 unidad=unidad,
                 borrados=list(delta.simbolos_borrados),
                 aristas_borradas=[(a.origen, a.destino, a.relacion.value) for a in delta.aristas_borradas],
+                actualizado=self.ahora(),
             )
         )
 
@@ -328,6 +357,50 @@ class AlmacenGrafo:
                 sup.borrar()
                 retiradas.append(unidad)
         return retiradas
+
+    def limpiar_huerfanos(
+        self,
+        alcance: AlcanceRepositorio,
+        superposicion: timedelta | None,
+        indexado: timedelta | None,
+    ) -> Huerfanos:
+        """Borra lo que nadie va a terminar: superposiciones y grafos de preparación abandonados.
+
+        - Superposición de una unidad sin ``integrado`` y sin actividad desde hace ``superposicion``
+          (cada snapshot de ``unit.report`` la reconstruye y renueva su sello). Las retenidas, con
+          ``integrado``, no caducan por tiempo: salen por ``retirar_superposiciones``.
+        - Preparación de ``graph.index`` sin lotes nuevos desde hace ``indexado`` (reenviar un lote ya
+          recibido no cuenta). Un índice que nunca completa no la borra por sí solo.
+
+        ``None`` deja ese lado sin barrer. Un grafo sin sello (anterior a esta versión) se sella ahora y se
+        juzga en el siguiente barrido, así que nada se borra por tiempo que no hayamos visto pasar. No
+        toca el canónico ni las trazas ``CA-NN``. El barrido no toma lock: si una unidad vuelve a la vida
+        justo mientras se borra su superposición, el próximo snapshot la reconstruye completa; si un lote
+        llega tras ``indexado`` de silencio justo en ese instante, CI repite el índice."""
+
+        ahora = self.ahora()
+        borrado = Huerfanos()
+        if superposicion is not None:
+            for unidad in self._acceso.superposiciones(alcance):
+                e = self._acceso.espacio(alcance, unidad)
+                meta = e.meta()
+                if meta.integrado is None and self._vencido(e, meta, ahora, superposicion):
+                    e.borrar()
+                    borrado.superposiciones.append(unidad)
+        if indexado is not None:
+            for commit in self._acceso.indexados(alcance):
+                e = self._acceso.espacio_indexado(alcance, commit)
+                if self._vencido(e, e.meta(), ahora, indexado):
+                    e.borrar()
+                    borrado.indexados.append(commit)
+        return borrado
+
+    @staticmethod
+    def _vencido(e: Espacio, meta: Meta, ahora: datetime, plazo: timedelta) -> bool:
+        if meta.actualizado is None:
+            e.sellar(ahora)
+            return False
+        return ahora - meta.actualizado >= plazo
 
     def borrar_repositorio(self, alcance: AlcanceRepositorio) -> None:
         self._acceso.borrar_repositorio(alcance)

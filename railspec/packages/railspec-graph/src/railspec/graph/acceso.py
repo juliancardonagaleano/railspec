@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace
 from railspec.contracts.repositorio import nombre_grafo
@@ -70,6 +71,9 @@ class Espacio:
 
     def fijar_meta(self, meta: Meta) -> None:
         self._motor.escribir_meta(self._grafo, meta)
+
+    def sellar(self, instante: datetime) -> None:
+        self._motor.sellar(self._grafo, instante)
 
     def upsert_simbolos(self, simbolos: list[dict]) -> None:
         self._motor.upsert_simbolos(self._grafo, simbolos)
