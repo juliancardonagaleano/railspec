@@ -52,9 +52,12 @@ jobs:
         with:
           python-version: "3.11"
       - name: Instalar indexador
+        # La versión fijada (VERSION_FIJA) es la misma con la que los proxies calculan sus deltas:
+        # ids de símbolo y aristas salen del parser del binario y solo casan con esa versión.
         run: |
-          python -m pip install -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local \
-            codebase-memory-mcp
+          python -m pip install -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local
+          python -m pip install "codebase-memory-mcp==$(python -m railspec.local.indexador_cbm)"
+          python -m railspec.local.indexador_cbm --verificar
           codebase-memory-mcp --version
       - name: Reindexar
         env:

@@ -1,14 +1,19 @@
 # CI de Railspec: lint, pruebas de cada paquete por separado (cada uno con
 # solo sus dependencias) y validación de lo desplegable. Sustituye al antiguo
-# railspec-contratos.yml.
+# railspec-contratos.yml. Corre también las pruebas del instalador del kit
+# (installer/tests), que incluyen la convivencia del kit con Railspec.
+#
+# codebase-memory-mcp nunca se instala suelto: se fija a railspec.local.indexador_cbm.VERSION_FIJA
+# con el paso "Indexador fijado" (mismo patrón que railspec-binario.yml). Una prueba de
+# railspec/deploy/tests falla si un workflow lo instala sin pin o con otra versión.
 name: railspec-ci
 
 on:
   pull_request:
-    paths: ["railspec/**", ".github/workflows/railspec-*.yml"]
+    paths: ["railspec/**", "installer/**", ".github/workflows/railspec-*.yml"]
   push:
     branches: [master]
-    paths: ["railspec/**", ".github/workflows/railspec-*.yml"]
+    paths: ["railspec/**", "installer/**", ".github/workflows/railspec-*.yml"]
 
 permissions:
   contents: read
@@ -41,24 +46,36 @@ jobs:
             instalar: -e "railspec/packages/railspec-contracts[test]"
             pruebas: railspec/tests
             falkordb: false
+            indexador: false
           - paquete: railspec-graph
             instalar: -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-graph[falkordb,test]"
             pruebas: railspec/packages/railspec-graph
             falkordb: true
+            indexador: false
           - paquete: railspec-server
             instalar: >-
               -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-graph[falkordb]"
               -e "railspec/packages/railspec-server[motor,grafo,test-motor]"
             pruebas: railspec/packages/railspec-server
             falkordb: true
+            indexador: false
           - paquete: railspec-local
-            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest codebase-memory-mcp
+            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest
             pruebas: railspec/packages/railspec-local
             falkordb: false
+            indexador: true
           - paquete: despliegue
             instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest pyyaml
             pruebas: railspec/deploy/tests
             falkordb: false
+            indexador: false
+          # Las pruebas del instalador del kit viven en installer/tests. test_convivencia_railspec.py
+          # instala el kit y `railspec instalar` en repositorios temporales y necesita railspec-local.
+          - paquete: installer
+            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest pyyaml
+            pruebas: installer/tests
+            falkordb: false
+            indexador: false
     services:
       falkordb:
         # Misma versión y digest que railspec/deploy/renderizar.py (IMAGEN_FALKORDB).
@@ -71,6 +88,11 @@ jobs:
           python-version: "3.11"
       - name: Instalar
         run: python -m pip install ${{ matrix.instalar }}
+      - name: Indexador fijado (codebase-memory-mcp)
+        if: matrix.indexador
+        run: |
+          python -m pip install "codebase-memory-mcp==$(python -m railspec.local.indexador_cbm)"
+          python -m railspec.local.indexador_cbm --verificar
       - name: Configurar git para las pruebas que crean repositorios
         run: |
           git config --global user.email "ci@railspec.invalid"
@@ -111,7 +133,11 @@ jobs:
           -e "railspec/packages/railspec-contracts[test]" -e railspec/packages/railspec-local
           -e "railspec/packages/railspec-graph[falkordb]"
           -e "railspec/packages/railspec-server[motor,grafo]"
-          pytest pyyaml codebase-memory-mcp
+          pytest pyyaml
+      - name: Indexador fijado (codebase-memory-mcp)
+        run: |
+          python -m pip install "codebase-memory-mcp==$(python -m railspec.local.indexador_cbm)"
+          python -m railspec.local.indexador_cbm --verificar
       - name: Configurar git para las pruebas que crean repositorios
         run: |
           git config --global user.email "ci@railspec.invalid"
