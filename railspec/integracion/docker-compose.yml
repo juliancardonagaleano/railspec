@@ -2,14 +2,16 @@
 #
 #   docker compose -f railspec/integracion/docker-compose.yml up -d --build
 #
-# Mongo y FalkorDB son los mismos motores que en AKS. El servidor corre
-# railspec-server con dobles de modelo y gobernanza (railspec_e2e.servidor):
-# ningún gate llama a Foundry ni a PCE, así que no hace falta ninguna credencial.
+# Mongo y FalkorDB son los mismos motores y versiones que despliega railspec/deploy: imágenes fijadas
+# por versión y digest, las de IMAGEN_MONGO e IMAGEN_FALKORDB de renderizar.py (una prueba de
+# railspec/deploy/tests comprueba que no se separen). El servidor corre railspec-server con dobles de
+# modelo y gobernanza (railspec_e2e.servidor): ningún gate llama a Foundry ni a PCE, así que no hace
+# falta ninguna credencial.
 name: railspec-e2e
 
 services:
   mongo:
-    image: mongo:7
+    image: mongo:7.0.43@sha256:9854f7139445d766a9523571d6f047530c45547460ffcf8259eb2bf4264632ca
     ports: ["${RAILSPEC_E2E_MONGO_PUERTO:-27017}:27017"]
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
@@ -17,7 +19,7 @@ services:
       retries: 30
 
   falkordb:
-    image: falkordb/falkordb:latest
+    image: falkordb/falkordb:6.0.1@sha256:e2765e207e5ba4ee90e47ed31eb7491ad6dd3d42241c326e429375c02ad9882f
     ports: ["${RAILSPEC_E2E_FALKORDB_PUERTO:-6379}:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
