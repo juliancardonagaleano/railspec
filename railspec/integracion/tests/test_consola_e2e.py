@@ -29,7 +29,9 @@ def consola(entorno, tmp_path_factory):
     with httpx.Client(base_url=base, headers={"Authorization": f"Bearer {entorno.token}"}, timeout=30) as c:
 
         def buscar_en_la_superposicion(unidad: str) -> httpx.Response:
-            # unit.integrate descarta la superposición de la unidad: la búsqueda se hace antes.
+            # Se busca antes de integrar, con la unidad en curso. Tras unit.integrate con
+            # commit_integrado la superposición no se descarta: queda retenida hasta que CI
+            # reindexa el merge (ver test_ciclo_restringido).
             return c.post(
                 "/consola/api/tools/graph.query",
                 json={
