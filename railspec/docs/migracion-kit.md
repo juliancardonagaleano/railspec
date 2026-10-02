@@ -24,7 +24,7 @@ repositorios temporales, en los dos órdenes, y comprueba que ninguno pisa al ot
 | Modos `interactivo` y `semi-autonomo` | Los mismos nombres: `interactivo` abre `aprobar-spec` y `aprobar-plan`; `semi-autonomo`, un `paquete-aprobacion` | Equivale |
 | `sdd-supervisado`, `sdd-desatendido`, `sdd-preflight` | Los modos existen en el contrato, pero hoy solo omiten los checkpoints de aprobación | Parcial: ver abajo |
 | `sdd-perfil` y `.spec/perfiles.yaml` | Una unidad nueva nace con el «perfil por defecto» del workspace (`estandar` si el workspace no está registrado; `/railspec` no pasa perfil) y una importada trae el del kit; los perfiles por rol (modelo, effort) de cada organización o workspace se editan en la consola | Distinto: no hay `/sdd-perfil` ni archivo por clon |
-| `kit-doctor` | No hay `railspec doctor`. Sirven `railspec instalar --verificar` (deriva de los adaptadores), `railspec estado` y, en el servidor, `/livez` y `/healthz` | Parcial |
+| `kit-doctor` | `railspec doctor` (solo lectura: repositorio, comando, servidor, sesión, contrato, adaptadores, indexador y worktrees; no mira `pce-mcp` ni `gitnexus`), `railspec instalar --verificar` (deriva de los adaptadores), `railspec estado` y, en el servidor, `/livez` y `/healthz` | Parcial |
 | `pce-mcp` en el clon | El servidor consulta la gobernanza por su cuenta en cada gate | Ver «pce-mcp y kit-doctor» |
 | Hooks `guard_*` de `.spec/scripts` | `railspec hook <arnés>` aplica las reglas de conducta con una unidad en curso | Distinto: otras reglas |
 | Gate de pre-push (`.spec/scripts/pre-push-gate.sh`) | No hay equivalente | Sigue siendo del kit |
@@ -98,8 +98,8 @@ railspec importar .spec/units/0007-pce-mcp                    # una unidad del k
 railspec importar .spec/units/* --solo-convertir paquetes/    # revisar antes, sin servidor
 ```
 
-Necesita `railspec instalar` hecho y `RAILSPEC_URL` y `RAILSPEC_TOKEN` en el entorno
-(`--solo-convertir` no contacta el servidor). Solo lee `.spec/units/<id>/`: la unidad del kit
+Necesita `railspec instalar` hecho, `RAILSPEC_URL` en el entorno y una sesión (`railspec login`
+o `RAILSPEC_TOKEN`); `--solo-convertir` no contacta el servidor. Solo lee `.spec/units/<id>/`: la unidad del kit
 queda donde estaba. Se trae por unidad y cuando tú lo pides; ver
 [proxy-local.md](proxy-local.md#importar-y-exportar-unidades) para el formato del paquete.
 
@@ -242,8 +242,10 @@ kit que lo consultan. Las dos entradas conviven en
 **`kit-doctor`.** Diagnostica `pce-mcp`, `gitnexus`, `codebase-memory-mcp` y el índice de grafo
 local del kit, y sigue sirviendo mientras haya kit. Railspec no usa `gitnexus`: su grafo es el
 del servidor (`graph_query`). Sí usa `codebase-memory-mcp` como indexador local opcional
-([proxy-local.md](proxy-local.md#indexador-local)), por su cuenta. Para Railspec no hay `railspec
-doctor`: revisa los adaptadores con `railspec instalar --verificar`, el estado de una unidad con
+([proxy-local.md](proxy-local.md#indexador-local)), por su cuenta. Para Railspec, `railspec doctor`
+diagnostica sin cambiar nada el proxy y su entorno (repositorio, comando, servidor, sesión,
+contrato, adaptadores, indexador y worktrees; no mira `pce-mcp` ni `gitnexus`); además, los
+adaptadores se revisan con `railspec instalar --verificar`, el estado de una unidad con
 `railspec estado`, y el servidor con `/livez` y `/healthz`.
 
 ## Lo que queda abierto

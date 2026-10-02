@@ -25,7 +25,7 @@ arrancar.
 | `normalizacion` | Tokens, aplastado, desofuscación y huellas (n-gramas y winnowing). |
 | `forma`, `secretos` | Heurística de forma de código y patrones de secretos (copia de los del proxy). |
 | `codigo` | `code.read` sobre el clon canónico (`ClonesGit`; `FuenteEnMemoria` para pruebas). |
-| `almacen` | Mongo: `chat_conversaciones`, `chat_mensajes`, `chat_huellas`, `chat_fuga_usuario`, `insumos`. |
+| `almacen` | Mongo: `chat_conversaciones`, `chat_mensajes`, `chat_huellas`, `chat_fuga_usuario`, `insumos`. Toda consulta, también por `_id`, lleva organización y workspace; la lectura de una conversación por id (las rutas no llevan workspace) se acota por su autor, y `chat_fuga_usuario` es de la organización. |
 | `resolucion` | Insumos en `unit.start` y en `contexto.insumos` de cada orden. |
 | `http` | Rutas `/v1/chat`. |
 
@@ -37,7 +37,8 @@ arrancar.
 2. El modelo se elige antes de enviar nada. En `restringido` e `interno`
    solo entra Foundry con una región fija que esté en `RAILSPEC_CHAT_ZONA_DATOS`;
    si la variable está vacía, el chat responde 422 `perfil-insatisfacible` sin
-   llamar a ningún modelo. `modelos_permitidos` del vínculo se respeta.
+   llamar a ningún modelo. La misma regla rige en `abierto` si algún vínculo
+   fija `hosting: azure-zona-datos`. `modelos_permitidos` del vínculo se respeta.
 3. Bucle de hasta 6 pasos: el modelo devuelve `PasoAgente` con hasta 4
    llamadas o con la respuesta. Las tools son las de superficie `chat` del
    registro único (`graph.query`, `unit.status`, `unit.list`,
@@ -73,7 +74,7 @@ texto.
 | `forma-codigo` | Densidad de símbolos, palabras reservadas y líneas con forma de sentencia (definiciones, asignaciones, `return`, llaves, SQL…), aunque no coincida con nada leído. Solo se omite si todos los repositorios permiten `fragmentos_en_respuesta` (abierto). |
 | `secretos` | Los patrones del proxy, en todas las cadenas de la salida, referencias incluidas. Una prueba exige que sean idénticos a los de `railspec-local`. |
 | `alcance` | No bloquea: elimina (`recorta`) referencias a repositorios fuera de la conversación o a unidades y decisiones de otro workspace. |
-| `presupuesto-fuga` | Caracteres de literales citados (entre comillas, backticks o «») más identificadores del código leído que aparezcan, acumulados por conversación y por persona y día (UTC). Topes del vínculo: 1500/6000 en restringido e interno, 4000/20000 en abierto. |
+| `presupuesto-fuga` | Caracteres de literales citados (entre comillas, backticks o «») más identificadores del código leído que aparezcan, acumulados por conversación y por persona y día (UTC); el de la persona es de la organización: el tope diario se comparte entre sus workspaces. Topes del vínculo: 1500/6000 en restringido e interno, 4000/20000 en abierto. |
 
 Límites conocidos: el gate es heurístico en `forma-codigo`; prosa muy
 cargada de identificadores largos puede bloquear (falso positivo, se ve como
@@ -85,7 +86,8 @@ cambio al gate entra sin pasarlo.
 ## API HTTP
 
 Misma identidad que `/v1/tools`: `Authorization: Bearer` resuelto con canal
-`consola`. Errores: `{"codigo", "detalle"}` con 401, 403, 404, 409, 422 o 429.
+`consola`. Errores: `{"codigo", "detalle"}` con 403, 404, 409, 422 o 429; un
+token inválido da 401 (503 si no se pudo comprobar) con solo `detalle`.
 
 | Método y ruta | Cuerpo | Respuesta |
 |---|---|---|
@@ -111,7 +113,7 @@ que consumen el motor, el proxy y la consola:
 
 ```json
 {
-  "version_contrato": "1.3",
+  "version_contrato": "1.5",
   "formato": "railspec.insumo/v1",
   "id": "uuid4",
   "alcance": {"org": "acme", "workspace": "certificados"},

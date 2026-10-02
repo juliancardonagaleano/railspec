@@ -25,7 +25,7 @@ MCP no pasan por estos filtros: el arnés necesita la orden completa.
 | --- | --- |
 | SPA (React + TypeScript, Vite, TanStack Router y Query, Tailwind, React Flow, Sigma.js, ECharts) | `railspec/packages/railspec-console/` |
 | API de la consola (`/consola/api`) | `railspec/packages/railspec-server/src/railspec/server/consola/` |
-| Pruebas de la API | `railspec-server/tests/test_consola.py` |
+| Pruebas de la API | `railspec-server/tests/test_consola*.py` |
 | Prueba contra Mongo y FalkorDB reales | `railspec/integracion/tests/test_consola_e2e.py` |
 
 El servidor sirve la SPA compilada en `/consola/` (mismo origen que la API,
@@ -373,7 +373,7 @@ Toda escritura de administración y configuración queda en `auditoria` con su
 actor: `cambio-configuracion`, `cambio-nivel` (con nivel anterior, nuevo y
 motivo obligatorio; los cambios de política llevan su diff, ver «Vínculos de
 repositorio») y `desvinculo-repositorio` (motivo obligatorio; borra
-vínculo y grafo del repositorio). Los cambios a nivel organización se
+vínculo, grafo y snapshots del repositorio). Los cambios a nivel organización se
 auditan en el workspace reservado `org` (`org`, `administracion` y
 `configuracion` no se pueden usar como nombre de workspace); se ven en `/consola/api/orgs/{org}/workspaces/org/auditoria`
 como `org-admin`.
@@ -397,7 +397,7 @@ cinco minutos después de que nadie lo mire; los borrados y el
 catálogo (que ya resume su sincronización) no lo usan.
 
 Un 409 también sube la versión: la vista recarga y el formulario se remonta con
-lo vigente, y «Otra persona modificó este registro (versión actual N)» sigue ahí.
+lo vigente, y «Otra persona modificó este registro mientras lo editabas (versión actual N)» sigue ahí.
 `useGuardar` deja el 409 en la caché bajo la misma clave (`["conflicto", clave]`)
 y `error` lo devuelve aunque la mutación que lo recibió ya no exista, así que
 `<ErrorGuardado error={guardar.error} />` basta. Los cambios sin guardar de la
@@ -424,7 +424,7 @@ que se cierran y se vuelven a abrir.
 | `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
-| `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar. |
+| `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar (409), salvo por quien administra la plataforma. |
 | `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. La URL es `https://github.com/<owner>/<repo>` del `github_org` de la organización (422 si no). |
 | `GET /orgs/{org}/catalogo` | Catálogo de modelos guardado para la organización (lector). |
 | `GET /orgs/{org}/catalogo/estado` | Por proveedor: si el servidor lo tiene configurado, de qué fuentes lee, cuántos modelos hay guardados, cuándo se leyeron y cómo salió el último intento (quién, cuándo, resultado, error saneado). Lector. |

@@ -27,14 +27,15 @@ railspec/
   tests/                  deriva de esquemas y ejemplos, invariantes
 ```
 
-`railspec-server` y `railspec-local` dependen solo de `railspec-contracts`;
-entre ellos nunca se importan.
+`railspec-local` depende solo de `railspec-contracts`; `railspec-server`, de
+`railspec-contracts` y, de forma opcional (extra `grafo`), de `railspec-graph`.
+Entre server y local nunca se importan.
 
 ## Desarrollo
 
 ```
 python -m pip install -e railspec/packages/railspec-contracts[test] \
-  -e railspec/packages/railspec-server -e railspec/packages/railspec-local \
+  -e "railspec/packages/railspec-server[motor,grafo,test-motor]" -e railspec/packages/railspec-local \
   -e railspec/packages/railspec-graph[falkordb,test]
 python -m pytest railspec
 ```

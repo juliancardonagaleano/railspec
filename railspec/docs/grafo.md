@@ -209,7 +209,7 @@ trabajo, lo que un grupo anterior ya había cambiado no se atribuye al nuevo.
 | Verbo | Resultado |
 |---|---|
 | `resolve` | Símbolos con ese nombre o sufijo calificado (`.x`, `::x`, `/x`, `#x`). |
-| `search` | Subcadena del nombre, filtrable por tipo; con `semantica`, también k-NN con el `vector_b64` que calcula el proxy (1.1) o, si falta, con un `CodificadorConsulta` del servidor. |
+| `search` | Subcadena del nombre, filtrable por tipo; con `semantica`, también k-NN con el `vector_b64` que calcula el proxy (1.1) o, si falta, con un `CodificadorConsulta` opcional de `AlmacenGrafo` (el servidor no cablea ninguno). |
 | `traverse` | BFS por relaciones con distancia y relación de llegada; aguas arriba lleva riesgo. |
 | `related` | Clusters y procesos del símbolo, sus vecinos directos y sus compañeros de cluster. |
 | `impact` (1.4) | Exige `unidad`. Tocados con `distancia` 0 y afectados aguas arriba con `distancia` ≥ 1 y `relacion`, todos con el `riesgo` de `Impacto`. `profundidad` 1 a 5 (3). |

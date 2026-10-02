@@ -127,7 +127,7 @@ y el proxy renueva la sesión solo, sin que la persona haga nada:
 - **Cómo.** Renovar exige el client secret de la App, que no sale del servidor:
   el proxy llama a `POST {servidor}/v1/auth/renovar` con el refresh token y el
   client id de la sesión, y el servidor lo canjea en GitHub con el secret que ya
-  tiene (`RAILSPEC_GITHUB_APP_CLIENT_ID`/`_SECRET`; no hay variables nuevas). El
+  tiene (`RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET`; no hay variables nuevas). El
   endpoint no pide `Authorization`, porque el refresh token es la credencial,
   no guarda ni registra tokens y acota las llamadas simultáneas a GitHub.
   El refresh token solo viaja por https (o a un servidor en `localhost`).
@@ -386,12 +386,12 @@ trabajar) o ✗ (roto, con el remedio debajo). **Sale con 1 si hay algún ✗** 
 | `repositorio` | Hay un clon y `.railspec/config.json` válido (org, workspace, repositorio, nivel) | no es un repositorio git o falta o es inválida la configuración | — |
 | `comando` | `railspec` en el `PATH` | no está: el arnés no puede lanzar el proxy ni la guardia | — |
 | `servidor` | `RAILSPEC_URL` responde (lista las tools por MCP; tope de 20 s) | falta `RAILSPEC_URL`, no responde, da error o agota el tiempo | — |
-| `sesion` | De dónde sale el token (`RAILSPEC_TOKEN` o `railspec login`) y que el servidor lo acepta (`unit.list`); una sesión vencida con refresh token vigente cuenta como buena (solo lee: no la renueva ni la prueba) | no hay sesión, venció y no se puede renovar (sin refresh token, o también venció), el archivo está dañado o abierto a otros usuarios, la renovación falla, el servidor rechaza el token o el rol | no hay `RAILSPEC_URL`, no se pudo probar el token (sin conexión, o sin configuración del repositorio), el refresh token vence en menos de 7 días, o la sesión vence en menos de una hora y no puede renovarse |
+| `sesion` | De dónde sale el token (`RAILSPEC_TOKEN` o `railspec login`) y que el servidor lo acepta (`unit.list`); una sesión vencida con refresh token vigente cuenta como buena (solo lee: no la renueva ni la prueba) | no hay sesión, venció y no se puede renovar (sin refresh token, o también venció), el archivo está dañado o abierto a otros usuarios, el servidor rechaza el token o el rol | no hay `RAILSPEC_URL`, no se pudo probar el token (sin conexión, o sin configuración del repositorio), el refresh token vence en menos de 7 días, o la sesión vence en menos de una hora y no puede renovarse |
 | `contrato` | El servidor publica las tools de este proxy (contrato 1.5) y su respuesta cumple el contrato. Solo si el servidor respondió | faltan tools (contrato anterior) o la respuesta de `unit.list` no valida | sobran tools (¿contrato más nuevo?) o el transporte no las lista |
 | `adaptadores` | Deriva de cada adaptador instalado, por repositorio y por usuario, respecto de esta versión | alguna pieza falta o no coincide (cada una, listada) | ningún arnés tiene el adaptador |
 | `codex` | Solo si el repositorio instaló Codex: hay confianza guardada para el hook de la guardia | el hook no está confiado (Codex no lo ejecuta y las ediciones pasan sin revisar) | no se pudo leer `~/.codex/config.toml` |
-| `indexador` | `codebase-memory-mcp` en el `PATH` y en la versión fijada | tiene otra versión (el delta no se garantiza) | no está instalado (los snapshots viajan solo con hashes; es opcional) |
-| `worktrees` | Los worktrees de unidades de este repositorio | — | huérfanos (git los registra y la carpeta no existe, o no tienen estado local, o hay una carpeta con estado que git no conoce) o un estado local que no se puede leer |
+| `indexador` | `codebase-memory-mcp` en el `PATH` y en la versión fijada | tiene otra versión o no se puede leer la suya (el indexado queda apagado y los snapshots viajan solo con hashes) | no está instalado (los snapshots viajan solo con hashes; es opcional) |
+| `worktrees` | Los worktrees de unidades de este repositorio | no se pueden listar los worktrees con git, o el estado local de una unidad no se puede leer | huérfanos (git los registra y la carpeta no existe, o no tienen estado local, o hay una carpeta con estado que git no conoce) |
 
 - **El contrato no se negocia en `doctor`.** La versión se fija al arrancar una
   unidad (`unit_start`), no al conectar; `doctor` comprueba lo observable: que el
@@ -615,9 +615,9 @@ viaja: el servidor lo deriva del token.
 | `unit_approve` | `unit.approve` | — |
 | `unit_set_mode` | `unit.set_mode` | Solo a petición del humano (1.2) |
 | `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
-| `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
+| `unit_status`, `unit_list` | homónimas | `unit_status` actualiza el espejo local; `unit_list` solo añade la ruta del worktree de las unidades que tienes en local |
 | `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1); si no hay con qué calcularlo, la respuesta trae `avisos` (ver [Indexador local](#indexador-local)) |
-| `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` |
+| `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` (también `railspec insumo pull <id> [--unidad <unidad>]`) |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |
 
 ## Worktree por unidad
@@ -637,7 +637,7 @@ Estado local en el worktree, siempre fuera de git (`info/exclude`):
 | `.railspec/pendientes/<orden>.json` | Reporte completo esperando conexión (`.enviado` si ya salió una vez) |
 | `.railspec/ultimo-empuje` | Último commit de la rama avisado como `commit.empujado` |
 | `.railspec/validacion/<orden>.log` | Salida completa del comando de validación |
-| `.railspec/insumos/<id>.md` | Insumos traídos de la consola |
+| `.railspec/insumos/<id>.md` (y `<id>.json`) | Insumos traídos de la consola (sin unidad, en la raíz del clon) |
 
 ### Cuando la base de la unidad avanza: rebase
 
@@ -691,7 +691,8 @@ desarrollador. Por orden:
    liste `.railspecignore` no viajan, ni siquiera su hash.
 2. **Secretos.** Cada archivo tocado se revisa con patrones (claves
    privadas, tokens de GitHub, AWS, Azure, cadenas de conexión con
-   contraseña, asignaciones `password = "..."`). Un hallazgo impide el
+   contraseña, asignaciones `password = "..."`, y también tokens de Slack, Google,
+   Stripe, Anthropic y OpenAI y JWT). Un hallazgo impide el
    snapshot y se informa por ruta, línea y tipo, nunca con el valor.
 3. **Alcance.** En una orden `implementar` completada, un archivo fuera de
    `alcance.permitidos` o dentro de `prohibidos` impide el reporte.
@@ -709,11 +710,13 @@ y con secretos redactados.
 ## Indexador local
 
 Interfaz `Indexador` en `indice.py`, cargada por *entry point*
-(`railspec.indexadores`). La implementación incluida usa `codebase-memory-mcp`
+(`railspec.indexadores`; `RAILSPEC_INDEXADOR=<nombre>` elige uno por su nombre).
+La implementación incluida usa `codebase-memory-mcp`
 sin escribir `.codebase-memory/` en el árbol: indexa el worktree y, aparte,
 los archivos tocados tal como estaban en el commit base para calcular
 símbolos y aristas borrados. Los ids salen de `id_simbolo` del contrato.
-Probado con la versión 0.11.0.
+Su versión está fijada en 0.11.0 (`pip install codebase-memory-mcp==0.11.0`): con
+otra, el indexado local queda apagado y los snapshots viajan en `solo-hashes`.
 
 Cada delta abre una sola sesión MCP por stdio con el binario y la cierra al
 terminar: arrancar el binario cuesta unos 6 segundos y cada consulta,
@@ -740,9 +743,9 @@ Desde el contrato 1.3 la dirección local→remoto la numera solo el proxy:
 `unit.report` ya no genera eventos en el servidor. Cada reporte se guarda y
 encola como `snapshot.subido` (si hay snapshot) y `orden.reportada`, con
 secuencia monótona. Si la rama de la unidad aparece empujada con un commit
-nuevo (`refs/remotes/*/railspec/<unidad>`), se encola `commit.empujado`; el
-webhook de la GitHub App sigue cubriendo los empujes hechos desde otra
-máquina.
+nuevo (`refs/remotes/*/railspec/<unidad>`), se encola `commit.empujado`. Los
+empujes hechos desde otra máquina no se detectan: el servidor no recibe
+webhooks de push.
 
 Al sincronizar (`unit_advance`, `unit_report`, `railspec_sync`):
 
@@ -755,8 +758,8 @@ Al sincronizar (`unit_advance`, `unit_report`, `railspec_sync`):
    (`confirmada_hasta`) sale de la cola. Es idempotente por `id`, así que una
    respuesta perdida se reintenta sin duplicar.
 3. `unit_advance` y `railspec_sync` traen los eventos remoto→local con
-   `sync.pull` y avanzan `ultima_secuencia_recibida`; si llegó alguno, el
-   espejo se refresca con `unit.status`.
+   `sync.pull` y avanzan `ultima_secuencia_recibida`; si llegó alguno,
+   `unit_advance` refresca el espejo con `unit.status` (`railspec_sync` no).
 
 Sin red, la cola queda intacta y `unit_advance` devuelve la orden en curso
 para seguir editando; los gates esperan a la reconexión.
