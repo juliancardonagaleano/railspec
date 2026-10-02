@@ -54,6 +54,7 @@ from railspec.contracts.comun import (
 from railspec.contracts.estado import (
     Checkpoint,
     Decision,
+    EstadoUnidad,
     Rehabilitacion,
     ResolucionCheckpoint,
     ResultadoGate,
@@ -75,8 +76,9 @@ from railspec.contracts.snapshot import Snapshot
 from ..estado.checkpoints import nombre_workflow
 from . import ordenes
 from .artefactos import Extraido, GrupoPlan, hallazgos_estructura, validar
-from .gate import Accion, EntradaGate, decidir, evaluar_panel
-from .nucleo import Nucleo, presupuesto_agotado
+from .gate import Accion, EntradaGate, EvaluacionPanel, Guardia, decidir, evaluar_panel
+from .gate import Decision as DecisionGate
+from .nucleo import Nucleo
 from .perfiles import ACTOR_SERVIDOR, tope_gate
 
 log = logging.getLogger("railspec.motor")
@@ -307,6 +309,27 @@ def _sha(texto: str) -> str:
     return hashlib.sha256(texto.encode("utf-8")).hexdigest()
 
 
+def _commits(estado: EstadoUnidad) -> tuple[str, ...]:
+    """``repositorio@commit`` de cada repositorio vinculado: el código sobre el que evalúa el gate."""
+
+    return tuple(sorted(f"{r.repositorio}@{r.base_commit}" for r in estado.repositorios))
+
+
+def _veredicto_de_iteracion(decision: DecisionGate, iteracion: int) -> Veredicto:
+    """El veredicto que lleva la telemetría de una iteración del gate.
+
+    Igual que ``ResultadoGate``: ``aprobado`` si cierra en la primera, ``refinado`` si cierra
+    después de refinar o si pide otra iteración (todo gate que necesitó refinar gastó en
+    iteraciones ``refinado``), ``escalado`` si escala.
+    """
+
+    if decision.accion == Accion.escalar:
+        return Veredicto.escalado
+    if decision.accion == Accion.aprobar and iteracion == 1:
+        return Veredicto.aprobado
+    return Veredicto.refinado
+
+
 # --- Nodos -------------------------------------------------------------------------------
 
 
@@ -454,7 +477,8 @@ class Gate(Nodo):
                 f"gobernanza {gob.consultada.value}: {gob.detalle}",
             )
             return
-        agotado = presupuesto_agotado(estado)
+        fase_presupuesto = FASE_DE_GATE[fase]
+        agotado = self.n.presupuesto_agotado(estado, fase, fase_presupuesto)
         if agotado:
             await self.escalar(
                 ctx,
@@ -480,6 +504,7 @@ class Gate(Nodo):
             extraido = v.extraido
         criticos: list[str] = []
         refutador = False
+        panel = None
         if deterministas:
             hallazgos = deterministas
         else:
@@ -494,30 +519,33 @@ class Gate(Nodo):
                 hallazgos_previos=previos,
                 org=self.alcance.org,
                 zona=self.n.zona(estado),
+                commits=_commits(estado),
+                guardia=Guardia(
+                    lambda gastado: self.n.presupuesto_agotado(estado, fase, fase_presupuesto, gastado)
+                ),
             )
             panel = await evaluar_panel(entrada, self.n.proveedores, datos.siguiente_hallazgo)
-            if panel.llamadas or panel.fallidas:
-                self.n.escribir(
-                    self.alcance,
-                    lambda e: self.n.registrar_llamadas(e, fase, panel.llamadas, fallidas=panel.fallidas),
-                    anunciar=False,
-                )
             if panel.error:
+                self.registrar_panel(estado, fase, panel, Veredicto.escalado)
                 await self.escalar(
                     ctx,
                     datos,
                     fase,
-                    CausaEscalado.error_proveedor,
+                    CausaEscalado.presupuesto_agotado if panel.agotado else CausaEscalado.error_proveedor,
                     iteracion,
                     [],
                     gob.consultada,
-                    f"proveedor: {panel.error}",
+                    f"presupuesto agotado ({panel.agotado})"
+                    if panel.agotado
+                    else f"proveedor: {panel.error}",
                 )
                 return
             hallazgos, criticos, refutador = panel.hallazgos, panel.criticos, panel.refutador
         datos.siguiente_hallazgo += len(hallazgos)
 
         decision = decidir(iteracion, tope, hallazgos, previos)
+        if panel is not None:
+            self.registrar_panel(estado, fase, panel, _veredicto_de_iteracion(decision, iteracion))
         if decision.accion == Accion.aprobar:
             if fase != GateFase.codigo:
                 datos.extraido = extraido
@@ -559,6 +587,19 @@ class Gate(Nodo):
                 decision.motivo,
                 criticos,
                 refutador,
+            )
+
+    def registrar_panel(
+        self, estado: EstadoUnidad, fase: GateFase, panel: EvaluacionPanel, veredicto: Veredicto
+    ) -> None:
+        """Telemetría y auditoría del panel (una vez) y después su consumo, que sí se reintenta."""
+
+        if not (panel.llamadas or panel.fallidas):
+            return
+        self.n.registrar_llamadas(estado, fase, panel.llamadas, veredicto, fallidas=panel.fallidas)
+        if panel.llamadas:
+            self.n.escribir(
+                self.alcance, lambda e: self.n.contabilizar(e, fase, panel.llamadas), anunciar=False
             )
 
     def cerrar_gate(self, fase: GateFase, resultado: ResultadoGate) -> None:
