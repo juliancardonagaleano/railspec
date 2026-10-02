@@ -133,6 +133,9 @@ class AlmacenMongo:
         )
         db.ordenes.create_index([("_clave", ASCENDING), ("secuencia", ASCENDING)], unique=True)
         db.snapshots.create_index("_expira", expireAfterSeconds=0)
+        db.snapshots.create_index(
+            [("unidad.org", ASCENDING), ("unidad.workspace", ASCENDING), ("repositorio", ASCENDING)]
+        )
         db.telemetria.create_index([("org", ASCENDING), ("workspace", ASCENDING), ("_en", ASCENDING)])
         db.auditoria.create_index([("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING)])
         db.entradas.create_index([("_clave", ASCENDING), ("_recibida", ASCENDING)])
@@ -352,6 +355,16 @@ class AlmacenMongo:
     def obtener_snapshot(self, alcance: AlcanceUnidad, snapshot_id: str) -> Snapshot | None:
         doc = self.db.snapshots.find_one({"_id": str(snapshot_id), **_filtro_unidad(alcance)})
         return Snapshot.model_validate(_limpio(doc)) if doc else None
+
+    def borrar_snapshots_repositorio(self, alcance: AlcanceRepositorio) -> int:
+        """Borra los snapshots del repositorio en todas sus unidades; devuelve cuántos.
+
+        Idempotente: sin snapshots devuelve 0. Los de ``interno`` y ``abierto`` llevan diff y
+        fragmentos, así que desvincular no puede esperar a la caducidad.
+        """
+
+        filtro = {**_filtro_ws(alcance.org, alcance.workspace, "unidad"), "repositorio": alcance.repositorio}
+        return self.db.snapshots.delete_many(filtro).deleted_count
 
     # --- AlmacenMotor: entradas y turno ----------------------------------------------------
 

@@ -85,6 +85,9 @@ class AlmacenMotor(Protocol):
 
     def obtener_snapshot(self, alcance: AlcanceUnidad, snapshot_id: str) -> Snapshot | None: ...
 
+    def borrar_snapshots_repositorio(self, alcance: AlcanceRepositorio) -> int:
+        """Borra los snapshots del repositorio en todas sus unidades y devuelve cuántos; idempotente."""
+
     # --- entradas pendientes y turno ------------------------------------------------
     def registrar_entrada(self, entrada: EntradaPendiente) -> bool:
         """Idempotente por ``request_id``: False si ya estaba registrada."""

@@ -424,17 +424,21 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
             registros = (await c.get(f"/consola/api/orgs/{ORG}/workspaces/{WS}/auditoria")).json()[
                 "registros"
             ]
+            # Desvincular audita la intención y el cierre (el detalle fino: test_consola_desvinculo).
             assert [r["evento"] for r in registros] == [
+                "desvinculo-repositorio",
                 "desvinculo-repositorio",
                 "cambio-nivel",
                 "cambio-configuracion",
             ]
+            assert [r["detalle"]["fase"] for r in registros[:2]] == ["fin", "inicio"]
+            assert registros[0]["detalle"]["estado"] == "completo"
             # El evento lleva de/a/motivo y el diff del resto de la política (la del nivel nuevo por defecto).
             relaja = (
                 "nivel_codigo,chat_hosting,chat_fragmentos_en_respuesta,chat_huella_tokens_n,"
                 "chat_presupuesto_fuga_conversacion,chat_presupuesto_fuga_usuario_dia"
             )
-            assert registros[1]["detalle"] == {
+            assert registros[2]["detalle"] == {
                 "de": "restringido",
                 "a": "abierto",
                 "motivo": "repo público",
@@ -445,7 +449,7 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
                 "cambio_chat_presupuesto_fuga_conversacion": "1500 -> 4000",
                 "cambio_chat_presupuesto_fuga_usuario_dia": "6000 -> 20000",
             }
-            assert registros[1]["actor"]["login"] == "juliancardonagaleano"
+            assert registros[2]["actor"]["login"] == "juliancardonagaleano"
             assert registros[0]["actor"]["canal"] == "consola"
             filtrados = (
                 await c.get(
@@ -463,7 +467,7 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
                     params={"limite": 2, "cursor": pagina["cursor_siguiente"]},
                 )
             ).json()
-            assert [r["evento"] for r in resto["registros"]] == ["cambio-configuracion"]
+            assert [r["evento"] for r in resto["registros"]] == ["cambio-nivel", "cambio-configuracion"]
 
     correr(caso())
 
