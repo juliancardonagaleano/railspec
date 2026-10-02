@@ -21,21 +21,13 @@ from railspec.contracts.comun import Actor, AlcanceWorkspace
 from railspec.contracts.repositorio import Auditoria, EventoAuditoria, RegistroAuditoria, Rol
 
 from ..api.identidad import ActorConEquipos, TokenInvalido, token_de_cabecera
+from ..api.roles import JERARQUIA, alcanza, mayor, rol_efectivo  # noqa: F401 (la consola los importa de aquí)
 from .almacen import WORKSPACE_ORG, AlmacenConsola
 from .config import ConfigConsola
 from .github import ClienteGithub
 from .sesion import COOKIE, Firmador, Sesion
 
-JERARQUIA = [Rol.lector, Rol.desarrollador, Rol.workspace_admin, Rol.org_admin]
 CABECERA_CSRF = "x-railspec-consola"
-
-
-def mayor(roles: list[Rol]) -> Rol | None:
-    return max(roles, key=JERARQUIA.index) if roles else None
-
-
-def alcanza(rol: Rol | None, minimo: Rol) -> bool:
-    return rol is not None and JERARQUIA.index(rol) >= JERARQUIA.index(minimo)
 
 
 @dataclass
@@ -151,11 +143,7 @@ class Permisos:
     def rol(self, org: str, workspace: str | None) -> Rol | None:
         if self.plataforma:
             return Rol.org_admin
-        asignaciones = self._asignaciones(org)
-        rol = mayor([a.rol for a in asignaciones if a.workspace is None or a.workspace == workspace])
-        if rol is None and self.ctx.abierto:
-            return Rol.desarrollador
-        return rol
+        return rol_efectivo(self._asignaciones(org), workspace, abierto=self.ctx.abierto)
 
     def exigir(self, org: str, workspace: str | None, minimo: Rol) -> Rol:
         rol = self.rol(org, workspace)

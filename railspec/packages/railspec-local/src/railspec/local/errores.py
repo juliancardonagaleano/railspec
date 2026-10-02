@@ -37,6 +37,22 @@ class RespuestaInvalida(ErrorRailspec):
     """El servidor respondió algo que no encaja en el contrato."""
 
 
+class ServidorRechazo(ErrorRailspec):
+    """El servidor rechazó la llamada con un texto en vez de un ``ErrorTool``: casi siempre la identidad.
+
+    El servidor responde así cuando no acepta el token (``RAILSPEC_TOKEN``): falta, venció, no es de la
+    GitHub App de Railspec o GitHub no pudo comprobarlo. El texto del servidor dice cuál de esas.
+    """
+
+    def __init__(self, tool: str, texto: str) -> None:
+        super().__init__(
+            f"El servidor rechazó {tool}: {texto or 'sin detalle'}. Revisa RAILSPEC_TOKEN: tiene que ser un "
+            "token de usuario de la GitHub App de Railspec (un token rsc1 de la consola no vale en el "
+            "arnés)."
+        )
+        self.texto = texto
+
+
 class SecretosDetectados(ErrorRailspec):
     """El árbol de trabajo tiene secretos: el snapshot no se construye ni se sube."""
 

@@ -126,8 +126,11 @@ class VerificadorTokenGithub:
         """``equipo_id`` de GitHub del usuario del token (roles por equipo), con caché acotada.
 
         Solo se llama con un token ya verificado. Falla cerrado: sin turno de concurrencia, sin permiso
-        o ante cualquier error no hay equipos (y no se recuerda, para reintentar en la próxima), y la
-        sesión sigue valiendo con las asignaciones personales.
+        o ante cualquier error no hay equipos, y la sesión sigue valiendo con las asignaciones personales.
+        Solo se recuerda una respuesta definitiva (equipos leídos, o GitHub dice que este token no puede
+        verlos): un fallo pasajero (red, límite de tasa, 5xx) no se recuerda, para reintentar en la
+        próxima llamada en vez de dejar sin sus roles de equipo a quien trabaja desde el arnés durante
+        todo el TTL. Lo que se devuelva en ese caso nunca es más que lo que GitHub confirmó.
         """
 
         clave = hashlib.sha256(token.encode()).hexdigest()
@@ -137,7 +140,9 @@ class VerificadorTokenGithub:
         if not self._cupo.acquire(timeout=self._espera_s):
             return frozenset()
         try:
-            equipos = equipos_de_usuario(self._http(), {**CABECERAS, "Authorization": f"Bearer {token}"})
+            equipos, definitivo = leer_equipos(
+                self._http(), {**CABECERAS, "Authorization": f"Bearer {token}"}
+            )
         except Exception as exc:
             log.warning(
                 "no se pudieron leer los equipos de GitHub (%s); sin roles por equipo", type(exc).__name__
@@ -145,6 +150,9 @@ class VerificadorTokenGithub:
             return frozenset()
         finally:
             self._cupo.release()
+        if not definitivo:
+            log.warning("GitHub no respondió bien al leer los equipos; se reintenta en la próxima llamada")
+            return equipos
         self._equipos.poner(clave, equipos)
         return equipos
 
@@ -250,18 +258,43 @@ def equipos_de_usuario(cliente: Any, cabeceras: dict[str, str]) -> frozenset[int
     página). Solo sigue enlaces ``next`` que apunten a la API de GitHub: las cabeceras llevan el token.
     """
 
+    return leer_equipos(cliente, cabeceras)[0]
+
+
+def _pasajero(r: Any) -> bool:
+    """¿Un fallo que se arregla solo (límite de tasa, 5xx) y no una respuesta definitiva sobre el token?"""
+
+    estado = r.status_code
+    if estado == 429 or estado >= 500:
+        return True
+    cabeceras = getattr(r, "headers", {})
+    # GitHub responde 403 también al límite de tasa primario y al secundario.
+    return estado == 403 and ("retry-after" in cabeceras or cabeceras.get("x-ratelimit-remaining") == "0")
+
+
+def leer_equipos(cliente: Any, cabeceras: dict[str, str]) -> tuple[frozenset[int], bool]:
+    """Como ``equipos_de_usuario``, y si la respuesta es definitiva.
+
+    ``False`` cuando GitHub falló de forma pasajera (429, 5xx, límite de tasa) antes de terminar: los equipos
+    devueltos son los leídos hasta ahí (un subconjunto de los reales, nunca de más) y quien llama no debe
+    recordarlos. Sin permiso (401, 403 sin señales de límite, 404), una respuesta que no es una lista o una
+    paginación completa son definitivas.
+    """
+
     equipos: set[int] = set()
     url: str | None = URL_EQUIPOS
     for _ in range(PAGINAS_EQUIPOS):
         if url is None or not url.startswith(f"{API}/"):
             break
         r = cliente.get(url, headers=cabeceras)
+        if _pasajero(r):
+            return frozenset(equipos), False
         cuerpo = r.json() if r.status_code == 200 else None
         if not isinstance(cuerpo, list):
             break
         equipos.update(int(e["id"]) for e in cuerpo)
         url = r.links.get("next", {}).get("url") if hasattr(r, "links") else None
-    return frozenset(equipos)
+    return frozenset(equipos), True
 
 
 def _vigencia_s(expira: Any) -> float | None:
