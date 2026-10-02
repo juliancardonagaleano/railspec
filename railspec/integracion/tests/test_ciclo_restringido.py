@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,9 +49,15 @@ class Resultado:
     integracion: dict[str, Any]
     estado: dict[str, Any]
     local: dict[str, Any] = field(default_factory=dict)
+    previo: Any = None  # lo que devolvió ``antes_de_integrar``
 
 
-async def _recorrer(clon: Path, url: str, token: str) -> Resultado:
+async def _recorrer(
+    clon: Path, url: str, token: str, antes_de_integrar: Callable[[str], Any] | None = None
+) -> Resultado:
+    """``antes_de_integrar(unidad)`` lee lo que ``unit.integrate`` descarta: la superposición de la
+    unidad en el grafo (su código llega al canónico con el reindexado de CI)."""
+
     async with ArnesSimulado(clon, url, token) as arnes:
         tools = await arnes.tools()
         inicio = await arnes.llamar(
@@ -65,6 +72,7 @@ async def _recorrer(clon: Path, url: str, token: str) -> Resultado:
         git(worktree, "commit", "-q", "-m", f"railspec: {unidad}")
         git(worktree, "push", "-q", "origin", f"railspec/{unidad}")
         sync = await arnes.llamar("railspec_sync", {"unidad": unidad})
+        previo = antes_de_integrar(unidad) if antes_de_integrar else None
 
         integracion = await arnes.llamar(
             "unit_integrate",
@@ -78,14 +86,30 @@ async def _recorrer(clon: Path, url: str, token: str) -> Resultado:
         await arnes.llamar("railspec_sync", {"unidad": unidad})
         estado = await arnes.llamar("unit_status", {"unidad": unidad})
         return Resultado(
-            clon, unidad, worktree, tools, recorrido, arnes.preguntas, sync, integracion, estado["estado"]
+            clon,
+            unidad,
+            worktree,
+            tools,
+            recorrido,
+            arnes.preguntas,
+            sync,
+            integracion,
+            estado["estado"],
+            previo=previo,
         )
+
+
+def _superposicion(entorno, unidad: str) -> set[str | None]:
+    grafo = entorno.falkordb().select_graph(f"railspec:{ORG}:{WS}:{REPO}:u:{unidad}")
+    return {f[0] for f in grafo.query("MATCH (n) RETURN n.nombre").result_set}
 
 
 @pytest.fixture(scope="module")
 def ciclo(entorno, tmp_path_factory) -> Resultado:
     clon = preparar_repositorio(tmp_path_factory.mktemp("repo"), ORG, WS, REPO)
-    resultado = asyncio.run(_recorrer(clon, entorno.url, entorno.token))
+    resultado = asyncio.run(
+        _recorrer(clon, entorno.url, entorno.token, lambda unidad: _superposicion(entorno, unidad))
+    )
     resultado.local = json.loads((resultado.worktree / ".railspec" / "estado-local.json").read_text())
     yield resultado
     if not _usa_servidor_externo():
@@ -193,6 +217,7 @@ def test_delta_del_indice_llega_a_la_superposicion_del_grafo(ciclo, entorno):
     nombres = {x["nombre"] for x in s["delta_indice"]["simbolos_upsert"]}
     assert {"src.firma.firmar", "src.firma.verificar"} <= nombres
 
-    grafo = entorno.falkordb().select_graph(f"railspec:{ORG}:{WS}:{REPO}:u:{ciclo.unidad}")
-    filas = grafo.query("MATCH (n) RETURN n.nombre").result_set
-    assert {"src.firma.firmar", "src.firma.verificar"} <= {f[0] for f in filas}
+    # Estaba en la superposición al llegar a unit.integrate, que la descarta: el código pasa al
+    # canónico cuando CI reindexa el commit integrado.
+    assert {"src.firma.firmar", "src.firma.verificar"} <= ciclo.previo
+    assert not {"src.firma.firmar", "src.firma.verificar"} & _superposicion(entorno, ciclo.unidad)
