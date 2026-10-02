@@ -218,3 +218,126 @@ def sha256_blob(repo: Path, objeto: str, ruta: str) -> str:
 def diff(repo: Path, base: str, arbol: str, excluir: list[str]) -> bytes:
     especificaciones = ["--", "."] + [f":(exclude){r}" for r in excluir]
     return git(repo, "diff", "--no-color", "-M100%", base, arbol, *especificaciones)
+
+
+# --- rebase de la rama de una unidad ---------------------------------------------------------
+
+
+def existe_commit(repo: Path, commit: str) -> bool:
+    return _existe_ref(repo, f"{commit}^{{commit}}")
+
+
+def es_ancestro(repo: Path, ancestro: str, descendiente: str) -> bool:
+    """``True`` si ``ancestro`` es ``descendiente`` o está en su historia."""
+
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", ancestro, descendiente],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode not in (0, 1):
+        raise ErrorGit(
+            f"git merge-base --is-ancestor falló: {proc.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    return proc.returncode == 0
+
+
+def contar_commits(repo: Path, desde: str, hasta: str) -> int:
+    """Commits alcanzables desde ``hasta`` que no lo son desde ``desde``."""
+
+    return int(texto(repo, "rev-list", "--count", f"{desde}..{hasta}"))
+
+
+def cambios_sin_commit(repo: Path, ignorar_sin_seguimiento: tuple[str, ...] = ()) -> list[str]:
+    """Rutas con cambios sin commit (``git status``).
+
+    ``ignorar_sin_seguimiento`` son prefijos de rutas sin seguimiento que no cuentan, como los
+    artefactos de la unidad: un rebase no los toca. Los cambios en archivos con seguimiento
+    cuentan siempre."""
+
+    campos = git(repo, "status", "--porcelain", "-z", "--untracked-files=all").decode("utf-8").split("\0")
+    rutas: list[str] = []
+    i = 0
+    while i < len(campos):
+        entrada = campos[i]
+        i += 1
+        if len(entrada) < 4:
+            continue
+        estado, ruta = entrada[:2], entrada[3:]
+        if "R" in estado or "C" in estado:
+            i += 1  # el campo siguiente es la ruta de origen del renombre o la copia
+        if estado == "??" and ruta.startswith(ignorar_sin_seguimiento):
+            continue
+        rutas.append(ruta)
+    return rutas
+
+
+def rebase_en_curso(repo: Path) -> bool:
+    """``True`` si el worktree tiene un rebase a medias (``rebase-merge`` o ``rebase-apply``)."""
+
+    for nombre in ("rebase-merge", "rebase-apply"):
+        ruta = Path(texto(repo, "rev-parse", "--git-path", nombre))
+        if not ruta.is_absolute():
+            ruta = repo / ruta
+        if ruta.exists():
+            return True
+    return False
+
+
+def traer(repo: Path, remoto: str, *refs: str, espera_s: int = 30) -> bool:
+    """``git fetch`` sin preguntar nada; ``False`` ante cualquier fallo, también por falta de red."""
+
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "fetch", "--quiet", remoto, *refs],
+            capture_output=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            timeout=espera_s,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return proc.returncode == 0
+
+
+def traer_commit(repo: Path, commit: str, remoto: str = "origin", espera_s: int = 30) -> bool:
+    """Deja ``commit`` disponible en el repositorio local, trayéndolo del remoto si hace falta.
+
+    Primero el fetch normal; si el commit no cuelga de ninguna rama traída, lo pide por su SHA."""
+
+    if existe_commit(repo, commit):
+        return True
+    for refs in ((), (commit,)):
+        if traer(repo, remoto, *refs, espera_s=espera_s) and existe_commit(repo, commit):
+            return True
+    return False
+
+
+def rebasar(repo: Path, nueva_base: str, base_anterior: str) -> None:
+    """``git rebase --onto``: reaplica ``base_anterior..HEAD`` sobre ``nueva_base``.
+
+    Fija la configuración que cambiaría el resultado según el desarrollador (no actualizar otras
+    ramas, no esconder cambios). ``ErrorGit`` si git se detiene; ante un conflicto el rebase queda a
+    medias, ver ``rebase_en_curso``."""
+
+    git(
+        repo,
+        "-c",
+        "rebase.updateRefs=false",
+        "-c",
+        "rebase.autoStash=false",
+        "rebase",
+        "--onto",
+        nueva_base,
+        base_anterior,
+        entorno={"GIT_EDITOR": "true"},
+    )
+
+
+def archivos_en_conflicto(repo: Path) -> list[str]:
+    salida = git(repo, "diff", "--name-only", "--diff-filter=U", "-z").decode("utf-8")
+    return sorted(r for r in salida.split("\0") if r)
+
+
+def abortar_rebase(repo: Path) -> None:
+    git(repo, "rebase", "--abort")
