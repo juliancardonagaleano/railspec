@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 from apoyo_motor import (
+    BASE,
     JULIAN,
     JULIAN_CONSOLA,
+    ORG,
     PLAN,
     SPEC,
+    WS,
     aprobar,
     avanzar,
     construir,
@@ -30,7 +34,7 @@ from railspec.contracts.comun import (
 )
 from railspec.contracts.estado import Decision, TipoCheckpoint
 from railspec.contracts.reporte import ResultadoOrden
-from railspec.contracts.tools import CodigoError
+from railspec.contracts.tools import CodigoError, RepositorioInicio, UnitIntegrateEntrada
 from railspec.server.estado import CheckpointsMongo
 from railspec.server.motor import ErrorNegocio, Motor
 from railspec.server.motor.gate import HallazgoPropuesto, SalidaCritico
@@ -438,6 +442,167 @@ def test_grafo_real_traza_criterios_informa_al_gate_y_se_descarta_al_integrar():
         assert motor.n.grafo.trazas(repo, alcance.unidad)
 
     correr(caso())
+
+
+COMMIT_A, COMMIT_B = "a" * 40, "b" * 40
+
+
+@pytest.fixture(params=["memoria"] + (["falkordb"] if os.environ.get("RAILSPEC_FALKORDB_URL") else []))
+def motor_grafo(request):
+    """El motor del grafo: el doble en memoria y, con ``RAILSPEC_FALKORDB_URL``, FalkorDB real."""
+
+    from railspec.graph import MotorMemoria
+
+    if request.param == "memoria":
+        yield MotorMemoria()
+        return
+    from railspec.graph.motor_falkordb import MotorFalkor
+
+    motor = MotorFalkor.desde_url(os.environ["RAILSPEC_FALKORDB_URL"])
+    prefijo = f"railspec:{ORG}:{WS}:"
+
+    def limpiar():
+        for g in motor.listar(prefijo):
+            motor.borrar(g)
+
+    limpiar()
+    yield motor
+    limpiar()
+
+
+def test_integrar_con_commit_retiene_la_superposicion_hasta_que_ci_indexa_ese_commit(motor_grafo):
+    """Extremo a extremo con railspec-graph de verdad: unit.integrate con ``commit_integrado``
+    deja el código de la unidad visible a sus consultas hasta que ``graph.index`` lleva el
+    canónico a ese commit, y entonces la superposición se retira."""
+
+    from railspec.contracts.comun import AlcanceRepositorio
+    from railspec.contracts.snapshot import DeltaIndice, ModoDelta, MotorIndice, Simbolo
+    from railspec.contracts.tools import GraphIndexEntrada, GraphQueryEntrada
+    from railspec.graph import AccesoGrafo, AlmacenGrafo, IndexadorCanonico
+
+    firma = Simbolo(
+        id="a" * 64,
+        nombre="pdf.firmar",
+        tipo="funcion",
+        ruta="src/pdf.py",
+        linea_inicio=1,
+        linea_fin=9,
+        sha256="b" * 64,
+    )
+    base = Simbolo(
+        id="c" * 64,
+        nombre="pdf.render",
+        tipo="funcion",
+        ruta="src/pdf.py",
+        linea_inicio=10,
+        linea_fin=19,
+        sha256="d" * 64,
+    )
+    motor_indice = MotorIndice(version="0.11.0")
+
+    def implementar(orden):
+        r = reporte(orden)
+        delta = DeltaIndice(motor=motor_indice, simbolos_upsert=[firma])
+        snap = r.snapshot.model_copy(update={"modo_delta": ModoDelta.completo, "delta_indice": delta})
+        return r.model_copy(update={"snapshot": snap})
+
+    def visibles(grafo, repo, unidad=None):
+        q = GraphQueryEntrada.model_validate(
+            {
+                "alcance": {"org": repo.org, "workspace": repo.workspace},
+                "unidad": unidad,
+                "consulta": {"verbo": "search", "texto": "pdf"},
+                "limite": 50,
+            }
+        )
+        return {r.ref.nombre for r in grafo.consultar(q, [repo]).resultados}
+
+    def indice(repo, commit, simbolos, anterior=None):
+        return GraphIndexEntrada(
+            alcance=repo,
+            rama="main",
+            commit=commit,
+            commit_anterior=anterior,
+            lote=1,
+            lotes=1,
+            delta=DeltaIndice(motor=motor_indice, simbolos_upsert=simbolos),
+        )
+
+    async def caso():
+        motor, _ = construir(nivel=NivelCodigo.restringido)
+        acceso = AccesoGrafo(motor_grafo)
+        grafo = AlmacenGrafo(acceso)
+        motor.n.grafo = grafo
+        alcance = await iniciar(motor)
+        repo = AlcanceRepositorio(
+            org=alcance.org, workspace=alcance.workspace, repositorio="certificados-api"
+        )
+        vinculo = motor.n.almacen.vinculo(repo)
+        indexador = IndexadorCanonico(acceso, grafo)
+        indexador.recibir(indice(repo, COMMIT_A, [base]), vinculo)
+
+        await hasta(
+            motor, alcance, lambda av: av.tipo == "cerrada", textos={("implementar", None): implementar}
+        )
+        assert acceso.superposiciones(repo) == [alcance.unidad]
+        assert visibles(grafo, repo, alcance.unidad) == {"pdf.render", "pdf.firmar"}
+
+        await motor.integrate(
+            UnitIntegrateEntrada(
+                unidad=alcance, especificacion_viva="specs/pdf.md", commit_integrado=COMMIT_B
+            ),
+            JULIAN,
+        )
+        # Integrada, pero CI aún no indexó COMMIT_B: la unidad conserva su código; el resto, no lo ve.
+        assert acceso.superposiciones(repo) == [alcance.unidad]
+        assert visibles(grafo, repo, alcance.unidad) == {"pdf.render", "pdf.firmar"}
+        assert visibles(grafo, repo) == {"pdf.render"}
+
+        indexador.recibir(indice(repo, COMMIT_B, [firma], anterior=COMMIT_A), vinculo)
+        assert acceso.superposiciones(repo) == []
+        assert visibles(grafo, repo, alcance.unidad) == {"pdf.render", "pdf.firmar"}  # ahora del canónico
+        assert visibles(grafo, repo) == {"pdf.render", "pdf.firmar"}
+        assert grafo.trazas(repo, alcance.unidad)  # las trazas CA-NN no dependen de la superposición
+
+    correr(caso())
+
+
+def test_integrar_reparte_retener_y_descartar_segun_commit_y_rol():
+    """El contrato trae un solo commit: lo retiene el repositorio primario; los transversales, y
+    todos si no hay commit, se descartan al integrar."""
+
+    class GrafoFalso:
+        def __init__(self):
+            self.llamadas = []
+
+        def aplicar_delta(self, *a):
+            pass
+
+        def retener_superposicion(self, alcance, unidad, integrado):
+            self.llamadas.append(("retener", alcance.repositorio, integrado))
+
+        def descartar_superposicion(self, alcance, unidad, hasta):
+            self.llamadas.append(("descartar", alcance.repositorio))
+
+    async def caso(commit):
+        motor, _ = construir()
+        motor.n.grafo = GrafoFalso()
+        entrada = entrada_start(
+            repositorios=[
+                RepositorioInicio(repositorio="certificados-api", rama="main", base_commit=BASE),
+                RepositorioInicio(repositorio="reporteria", rama="main", base_commit=BASE),
+            ]
+        )
+        alcance = (await motor.start(entrada, JULIAN)).estado.unidad
+        await hasta(motor, alcance, lambda av: av.tipo == "cerrada")
+        await motor.integrate(
+            UnitIntegrateEntrada(unidad=alcance, especificacion_viva="specs/pdf.md", commit_integrado=commit),
+            JULIAN,
+        )
+        return motor.n.grafo.llamadas
+
+    assert correr(caso(COMMIT_B)) == [("retener", "certificados-api", COMMIT_B), ("descartar", "reporteria")]
+    assert correr(caso(None)) == [("descartar", "certificados-api"), ("descartar", "reporteria")]
 
 
 def test_plan_invalido_no_se_acepta():

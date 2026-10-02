@@ -246,7 +246,8 @@ viaja: el servidor lo deriva del token.
 | `unit_checkpoint` | `unit.approve` | Formulario al humano (elicitation) |
 | `unit_approve` | `unit.approve` | — |
 | `unit_set_mode` | `unit.set_mode` | Solo a petición del humano (1.2) |
-| `unit_integrate`, `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
+| `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
+| `unit_status`, `unit_list` | homónimas | Espejo local actualizado |
 | `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |

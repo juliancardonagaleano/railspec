@@ -46,8 +46,10 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   arriba, procesos y riesgo) y cuántos símbolos tiene enlazados cada `CA-NN`
   (ver `grafo.md`). El grafo informa, no genera hallazgos deterministas.
 - `unit.report` ingiere el snapshot en el grafo con la política del vínculo y
-  enlaza los criterios de las tareas completadas; `unit.integrate` descarta
-  la superposición de la unidad en cada repositorio.
+  enlaza los criterios de las tareas completadas; `unit.integrate` retiene
+  la superposición de la unidad en el repositorio primario hasta que
+  `graph.index` lleve el canónico a `commit_integrado` y descarta las de los
+  demás (todas, si no hay commit); ver `grafo.md`.
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
   siguiente gate.

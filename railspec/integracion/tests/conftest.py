@@ -41,6 +41,18 @@ class Entorno:
     mongo_uri: str
     mongo_db: str
     falkordb_url: str
+    #: Emisor OIDC local que el servidor del subproceso acepta para ``graph.index``; ``None``
+    #: con un servidor externo, que no lo conoce.
+    oidc: object | None = None
+
+    def ci(self, remoto: Path, trabajo: Path):
+        """El job de reindexado de CI contra este servidor, o ``None`` si no acepta su OIDC."""
+
+        if self.oidc is None:
+            return None
+        from railspec_e2e.ci import CiLocal
+
+        return CiLocal(remoto, trabajo, self.url.removesuffix("/").removesuffix("/mcp"), self.oidc)
 
     def mongo(self):
         import pymongo
@@ -104,6 +116,9 @@ def entorno(tmp_path_factory) -> Entorno:
                 f"{nombre} no responde en {url}: "
                 "docker compose -f railspec/integracion/docker-compose.yml up -d mongo falkordb"
             )
+    from railspec_e2e.ci import AUDIENCIA, REPOSITORIO_GH, EmisorOidc
+
+    emisor = EmisorOidc()
     base_datos = f"railspec_e2e_{uuid.uuid4().hex[:8]}"
     puerto = _puerto_libre()
     log = tmp_path_factory.mktemp("servidor") / "railspec-server.log"
@@ -116,6 +131,9 @@ def entorno(tmp_path_factory) -> Entorno:
         "RAILSPEC_PERMITIR_DESARROLLO": "1",
         "RAILSPEC_HOST": "127.0.0.1",
         "RAILSPEC_PUERTO": str(puerto),
+        "RAILSPEC_OIDC_AUDIENCIA": AUDIENCIA,
+        "RAILSPEC_OIDC_EMISOR": emisor.url,
+        "RAILSPEC_OIDC_REPOSITORIOS": REPOSITORIO_GH,
     }
     for variable in ("RAILSPEC_FOUNDRY_ENDPOINT", "RAILSPEC_PCE_URL", "RAILSPEC_ANTHROPIC_HABILITADO"):
         env.pop(variable, None)
@@ -128,7 +146,7 @@ def entorno(tmp_path_factory) -> Entorno:
             stderr=subprocess.STDOUT,
         )
     base = f"http://127.0.0.1:{puerto}"
-    entorno = Entorno(f"{base}/mcp/", TOKEN, MONGO_URI, base_datos, FALKORDB_URL)
+    entorno = Entorno(f"{base}/mcp/", TOKEN, MONGO_URI, base_datos, FALKORDB_URL, oidc=emisor)
     try:
         _esperar_salud(base, proceso, log)
         yield entorno
@@ -139,3 +157,4 @@ def entorno(tmp_path_factory) -> Entorno:
         except subprocess.TimeoutExpired:
             proceso.kill()
         entorno.mongo().client.drop_database(base_datos)
+        emisor.cerrar()

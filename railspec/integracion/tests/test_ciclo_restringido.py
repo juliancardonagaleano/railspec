@@ -6,7 +6,9 @@ guarda en Mongo y FalkorDB reales. El recorrido se corre una vez por módulo
 y cada prueba comprueba una parte:
 
 unit.start → orden de trabajo → unit.report → sync.push / sync.pull →
-checkpoints por formulario → cierre → commit empujado → unit.integrate.
+checkpoints por formulario → cierre → commit empujado → merge del PR →
+unit.integrate. Si el servidor acepta el OIDC local (el del subproceso), CI reindexa
+la rama por defecto con ``reindexar.py`` real: antes de la unidad y tras el merge.
 """
 
 from __future__ import annotations
@@ -48,16 +50,26 @@ class Resultado:
     sync: dict[str, Any]
     integracion: dict[str, Any]
     estado: dict[str, Any]
+    base: str  # commit de la rama por defecto cuando CI la indexó por primera vez
+    integrado: str  # commit del merge de la unidad en la rama por defecto
+    ci: Any = None
     local: dict[str, Any] = field(default_factory=dict)
     previo: Any = None  # lo que devolvió ``antes_de_integrar``
 
 
 async def _recorrer(
-    clon: Path, url: str, token: str, antes_de_integrar: Callable[[str], Any] | None = None
+    clon: Path,
+    url: str,
+    token: str,
+    antes_de_integrar: Callable[[str], Any] | None = None,
+    ci: Any = None,
 ) -> Resultado:
-    """``antes_de_integrar(unidad)`` lee lo que ``unit.integrate`` descarta: la superposición de la
-    unidad en el grafo (su código llega al canónico con el reindexado de CI)."""
+    """``antes_de_integrar(unidad)`` lee el estado previo a ``unit.integrate`` (p. ej. la superposición
+    de la unidad en el grafo, que tras integrar queda retenida hasta que CI reindexa el merge)."""
 
+    base = git(clon, "rev-parse", "HEAD")
+    if ci is not None:
+        ci.reindexar(base)  # el canónico parte del commit inicial, como tras el primer push a main
     async with ArnesSimulado(clon, url, token) as arnes:
         tools = await arnes.tools()
         inicio = await arnes.llamar(
@@ -73,6 +85,10 @@ async def _recorrer(
         git(worktree, "push", "-q", "origin", f"railspec/{unidad}")
         sync = await arnes.llamar("railspec_sync", {"unidad": unidad})
         previo = antes_de_integrar(unidad) if antes_de_integrar else None
+
+        # El PR se mergea (avance rápido de main): el commit que CI reindexará es el de la unidad.
+        integrado = git(worktree, "rev-parse", "HEAD")
+        git(worktree, "push", "-q", "origin", "HEAD:main")
 
         integracion = await arnes.llamar(
             "unit_integrate",
@@ -95,6 +111,9 @@ async def _recorrer(
             sync,
             integracion,
             estado["estado"],
+            base,
+            integrado,
+            ci,
             previo=previo,
         )
 
@@ -107,8 +126,9 @@ def _superposicion(entorno, unidad: str) -> set[str | None]:
 @pytest.fixture(scope="module")
 def ciclo(entorno, tmp_path_factory) -> Resultado:
     clon = preparar_repositorio(tmp_path_factory.mktemp("repo"), ORG, WS, REPO)
+    ci = entorno.ci(clon.parent / "remoto.git", clon.parent) if CON_INDEXADOR else None
     resultado = asyncio.run(
-        _recorrer(clon, entorno.url, entorno.token, lambda unidad: _superposicion(entorno, unidad))
+        _recorrer(clon, entorno.url, entorno.token, lambda unidad: _superposicion(entorno, unidad), ci)
     )
     resultado.local = json.loads((resultado.worktree / ".railspec" / "estado-local.json").read_text())
     yield resultado
@@ -217,7 +237,54 @@ def test_delta_del_indice_llega_a_la_superposicion_del_grafo(ciclo, entorno):
     nombres = {x["nombre"] for x in s["delta_indice"]["simbolos_upsert"]}
     assert {"src.firma.firmar", "src.firma.verificar"} <= nombres
 
-    # Estaba en la superposición al llegar a unit.integrate, que la descarta: el código pasa al
-    # canónico cuando CI reindexa el commit integrado.
-    assert {"src.firma.firmar", "src.firma.verificar"} <= ciclo.previo
-    assert not {"src.firma.firmar", "src.firma.verificar"} & _superposicion(entorno, ciclo.unidad)
+    # Estaba en la superposición al llegar a unit.integrate y sigue ahí tras integrar: se retiene
+    # hasta que CI reindexa el commit integrado (la retirada la comprueba la prueba de más abajo).
+    nuevos = {"src.firma.firmar", "src.firma.verificar"}
+    assert nuevos <= ciclo.previo
+    assert nuevos <= _superposicion(entorno, ciclo.unidad)
+
+
+def _meta(fk, grafo: str) -> dict[str, Any]:
+    return json.loads(fk.select_graph(grafo).query("MATCH (m:Meta) RETURN m.json").result_set[0][0])
+
+
+def _nombres(fk, grafo: str) -> set[str]:
+    return {
+        f[0]
+        for f in fk.select_graph(grafo)
+        .query("MATCH (n) WHERE n.nombre IS NOT NULL RETURN n.nombre")
+        .result_set
+    }
+
+
+def test_integrar_envia_el_commit_del_merge_y_queda_auditado(ciclo, entorno):
+    # El proxy trajo la punta de origin/main (el merge) sin que el arnés se lo diera.
+    assert ciclo.integracion["commit_integrado"] == ciclo.integrado
+    auditoria = entorno.mongo().auditoria.find_one(
+        {"unidad": ciclo.unidad, "evento": "integracion"}, {"detalle": 1}
+    )
+    assert auditoria["detalle"]["commit_integrado"] == ciclo.integrado
+
+
+@pytest.mark.skipif(not CON_INDEXADOR, reason="sin codebase-memory-mcp no hay delta ni superposición")
+def test_la_superposicion_sigue_visible_tras_integrar_hasta_que_ci_reindexa_el_merge(ciclo, entorno):
+    if ciclo.ci is None:
+        pytest.skip("el servidor externo no acepta el OIDC local de CI")
+    fk = entorno.falkordb()
+    canonico = f"railspec:{ORG}:{WS}:{REPO}"
+    superposicion = f"{canonico}:u:{ciclo.unidad}"
+    nuevos = {"src.firma.firmar", "src.firma.verificar"}
+
+    # Integrada pero aún sin reindexar el merge: la unidad conserva su código; el canónico, no.
+    assert superposicion in fk.list_graphs()
+    assert _meta(fk, superposicion)["integrado"] == ciclo.integrado
+    assert nuevos <= _nombres(fk, superposicion)
+    assert _meta(fk, canonico)["commit"] == ciclo.base and not nuevos & _nombres(fk, canonico)
+
+    # CI reindexa el merge (delta desde el commit que ya tenía): el canónico lo cubre y la
+    # superposición se retira.
+    salida = ciclo.ci.reindexar(ciclo.integrado, anterior=ciclo.base)
+    assert salida.aplicado and salida.commit == ciclo.integrado
+    assert superposicion not in fk.list_graphs()
+    assert _meta(fk, canonico)["commit"] == ciclo.integrado
+    assert nuevos <= _nombres(fk, canonico)
