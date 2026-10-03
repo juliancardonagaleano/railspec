@@ -1,30 +1,32 @@
+# Variante del Blueprint con la imagen publicada en GHCR y despliegue por Deploy Hook (job «render» de
+# .github/workflows/railspec-imagen.yml o railspec/deploy/render/desplegar.sh). Al crear el Blueprint en Render,
+# indica esta ruta en lugar de render.yaml. Necesita Actions funcionando o Docker para publicar la imagen.
 # Blueprint de Render para railspec-server (servidor + consola web en un solo servicio).
-# Guía: railspec/docs/despliegue-render.md. Render construye la imagen del Dockerfile del repositorio en cada
-# push a master que toque el servidor, la consola o el Dockerfile: no hace falta GHCR, token de registro,
-# Deploy Hook ni GitHub Actions. Estado en Supabase Postgres (RAILSPEC_POSTGRES_URL); sin FalkorDB (el grafo
-# es opcional). La variante con imagen publicada en GHCR está en railspec/deploy/render/render-ghcr.yaml.
+# Guía: railspec/docs/despliegue-render.md. Estado en Supabase Postgres (RAILSPEC_POSTGRES_URL);
+# sin FalkorDB (el grafo es opcional). La imagen la construye y publica en GHCR
+# .github/workflows/railspec-imagen.yml; el despliegue lo dispara el job «render» de ese workflow con
+# el Deploy Hook del servicio, o a mano con railspec/deploy/render/desplegar.sh.
 #
 # Los valores con `sync: false` se piden al crear el Blueprint en el panel de Render (nunca van en este
 # archivo). Render ignora los `sync: false` al actualizar un Blueprint ya creado: cámbialos en el panel.
 services:
   - type: web
     name: railspec
-    runtime: docker
-    dockerfilePath: ./railspec/deploy/servidor/Dockerfile
-    dockerContext: .
-    branch: master
+    runtime: image
+    image:
+      # La etiqueta móvil es solo el valor inicial: cada despliegue de CI fija el digest con el parámetro
+      # imgURL del Deploy Hook (el resto de la URL debe coincidir con esta).
+      url: ghcr.io/juliancardonagaleano/railspec-server:master
+      creds:
+        fromRegistryCreds:
+          # Credencial de registro del espacio de trabajo de Render (usuario de GitHub y un token con
+          # read:packages). Hace falta si el paquete de GHCR es privado; créala antes de aplicar el Blueprint.
+          name: ghcr-railspec
     plan: free
     region: oregon
     healthCheckPath: /healthz
-    # Despliega solo cuando cambia lo que entra en la imagen (la guía, el CI y los demás paquetes no).
-    autoDeployTrigger: commit
-    buildFilter:
-      paths:
-        - railspec/packages/railspec-contracts/**
-        - railspec/packages/railspec-graph/**
-        - railspec/packages/railspec-server/**
-        - railspec/packages/railspec-console/**
-        - railspec/deploy/servidor/**
+    # Despliega CI (Deploy Hook con el digest recién publicado), no cada cambio de la etiqueta.
+    autoDeployTrigger: "off"
     envVars:
       - key: RAILSPEC_PUERTO
         value: "10000"
