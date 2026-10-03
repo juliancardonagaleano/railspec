@@ -13,6 +13,9 @@ DEPLOY = Path(__file__).resolve().parents[1]
 RAIZ = DEPLOY.parent
 REPO = RAIZ.parent
 BLUEPRINT = REPO / "render.yaml"
+BLUEPRINT_GHCR = DEPLOY / "render" / "render-ghcr.yaml"
+DOCKERFILE = DEPLOY / "servidor" / "Dockerfile"
+AMBOS = pytest.mark.parametrize("blueprint", [BLUEPRINT, BLUEPRINT_GHCR], ids=["docker", "ghcr"])
 IMAGEN_WORKFLOW = REPO / ".github" / "workflows" / "railspec-imagen.yml"
 SCRIPT = DEPLOY / "render" / "desplegar.sh"
 GUIA = RAIZ / "docs" / "despliegue-render.md"
@@ -27,8 +30,8 @@ SECRETAS = {
 }
 
 
-def _servicio() -> dict:
-    datos = yaml.safe_load(BLUEPRINT.read_text(encoding="utf-8"))
+def _servicio(blueprint: Path = BLUEPRINT) -> dict:
+    datos = yaml.safe_load(blueprint.read_text(encoding="utf-8"))
     (servicio,) = datos["services"]
     return servicio
 
@@ -44,8 +47,22 @@ def _variables_del_servidor() -> set[str]:
     return {nombre for f in fuentes for nombre in patron.findall(f.read_text(encoding="utf-8"))}
 
 
-def test_el_blueprint_es_un_servicio_web_gratuito_con_imagen_de_ghcr_y_sonda_de_salud():
+def test_el_blueprint_por_defecto_construye_el_dockerfile_del_repositorio_en_el_plan_gratuito():
     s = _servicio()
+    assert s["type"] == "web" and s["runtime"] == "docker" and s["plan"] == "free"
+    assert s["healthCheckPath"] == "/healthz"
+    assert (REPO / s["dockerfilePath"]).resolve() == DOCKERFILE.resolve()
+    assert s["dockerContext"] == "." and s["branch"] == "master"
+    assert s["autoDeployTrigger"] == "commit"
+    # El filtro de construcción cubre lo que entra en la imagen; cada ruta existe.
+    rutas = s["buildFilter"]["paths"]
+    assert rutas and all(list(REPO.glob(r)) for r in rutas), rutas
+    for paquete in ("railspec-contracts", "railspec-graph", "railspec-server", "railspec-console"):
+        assert f"railspec/packages/{paquete}/**" in rutas, paquete
+
+
+def test_la_variante_ghcr_es_un_servicio_web_gratuito_con_imagen_de_ghcr_y_sonda_de_salud():
+    s = _servicio(BLUEPRINT_GHCR)
     assert s["type"] == "web" and s["runtime"] == "image" and s["plan"] == "free"
     assert s["healthCheckPath"] == "/healthz"
     # El hook de CI fija el digest; la etiqueta móvil solo es el valor inicial (mismo repositorio en ambos).
@@ -60,9 +77,10 @@ def test_el_workflow_publica_en_ghcr_con_la_misma_ruta_que_el_blueprint():
     assert "type=raw,value=master" in wf  # la etiqueta del Blueprint existe
 
 
-def test_cada_variable_del_blueprint_la_lee_el_servidor_y_los_secretos_no_llevan_valor():
+@AMBOS
+def test_cada_variable_del_blueprint_la_lee_el_servidor_y_los_secretos_no_llevan_valor(blueprint):
     claves = {}
-    for v in _servicio()["envVars"]:
+    for v in _servicio(blueprint)["envVars"]:
         clave = v["key"]
         claves[clave] = v
         assert clave in _variables_del_servidor() or clave == "FORWARDED_ALLOW_IPS", clave
@@ -80,8 +98,9 @@ def test_cada_variable_del_blueprint_la_lee_el_servidor_y_los_secretos_no_llevan
     assert "RAILSPEC_MONGO_URI" not in claves
 
 
-def test_el_puerto_del_blueprint_es_el_que_escucha_el_servidor():
-    puerto = next(v["value"] for v in _servicio()["envVars"] if v["key"] == "RAILSPEC_PUERTO")
+@AMBOS
+def test_el_puerto_del_blueprint_es_el_que_escucha_el_servidor(blueprint):
+    puerto = next(v["value"] for v in _servicio(blueprint)["envVars"] if v["key"] == "RAILSPEC_PUERTO")
     assert puerto.isdigit() and 1024 <= int(puerto) <= 65535
 
 
@@ -136,15 +155,22 @@ def test_el_script_manual_rechaza_referencias_ajenas_y_pasa_el_digest_codificado
     assert sin_hook.returncode != 0 and "RENDER_DEPLOY_HOOK_URL" in sin_hook.stderr
 
 
-def test_la_guia_documenta_las_variables_y_los_secretos_del_camino_de_ci():
+def test_la_guia_documenta_las_variables_y_los_secretos_de_ambos_caminos():
     guia = GUIA.read_text(encoding="utf-8")
-    for nombre in ("RENDER_DEPLOY_HOOK_URL", "RAILSPEC_RENDER_URL", "ghcr-railspec", "desplegar.sh"):
+    for nombre in (
+        "RENDER_DEPLOY_HOOK_URL",
+        "RAILSPEC_RENDER_URL",
+        "ghcr-railspec",
+        "desplegar.sh",
+        "render-ghcr.yaml",
+    ):
         assert nombre in guia, nombre
-    for v in _servicio()["envVars"]:
-        assert f"`{v['key']}`" in guia, v["key"]
+    for blueprint in (BLUEPRINT, BLUEPRINT_GHCR):
+        for v in _servicio(blueprint)["envVars"]:
+            assert f"`{v['key']}`" in guia, v["key"]
 
 
-@pytest.mark.skipif(not (REPO / "render.yaml").exists(), reason="sin Blueprint")
-def test_el_blueprint_no_trae_secretos_en_claro():
-    texto = BLUEPRINT.read_text(encoding="utf-8")
+@AMBOS
+def test_el_blueprint_no_trae_secretos_en_claro(blueprint):
+    texto = blueprint.read_text(encoding="utf-8")
     assert not re.search(r"(postgres(ql)?://\S+:\S+@|ghp_|github_pat_|sk-[A-Za-z0-9]{16,})", texto)
