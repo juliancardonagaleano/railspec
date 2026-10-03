@@ -647,3 +647,13 @@ def test_el_estado_de_oauth_tambien_va_en_cookie_con_prefijo():
             assert "Secure" in r.headers["set-cookie"]
 
     correr(caso())
+
+
+def test_en_render_la_url_publica_sale_de_render_external_url_salvo_que_haya_una_propia():
+    base = {"RAILSPEC_CONSOLA_SECRETO": "s" * 48}
+    render = {**base, "RENDER_EXTERNAL_URL": "https://railspec.onrender.com/"}
+    c = ConfigConsola.desde_entorno(render)
+    assert c.url_publica == "https://railspec.onrender.com" and c.cookie_segura
+    propia = {**render, "RAILSPEC_CONSOLA_URL": "https://railspec.acme.com"}
+    assert ConfigConsola.desde_entorno(propia).url_publica == "https://railspec.acme.com"
+    assert ConfigConsola.desde_entorno(base).url_publica is None

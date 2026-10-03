@@ -1,0 +1,64 @@
+# Blueprint de Render para railspec-server (servidor + consola web en un solo servicio).
+# Guía: railspec/docs/despliegue-render.md. Estado en Supabase Postgres (RAILSPEC_POSTGRES_URL);
+# sin FalkorDB (el grafo es opcional). La imagen la construye y publica en GHCR
+# .github/workflows/railspec-imagen.yml; el despliegue lo dispara el job «render» de ese workflow con
+# el Deploy Hook del servicio, o a mano con railspec/deploy/render/desplegar.sh.
+#
+# Los valores con `sync: false` se piden al crear el Blueprint en el panel de Render (nunca van en este
+# archivo). Render ignora los `sync: false` al actualizar un Blueprint ya creado: cámbialos en el panel.
+services:
+  - type: web
+    name: railspec
+    runtime: image
+    image:
+      # La etiqueta móvil es solo el valor inicial: cada despliegue de CI fija el digest con el parámetro
+      # imgURL del Deploy Hook (el resto de la URL debe coincidir con esta).
+      url: ghcr.io/juliancardonagaleano/railspec-server:master
+      creds:
+        fromRegistryCreds:
+          # Credencial de registro del espacio de trabajo de Render (usuario de GitHub y un token con
+          # read:packages). Hace falta si el paquete de GHCR es privado; créala antes de aplicar el Blueprint.
+          name: ghcr-railspec
+    plan: free
+    region: oregon
+    healthCheckPath: /healthz
+    # Despliega CI (Deploy Hook con el digest recién publicado), no cada cambio de la etiqueta.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: RAILSPEC_PUERTO
+        value: "10000"
+      # Render pone el proxy delante: uvicorn confía en X-Forwarded-* de cualquier origen. Un cliente puede
+      # falsear su IP y esquivar el límite de /consola/api/auth/*; ver railspec/docs/despliegue-render.md.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      # --- estado (Supabase) ---
+      - key: RAILSPEC_POSTGRES_URL
+        sync: false
+      - key: RAILSPEC_POSTGRES_ESQUEMA
+        value: railspec
+      # --- consola web ---
+      # La URL pública sale de RENDER_EXTERNAL_URL (la fija Render); define RAILSPEC_CONSOLA_URL en el panel
+      # solo si usas un dominio propio.
+      - key: RAILSPEC_CONSOLA_SECRETO
+        generateValue: true
+      - key: RAILSPEC_CONSOLA_ADMINS
+        value: "83125327"
+      - key: RAILSPEC_GITHUB_APP_CLIENT_ID
+        sync: false
+      - key: RAILSPEC_GITHUB_APP_CLIENT_SECRET
+        sync: false
+      # --- modelos (Azure AI Foundry) ---
+      - key: RAILSPEC_FOUNDRY_ENDPOINT
+        sync: false
+      - key: RAILSPEC_FOUNDRY_API_KEY
+        sync: false
+      - key: RAILSPEC_FOUNDRY_REGION
+        sync: false
+      - key: RAILSPEC_FOUNDRY_ZONA_DATOS
+        sync: false
+      - key: RAILSPEC_FOUNDRY_DESPLIEGUES
+        sync: false
+      # Regiones de Azure donde el chat puede enviar código (restringido e interno). Vacío = el chat se
+      # niega en esos niveles.
+      - key: RAILSPEC_CHAT_ZONA_DATOS
+        sync: false
