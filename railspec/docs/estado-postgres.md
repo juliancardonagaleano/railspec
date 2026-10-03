@@ -34,6 +34,8 @@ Sin ninguna de las dos el servidor solo arranca con `RAILSPEC_PERMITIR_DESARROLL
 - El plan gratuito pausa el proyecto tras una semana sin actividad, tiene 500 MB y no hace respaldos: conviene un `pg_dump` periódico.
 - Los datos quedan en Supabase, fuera de la zona de datos de Azure donde corren los modelos. Para repositorios propietarios es una decisión de política antes que técnica ([chat.md](chat.md), [proveedores.md](proveedores.md)).
 
+Despliegue completo con Supabase y Render, incluido CI: [despliegue-render.md](despliegue-render.md).
+
 ## Pruebas
 
 La coincidencia de filtros, el orden y las actualizaciones se prueban sin base (`tests/test_postgres_documentos.py`). Con una base:

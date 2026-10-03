@@ -134,7 +134,8 @@ class ConfigConsola:
             if not crudo.isdigit():
                 raise ValueError("RAILSPEC_CONSOLA_ADMINS espera github_id numéricos separados por coma")
             admins.add(int(crudo))
-        url = (env.get("RAILSPEC_CONSOLA_URL") or "").rstrip("/") or None
+        # En Render, RENDER_EXTERNAL_URL (la fija la plataforma) hace de URL pública cuando no hay una propia.
+        url = (env.get("RAILSPEC_CONSOLA_URL") or env.get("RENDER_EXTERNAL_URL") or "").rstrip("/") or None
         if app is not None and url is None:
             raise ValueError("la GitHub App exige RAILSPEC_CONSOLA_URL (base de la redirección de OAuth)")
         config = cls(

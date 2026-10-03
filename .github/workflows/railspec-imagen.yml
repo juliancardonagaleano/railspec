@@ -5,6 +5,10 @@
 # GitHub Container Registry con el GITHUB_TOKEN del job.
 # Etiquetas: sha-<commit> siempre, master en la rama por defecto, y la etiqueta
 # git en tags railspec-server-v*. Despliegue: por digest (ver despliegue.md).
+#
+# Render (railspec/docs/despliegue-render.md): con GHCR y la variable del repositorio RAILSPEC_RENDER_URL
+# definida, el job «render» despliega en master el digest recién publicado con el Deploy Hook del
+# servicio (secreto RENDER_DEPLOY_HOOK_URL). Es lo mismo que railspec/deploy/render/desplegar.sh.
 name: railspec-imagen
 
 on:
@@ -42,6 +46,9 @@ jobs:
       contents: read
       id-token: write   # azure/login por OIDC
       packages: write   # GHCR cuando no hay ACR
+    outputs:
+      # imagen@digest publicado (vacío en los PR): lo que despliega el job «render».
+      referencia: ${{ steps.referencia.outputs.valor }}
     env:
       PUBLICAR: ${{ github.event_name != 'pull_request' }}
       ACR: ${{ vars.RAILSPEC_ACR_NOMBRE }}
@@ -121,6 +128,11 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/v1/tools/unit.start -d '{}')" = 401
           docker logs railspec
 
+      - name: Referencia publicada
+        id: referencia
+        if: env.PUBLICAR == 'true'
+        run: echo "valor=${{ steps.registro.outputs.imagen }}@${{ steps.construir.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
       - name: Resumen
         if: env.PUBLICAR == 'true'
         run: |
@@ -129,3 +141,33 @@ jobs:
             echo ""
             echo "RAILSPEC_IMAGEN=${{ steps.registro.outputs.imagen }}@${{ steps.construir.outputs.digest }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  render:
+    name: desplegar en Render
+    needs: imagen
+    # Solo la imagen de GHCR (el servicio de Render la trae de ahí) y solo en master; sin RAILSPEC_RENDER_URL
+    # el job no corre. Un despliegue a la vez, y nunca se cancela uno a medias.
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+      && vars.RAILSPEC_RENDER_URL != '' && vars.RAILSPEC_ACR_NOMBRE == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    concurrency:
+      group: railspec-render
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desplegar
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RAILSPEC_RENDER_URL: ${{ vars.RAILSPEC_RENDER_URL }}
+          REFERENCIA: ${{ needs.imagen.outputs.referencia }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::falta el secreto RENDER_DEPLOY_HOOK_URL (Render > servicio > Settings > Deploy Hook)"
+            exit 1
+          fi
+          IMAGEN_BASE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/railspec-server" \
+            sh railspec/deploy/render/desplegar.sh "$REFERENCIA"
