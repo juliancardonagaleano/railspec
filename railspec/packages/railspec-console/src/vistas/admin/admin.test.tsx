@@ -392,6 +392,32 @@ describe("administración del workspace", () => {
     expect(within(dialogo).queryByText(/Otra persona modificó este registro/)).toBeNull();
   });
 
+  it("tras un 409 en la lista de workspaces el formulario se reabre con la versión vigente", async () => {
+    const user = userEvent.setup();
+    let vigente = workspace("cert", { version: 3 });
+    const s = servidor("org-admin", undefined, {
+      "GET /orgs/acme/workspaces": () => [vigente],
+      "PUT /orgs/acme/workspaces/cert": (l) => {
+        if (l.cuerpo.version !== vigente.version) return json(409, { detalle: "versión desactualizada", version_actual: vigente.version });
+        vigente = { ...vigente, nombre: l.cuerpo.nombre, version: vigente.version + 1 };
+        return vigente;
+      },
+    });
+    montarOrg();
+
+    const fila = (await screen.findByRole("link", { name: "Certificados" })).closest("tr")!;
+    await user.click(within(fila).getByRole("button", { name: "Editar" }));
+    await screen.findByRole("dialog", { name: "Editar Certificados" });
+    vigente = workspace("cert", { nombre: "Certificados (otra persona)", version: 6 });
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByLabelText("Nombre")).toHaveValue("Certificados (otra persona)"));
+    expect(within(screen.getByRole("dialog")).getByText(/Otra persona modificó este registro/)).toHaveTextContent("(versión actual 6)");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(s.de("PUT", "/orgs/acme/workspaces/cert").map((l) => l.cuerpo.version)).toEqual([3, 6]);
+  });
+
   it("el aviso de conflicto de la organización también sobrevive a la recarga de su formulario", async () => {
     const user = userEvent.setup();
     let vigente = organizacion({ id: "acme", version: 3 });
@@ -428,6 +454,32 @@ describe("administración del workspace", () => {
 
 describe("repositorios vinculados", () => {
   afterEach(() => vi.unstubAllGlobals());
+
+  it("tras un 409 el formulario del vínculo se reabre con la versión vigente y el siguiente guardado la envía", async () => {
+    const user = userEvent.setup();
+    let vigente = vinculo("api", { version: 4 });
+    const s = servidor("org-admin", "org-admin", {
+      "GET /orgs/acme/workspaces/cert/repositorios": () => [vigente],
+      "PUT /orgs/acme/workspaces/cert/repositorios/api": (l) => {
+        if (l.cuerpo.version !== vigente.version) return json(409, { detalle: "versión desactualizada", version_actual: vigente.version });
+        vigente = { ...vigente, rama_por_defecto: l.cuerpo.rama_por_defecto, version: vigente.version + 1 };
+        return vigente;
+      },
+    });
+    montarWs();
+
+    const fila = (await screen.findByText("https://github.com/acme/api")).closest("tr")!;
+    await user.click(within(fila).getByRole("button", { name: "Editar" }));
+    await screen.findByRole("dialog", { name: "Editar api" });
+    vigente = vinculo("api", { rama_por_defecto: "trunk", version: 7 });
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByLabelText("Rama por defecto")).toHaveValue("trunk"));
+    expect(within(screen.getByRole("dialog")).getByText(/Otra persona modificó este registro/)).toHaveTextContent("(versión actual 7)");
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(s.de("PUT", "/orgs/acme/workspaces/cert/repositorios/api").map((l) => l.cuerpo.version)).toEqual([4, 7]);
+  });
 
   it("vincula un repositorio con su URL de GitHub y valores por defecto", async () => {
     const user = userEvent.setup();

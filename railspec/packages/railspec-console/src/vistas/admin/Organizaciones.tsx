@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { claves, organizaciones } from "../../api/endpoints";
-import type { Organizacion } from "../../api/tipos";
 import { Cargando, Encabezado, ErrorVista, Vacio } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
@@ -18,7 +17,9 @@ export function Organizaciones() {
   const { data: yo } = useYo();
   const lista = useQuery({ queryKey: claves.organizaciones, queryFn: organizaciones.listar });
   const [creando, setCreando] = useState(false);
-  const [editando, setEditando] = useState<Organizacion | null>(null);
+  // Se guarda el id y no el registro: tras un 409 la lista se recarga y el formulario debe abrirse con la versión vigente.
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const editando = lista.data?.find((o) => o.id === editandoId) ?? null;
   const guardado = useGuardado(CLAVE_AVISO);
   return (
     <>
@@ -58,7 +59,7 @@ export function Organizaciones() {
                 <TableCell>{fecha(o.auditoria.actualizado_en)}</TableCell>
                 <TableCell>
                   {alcanza(rolEnOrg(yo, o.id), "org-admin") || yo?.plataforma_admin ? (
-                    <Button variante="secundario" tamano="pequeno" onClick={() => setEditando(o)}>
+                    <Button variante="secundario" tamano="pequeno" onClick={() => setEditandoId(o.id)}>
                       Editar
                     </Button>
                   ) : null}
@@ -70,7 +71,7 @@ export function Organizaciones() {
       ) : null}
       {creando ? <FormularioOrganizacion abierto alCerrar={() => setCreando(false)} claveAviso={CLAVE_AVISO} /> : null}
       {editando ? (
-        <FormularioOrganizacion key={editando.version} org={editando} abierto alCerrar={() => setEditando(null)} claveAviso={CLAVE_AVISO} />
+        <FormularioOrganizacion key={editando.version} org={editando} abierto alCerrar={() => setEditandoId(null)} claveAviso={CLAVE_AVISO} />
       ) : null}
     </>
   );

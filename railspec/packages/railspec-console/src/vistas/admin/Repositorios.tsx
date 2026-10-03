@@ -269,7 +269,9 @@ function DialogoDesvincular({ org, ws, vinculo, alCerrar }: { org: string; ws: s
 
 export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string; puedeEditar: boolean }) {
   const lista = useQuery({ queryKey: claves.repositorios(org, ws), queryFn: () => repositorios.listar(org, ws) });
-  const [editando, setEditando] = useState<VinculoRepositorio | "nuevo" | null>(null);
+  // Se guarda el nombre y no el vínculo: tras un 409 la lista se recarga y el formulario debe abrirse con la versión vigente.
+  const [editandoId, setEditandoId] = useState<string | "nuevo" | null>(null);
+  const editando = editandoId === "nuevo" ? "nuevo" : (lista.data?.find((v) => v.alcance.repositorio === editandoId) ?? null);
   const [desvinculando, setDesvinculando] = useState<VinculoRepositorio | null>(null);
   const guardado = useGuardado(claveAviso(org, ws));
   return (
@@ -280,7 +282,7 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
           <CardDescription>Nivel de política de código, retención y exclusiones de cada repositorio.</CardDescription>
         </div>
         {puedeEditar ? (
-          <Button tamano="pequeno" onClick={() => setEditando("nuevo")}>
+          <Button tamano="pequeno" onClick={() => setEditandoId("nuevo")}>
             Vincular repositorio
           </Button>
         ) : null}
@@ -331,7 +333,7 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
                   <TableCell>
                     {puedeEditar ? (
                       <div className="flex gap-1">
-                        <Button variante="secundario" tamano="pequeno" onClick={() => setEditando(v)}>
+                        <Button variante="secundario" tamano="pequeno" onClick={() => setEditandoId(v.alcance.repositorio)}>
                           Editar
                         </Button>
                         <Button variante="fantasma" tamano="pequeno" onClick={() => setDesvinculando(v)}>
@@ -348,10 +350,11 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
       </CardContent>
       {editando ? (
         <FormularioVinculo
+          key={editando === "nuevo" ? "nuevo" : editando.version}
           org={org}
           ws={ws}
           {...(editando === "nuevo" ? {} : { vinculo: editando })}
-          alCerrar={() => setEditando(null)}
+          alCerrar={() => setEditandoId(null)}
         />
       ) : null}
       {desvinculando ? <DialogoDesvincular org={org} ws={ws} vinculo={desvinculando} alCerrar={() => setDesvinculando(null)} /> : null}

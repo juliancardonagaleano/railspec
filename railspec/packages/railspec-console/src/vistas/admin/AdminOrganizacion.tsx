@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { claves, organizaciones, workspaces } from "../../api/endpoints";
-import type { Workspace } from "../../api/tipos";
 import { Cargando, Encabezado, ErrorVista, Vacio } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../componentes/ui/card";
@@ -64,7 +63,9 @@ function DatosOrganizacion({ org, puedeEditar }: { org: string; puedeEditar: boo
 function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
   const lista = useQuery({ queryKey: claves.workspaces(org), queryFn: () => workspaces.listar(org) });
   const [creando, setCreando] = useState(false);
-  const [editando, setEditando] = useState<Workspace | null>(null);
+  // Se guarda el id y no el registro: tras un 409 la lista se recarga y el formulario debe abrirse con la versión vigente.
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const editando = lista.data?.find((w) => w.alcance.workspace === editandoId) ?? null;
   const claveAviso = `workspaces:${org}`;
   const guardado = useGuardado(claveAviso);
   return (
@@ -110,7 +111,7 @@ function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
                   <TableCell>{w.zona_datos_azure ?? "—"}</TableCell>
                   <TableCell>
                     {puedeCrear ? (
-                      <Button variante="secundario" tamano="pequeno" onClick={() => setEditando(w)}>
+                      <Button variante="secundario" tamano="pequeno" onClick={() => setEditandoId(w.alcance.workspace)}>
                         Editar
                       </Button>
                     ) : null}
@@ -123,7 +124,7 @@ function Workspaces({ org, puedeCrear }: { org: string; puedeCrear: boolean }) {
       </CardContent>
       {creando ? <FormularioWorkspace org={org} abierto alCerrar={() => setCreando(false)} claveAviso={claveAviso} /> : null}
       {editando ? (
-        <FormularioWorkspace key={editando.version} org={org} ws={editando} abierto alCerrar={() => setEditando(null)} claveAviso={claveAviso} />
+        <FormularioWorkspace key={editando.version} org={org} ws={editando} abierto alCerrar={() => setEditandoId(null)} claveAviso={claveAviso} />
       ) : null}
     </Card>
   );
