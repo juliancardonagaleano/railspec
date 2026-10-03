@@ -34,6 +34,12 @@ Requisitos: Docker, Python 3.11 y los paquetes instalados como dice
 `railspec/README.md`. `codebase-memory-mcp` en el PATH activa la prueba del
 delta del índice en el grafo; sin él, esa prueba se salta.
 
+El arnés pone el directorio del intérprete de las pruebas al frente del `PATH` del
+proxy: el comando de validación del plan (`python -m pytest ...`) corre por shell
+y necesita ese `python`, esté o no activado el venv. Sin eso, un `python` del
+sistema sin pytest hace fallar la validación y el gate pide una vuelta de
+implementación de más (el recorrido interactivo no cierra donde debe).
+
 Con Mongo y FalkorDB del compose y el servidor en un subproceso (base de Mongo
 nueva por corrida, se borra al terminar):
 
