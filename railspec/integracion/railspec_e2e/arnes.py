@@ -160,6 +160,11 @@ class ArnesSimulado:
         env = {
             k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "VIRTUAL_ENV", "SYSTEMROOT")
         }
+        # El comando de validación del plan (`python -m pytest ...`) lo corre el proxy por shell con este
+        # PATH. Sin el intérprete de las pruebas delante, `python` es el del sistema (sin pytest o sin
+        # `python`) y la validación falla: el gate pide una vuelta de implementación de más. Es lo que
+        # `source venv/bin/activate` haría; el motor y el proxy se comportan bien.
+        env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env.get("PATH", "")])
         env |= {"RAILSPEC_URL": self.url, "RAILSPEC_TOKEN": self.token}
         return StdioServerParameters(
             command=sys.executable,
