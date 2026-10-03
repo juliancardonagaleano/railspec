@@ -18,6 +18,9 @@ export const PATRON_CREDENCIAL = /^secret:\/\/[a-z0-9-]+\/[A-Za-z0-9_.-]+$/;
 /** Dónde queda el «Guardado»: el diálogo se cierra al guardar y la tarjeta lo anuncia. */
 const claveAviso = (org: string, ws: string | undefined) => `proveedores:${org}:${ws ?? ""}`;
 
+const CLAVE_NUEVO = "nuevo";
+const claveProveedor = (p: ProveedorContexto) => `${p.workspace ?? ""}/${p.rol}/${p.nombre}`;
+
 function FormularioProveedor({
   org,
   ws,
@@ -135,7 +138,9 @@ function FormularioProveedor({
 
 export function Proveedores({ org, ws, editable }: { org: string; ws?: string; editable: boolean }) {
   const lista = useQuery({ queryKey: claves.proveedores(org, ws), queryFn: () => proveedoresContexto.listar(org, ws) });
-  const [editando, setEditando] = useState<ProveedorContexto | "nuevo" | null>(null);
+  // Se guarda la clave y no el proveedor: tras un 409 la lista se recarga y el formulario debe abrirse con la versión vigente.
+  const [editandoClave, setEditandoClave] = useState<string | null>(null);
+  const editando = editandoClave === CLAVE_NUEVO ? CLAVE_NUEVO : (lista.data?.find((p) => claveProveedor(p) === editandoClave) ?? null);
   const [borrando, setBorrando] = useState<ProveedorContexto | null>(null);
   const guardado = useGuardado(claveAviso(org, ws));
   const borrar = useGuardar(
@@ -151,7 +156,7 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
           <CardDescription>Gobernanza, grafo de código, memoria y documentación por rol.</CardDescription>
         </div>
         {editable ? (
-          <Button tamano="pequeno" onClick={() => setEditando("nuevo")}>
+          <Button tamano="pequeno" onClick={() => setEditandoClave(CLAVE_NUEVO)}>
             Nuevo proveedor
           </Button>
         ) : null}
@@ -181,7 +186,7 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
               {lista.data.map((p) => {
                 const propio = (p.workspace ?? undefined) === ws;
                 return (
-                  <TableRow key={`${p.workspace ?? ""}/${p.rol}/${p.nombre}`}>
+                  <TableRow key={claveProveedor(p)}>
                     <TableCell>{p.rol}</TableCell>
                     <TableCell className="font-medium">{p.nombre}</TableCell>
                     <TableCell className="max-w-56 truncate text-xs">{p.url}</TableCell>
@@ -194,7 +199,7 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
                     <TableCell>
                       {editable && propio ? (
                         <div className="flex gap-1">
-                          <Button variante="secundario" tamano="pequeno" onClick={() => setEditando(p)}>
+                          <Button variante="secundario" tamano="pequeno" onClick={() => setEditandoClave(claveProveedor(p))}>
                             Editar
                           </Button>
                           <Button variante="fantasma" tamano="pequeno" onClick={() => setBorrando(p)}>
@@ -212,10 +217,11 @@ export function Proveedores({ org, ws, editable }: { org: string; ws?: string; e
       </CardContent>
       {editando ? (
         <FormularioProveedor
+          key={editando === CLAVE_NUEVO ? CLAVE_NUEVO : editando.version}
           org={org}
           {...(ws ? { ws } : {})}
-          {...(editando === "nuevo" ? {} : { actual: editando })}
-          alCerrar={() => setEditando(null)}
+          {...(editando === CLAVE_NUEVO ? {} : { actual: editando })}
+          alCerrar={() => setEditandoClave(null)}
         />
       ) : null}
       <Dialog

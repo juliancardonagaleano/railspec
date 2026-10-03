@@ -408,9 +408,11 @@ siguiente nadie lo lee, se descarta. El remontaje por versión monta al sustitut
 en el mismo ciclo y lo conserva; cerrar el diálogo, cambiar de pestaña de perfil
 o salir de la pantalla no, así que no reaparece la próxima vez. Solo se guardan
 los 409 (los únicos que recargan la versión) y solo con `aviso`. Los diálogos de las
-listas de organizaciones y de workspaces guardan una copia del registro al
-abrirse y no se remontan: tras un 409 conservan el aviso y los datos viejos hasta
-que se cierran y se vuelven a abrir.
+listas (organizaciones, workspaces, repositorios vinculados y proveedores de contexto)
+recuerdan solo el identificador del registro que se edita y buscan el registro en la
+lista viva: tras un 409 la lista se recarga, el formulario se remonta con la versión
+vigente (`key={version}`) y el siguiente guardado la envía. Si otra persona borra el
+registro mientras tanto, el diálogo se cierra.
 
 | Método y ruta | Qué hace |
 | --- | --- |
