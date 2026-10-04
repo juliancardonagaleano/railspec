@@ -32,7 +32,7 @@ from ..proveedores.base import ErrorProveedor, PeticionModelo, RespuestaModelo, 
 from ..proveedores.seleccion import Eleccion, PerfilInsatisfacible, Proveedores
 from .perfiles import requisito
 
-# --- Lentes ---------------------------------------------------------------------------
+# --- Lentes --------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -146,7 +146,7 @@ def repartir(lentes: tuple[Lente, ...], criticos: int) -> list[list[Lente]]:
     return grupos
 
 
-# --- Esquemas de salida de los modelos ------------------------------------------------
+# --- Esquemas de salida de los modelos ----------------------------------------------------------
 
 
 class HallazgoPropuesto(BaseModel):
@@ -171,7 +171,7 @@ class SalidaRefutador(BaseModel):
     motivo: str
 
 
-# --- Evaluación -----------------------------------------------------------------------
+# --- Evaluación ---------------------------------------------------------------------------------
 
 
 class PresupuestoAgotado(Exception):
@@ -223,6 +223,8 @@ class Llamada:
     despliegue: str | None = None
     #: Respondida por la caché de nodos: no salió nada hacia el proveedor ni costó tokens.
     desde_cache: bool = False
+    #: Suscripción de la que salió el modelo (``None`` = variables de entorno del servidor).
+    suscripcion: str | None = None
 
 
 @dataclass
@@ -358,6 +360,12 @@ def _a_hallazgo(
     )
 
 
+def _suscripcion(entrada: EntradaGate) -> dict[str, str]:
+    """``suscripcion=`` solo si el perfil la trae: los dobles previos a 1.6 no la conocen."""
+
+    return {"suscripcion": entrada.perfil.suscripcion} if entrada.perfil.suscripcion else {}
+
+
 async def evaluar_panel(
     entrada: EntradaGate, proveedores: Proveedores, primer_id: int = 1
 ) -> EvaluacionPanel:
@@ -378,7 +386,9 @@ async def evaluar_panel(
     ) -> tuple[list[Lente], RespuestaModelo[SalidaCritico], Llamada]:
         rol = grupo[0].rol
         req = requisito(entrada.perfil, rol, entrada.fase, entrada.nivel)
-        eleccion = proveedores.elegir(rol, req, entrada.nivel, org=entrada.org, zona=entrada.zona)
+        eleccion = proveedores.elegir(
+            rol, req, entrada.nivel, org=entrada.org, zona=entrada.zona, **_suscripcion(entrada)
+        )
         sistema = _sistema(entrada.fase, grupo, entrada.gobernanza)
         nodo = f"gate-{entrada.fase.value}:" + "+".join(lente.id for lente in grupo)
         sha = _sha(sistema + "\n" + contenido)
@@ -392,12 +402,17 @@ async def evaluar_panel(
             etiqueta=f"critico-{i + 1}",
             despliegue=eleccion.despliegue,
             region=eleccion.region,
+            suscripcion=eleccion.suscripcion,
             commits=entrada.commits,
         )
         r, cacheada = await _completar(
             proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas, entrada.guardia
         )
-        return grupo, r, Llamada(nodo, rol, r, sha, req.effort, eleccion.despliegue, cacheada)
+        return (
+            grupo,
+            r,
+            Llamada(nodo, rol, r, sha, req.effort, eleccion.despliegue, cacheada, eleccion.suscripcion),
+        )
 
     # return_exceptions: una llamada que falla no oculta las que sí se completaron
     # (se cobraron y se auditan igual).
@@ -464,7 +479,9 @@ async def _refutar(
     h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores, fallidas: list[LlamadaFallida]
 ) -> tuple[SalidaRefutador, Llamada]:
     req = requisito(entrada.perfil, "refutador", entrada.fase, entrada.nivel)
-    eleccion = proveedores.elegir("refutador", req, entrada.nivel, org=entrada.org, zona=entrada.zona)
+    eleccion = proveedores.elegir(
+        "refutador", req, entrada.nivel, org=entrada.org, zona=entrada.zona, **_suscripcion(entrada)
+    )
     sistema = (
         f"Eres el verificador adversarial del gate '{entrada.fase.value}'. Intenta demostrar que el "
         "hallazgo es falso o irrelevante para el material. Ante la duda, refuta."
@@ -485,15 +502,18 @@ async def _refutar(
         etiqueta=f"refutar-{h.id}",
         despliegue=eleccion.despliegue,
         region=eleccion.region,
+        suscripcion=eleccion.suscripcion,
         commits=entrada.commits,
     )
     r, cacheada = await _completar(
         proveedores, entrada.org, eleccion, peticion, nodo, sha, fallidas, entrada.guardia
     )
-    return r.valor, Llamada(nodo, "refutador", r, sha, req.effort, eleccion.despliegue, cacheada)
+    return r.valor, Llamada(
+        nodo, "refutador", r, sha, req.effort, eleccion.despliegue, cacheada, eleccion.suscripcion
+    )
 
 
-# --- Convergencia ---------------------------------------------------------------------
+# --- Convergencia -------------------------------------------------------------------------------
 
 
 class Accion(StrEnum):

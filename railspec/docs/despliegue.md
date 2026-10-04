@@ -57,6 +57,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
      --from-literal=RAILSPEC_FOUNDRY_API_KEY='…' \
      --from-literal=RAILSPEC_PCE_API_KEY='…' \
      --from-literal=RAILSPEC_CONSOLA_SECRETO="$(openssl rand -base64 48)" \
+     --from-literal=RAILSPEC_CLAVE_MAESTRA="$(openssl rand -base64 32)" \
      --from-literal=RAILSPEC_GITHUB_APP_CLIENT_ID='Iv1.…' \
      --from-literal=RAILSPEC_GITHUB_APP_CLIENT_SECRET='…'
    ```
@@ -69,6 +70,8 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |
    | `RAILSPEC_CONSOLA_SECRETO` | sí | Clave de las sesiones de la consola web, de al menos 32 caracteres (`openssl rand -base64 48` da 64). El ConfigMap fija una URL pública https, así que sin ella, o con una más corta, el servidor no arranca. |
+   | `RAILSPEC_CLAVE_MAESTRA` | no, pero sin ella la consola no guarda suscripciones de modelos | Clave AES de 32 bytes en base64 (`openssl rand -base64 32`) que cifra las claves de las suscripciones de Foundry y Anthropic. **Guárdala aparte**: si se pierde, hay que volver a escribir las claves. Para rotarla ver [proveedores.md](proveedores.md#suscripciones-de-modelos). |
+   | `RAILSPEC_CLAVE_MAESTRA_ANTERIOR` | no | Durante una rotación: la clave anterior (o varias, separadas por coma), solo para descifrar lo guardado. |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
 
 **Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y

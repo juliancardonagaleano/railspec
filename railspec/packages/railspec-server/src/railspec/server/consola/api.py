@@ -20,6 +20,7 @@ from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.tools import Superficie
 
 from ..api.identidad import TokenInvalido
+from ..proveedores.suscripciones import ErrorSuscripcion
 from .contexto import CABECERA_CSRF, AutorizadorConsola, ContextoConsola
 from .github import ErrorGithub
 from .sesion import COOKIE, COOKIE_ESTADO
@@ -52,7 +53,7 @@ def _volver(valor: str | None) -> str:
 
 
 def crear_api(ctx: ContextoConsola) -> FastAPI:
-    from . import rutas_admin, rutas_config, rutas_exploracion
+    from . import rutas_admin, rutas_config, rutas_exploracion, rutas_suscripciones
 
     api = FastAPI(title="Railspec consola", docs_url=None, redoc_url=None, openapi_url=None)
     api.state.consola = ctx
@@ -66,6 +67,10 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         return JSONResponse(
             {"detalle": "entrada fuera de contrato", "errores": _errores(exc)}, status_code=422
         )
+
+    @api.exception_handler(ErrorSuscripcion)
+    async def _suscripcion(request: Request, exc: ErrorSuscripcion) -> JSONResponse:
+        return JSONResponse({"detalle": exc.detalle, "codigo": exc.codigo}, status_code=exc.estado)
 
     @api.exception_handler(ConflictoVersion)
     async def _conflicto(request: Request, exc: ConflictoVersion) -> JSONResponse:
@@ -261,6 +266,6 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         cuerpo = salida_tool(tool.nombre, r.cuerpo) if r.ok else r.cuerpo
         return JSONResponse(cuerpo, status_code=r.estado_http)
 
-    for modulo in (rutas_admin, rutas_config, rutas_exploracion):
+    for modulo in (rutas_admin, rutas_config, rutas_exploracion, rutas_suscripciones):
         api.include_router(modulo.router)
     return api

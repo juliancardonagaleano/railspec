@@ -259,6 +259,33 @@ en la organización y el workspace en que se asignó. Un cambio de membresía se
 nota al renovar el token de GitHub (cinco minutos) o al volver a iniciar
 sesión (el `rsc1` conserva los equipos del login).
 
+## Suscripciones de modelos
+
+Configuración → Suscripciones registra las conexiones de la organización a
+Foundry y a Anthropic (contrato 1.6; reglas, cifrado y política de datos en
+[proveedores.md](proveedores.md#suscripciones-de-modelos)). Cada tarjeta muestra
+el proveedor, el endpoint, la región y la zona, si tiene clave, el último
+resultado de lectura y los perfiles que la usan.
+
+- **Formulario.** Proveedor, nombre (de él sale el id), endpoint, proyecto,
+  región, zona de datos y autenticación. La clave es de solo escritura: el
+  campo nunca se rellena con la guardada y, al editar, vacío significa «conservar».
+  Cambiar el endpoint pide la clave otra vez. Solo un `org-admin` edita; los demás
+  roles ven la lista.
+- **Descubrir modelos.** Lee los modelos del proveedor. Si falla, la pantalla
+  muestra el código y el detalle sin tocar la elección anterior. Cada modelo
+  aparece con su región, su SKU y si sirve a `restringido`/`interno`; se marcan
+  los que quedan disponibles y se guarda. Un despliegue que la API no lista se
+  declara a mano y los marcados que ya no aparecen quedan `ausente`.
+- **Perfiles.** El editor de perfiles pide la suscripción y limita los modelos de
+  cada rol a los elegidos en ella.
+- **Sin clave maestra.** Si el servidor no tiene `RAILSPEC_CLAVE_MAESTRA`, la
+  pestaña lo dice y no deja guardar claves.
+- **Auditoría.** Cada cambio queda como `cambio-configuracion` con
+  `entidad: suscripcion` y la acción (`crear`, `editar`, `borrar`, `descubrir`,
+  `seleccionar-modelos`, `declarar-modelo`, `retirar-modelo`). Nunca lleva la clave,
+  solo si se escribió (`clave_escrita`).
+
 ## Catálogo de modelos
 
 Configuración → Catálogo de modelos muestra, por proveedor, si el servidor lo
@@ -428,6 +455,10 @@ registro mientras tanto, el diálogo se cierra.
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar (409), salvo por quien administra la plataforma. |
 | `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. La URL es `https://github.com/<owner>/<repo>` del `github_org` de la organización (422 si no). |
+| `GET /orgs/{org}/suscripciones` | Suscripciones de la organización, sin claves, y si el cifrado está disponible (`cifrado.disponible`). Cualquier rol de la organización. |
+| `GET/PUT/DELETE /orgs/{org}/suscripciones/{id}` | Una suscripción. `PUT` crea (sin `version`) o edita (con `version`); la clave va en `clave` y nunca se devuelve; 409 por versión o si hay perfiles que la usan al borrar. `org-admin`. |
+| `POST /orgs/{org}/suscripciones/{id}/descubrir` | Lee los modelos del proveedor. 200 con la suscripción actualizada, o 502 con `codigo` y `detalle` si el proveedor falla. `org-admin`. |
+| `PUT /orgs/{org}/suscripciones/{id}/modelos` `{seleccionados, version}` | Fija los modelos disponibles. `POST` `{modelo, despliegue, sku, …, version}` declara uno a mano y `DELETE …/modelos/{clave}?version=` lo retira. `org-admin`. |
 | `GET /orgs/{org}/catalogo` | Catálogo de modelos guardado para la organización (lector). |
 | `GET /orgs/{org}/catalogo/estado` | Por proveedor: si el servidor lo tiene configurado, de qué fuentes lee, cuántos modelos hay guardados, cuándo se leyeron y cómo salió el último intento (quién, cuándo, resultado, error saneado). Lector. |
 | `POST /orgs/{org}/catalogo/sincronizar?proveedor=` | Lee ya el catálogo de todos los proveedores o del indicado. `org-admin`. 200 con el estado de cada uno si alguno se leyó (`resultado`: `ok` o `parcial`), 502 si todos los pedidos fallaron, 404 si el servidor no tiene ese proveedor, 422 si no existe, 409 si el servidor no tiene proveedores de modelo. Ver «Catálogo de modelos». |

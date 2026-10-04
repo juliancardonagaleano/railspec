@@ -59,6 +59,7 @@ from railspec.contracts.repositorio import (
     Rol,
     RolContexto,
     SujetoUsuario,
+    SuscripcionModelo,
     TelemetriaNodo,
     Workspace,
 )
@@ -86,6 +87,8 @@ REGLA_COLECCION = {
     "organizaciones": "org",
     "roles": "org",
     "sesiones_revocadas": "global",
+    "suscripciones": "org",
+    "suscripciones_claves": "org",
     "workspaces": "ws",
 }
 
@@ -262,6 +265,16 @@ def _configuracion() -> dict[str, Any]:
             politica_fallo="estricta",
         ),
         "vinculo": vinculo(NivelCodigo.restringido),
+        "suscripcion": SuscripcionModelo(
+            version=1,
+            auditoria=_auditoria(),
+            org=ORG,
+            id="foundry-eu",
+            nombre="Foundry UE",
+            proveedor=Proveedor.foundry,
+            endpoint="https://acme.services.ai.azure.com",
+            clave_configurada=True,
+        ),
         "modelo": ModeloCatalogo(
             org=ORG,
             proveedor=Proveedor.foundry,
@@ -323,6 +336,9 @@ def _poblar():
         [config[c] for c in ("perfil", "presupuesto", "workspace", "proveedor", "vinculo")] + [_rol()]
     )
     almacen.guardar_catalogo(ORG, Proveedor.foundry, [config["modelo"]])
+    consola = AlmacenConsola(almacen.db)
+    consola.guardar_suscripcion(config["suscripcion"], None)
+    consola.guardar_clave_suscripcion(ORG, "foundry-eu", "v1.00000000.cifrado")
     almacen.guardar_nodo_en_cache(ORG, "hash", {"valor": 1}, AHORA + timedelta(days=1))
     almacen.registrar_telemetria(config["telemetria"])
     almacen.registrar_auditoria(config["auditoria"])
@@ -566,6 +582,27 @@ def _recetas() -> dict[str, tuple[Any, str]]:
             "org",
         ),
         "AlmacenConsola.estados_catalogo": (lambda c: k(c).estados_catalogo(ORG), "org"),
+        "AlmacenConsola.suscripciones": (lambda c: k(c).suscripciones(ORG), "org"),
+        "AlmacenConsola.suscripcion": (lambda c: k(c).suscripcion(ORG, "foundry-eu"), "org"),
+        "AlmacenConsola.guardar_suscripcion": (
+            lambda c: k(c).guardar_suscripcion(c.config["suscripcion"], 1),
+            "org",
+        ),
+        "AlmacenConsola.borrar_suscripcion": (lambda c: k(c).borrar_suscripcion(ORG, "foundry-eu"), "org"),
+        # Perfiles de toda la organización (de cualquier workspace) que usan la suscripción.
+        "AlmacenConsola.perfiles_con_suscripcion": (
+            lambda c: k(c).perfiles_con_suscripcion(ORG, "foundry-eu"),
+            "org",
+        ),
+        "AlmacenConsola.clave_suscripcion": (lambda c: k(c).clave_suscripcion(ORG, "foundry-eu"), "org"),
+        "AlmacenConsola.guardar_clave_suscripcion": (
+            lambda c: k(c).guardar_clave_suscripcion(ORG, "foundry-eu", "v1.00000000.otro"),
+            "org",
+        ),
+        "AlmacenConsola.borrar_clave_suscripcion": (
+            lambda c: k(c).borrar_clave_suscripcion(ORG, "foundry-eu"),
+            "org",
+        ),
         "AlmacenConsola.registrar_auditoria": (
             lambda c: k(c).registrar_auditoria(nuevo(c.config["auditoria"])),
             "ws",

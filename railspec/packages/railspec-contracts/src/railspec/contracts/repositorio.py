@@ -199,6 +199,94 @@ class ModeloCatalogo(Mensaje):
     leido_en: AwareDatetime
 
 
+class AutenticacionSuscripcion(StrEnum):
+    api_key = "api-key"
+    #: Entra ID de la identidad del servidor (solo Foundry); la suscripción no guarda ninguna clave.
+    identidad_servidor = "identidad-servidor"
+
+
+class ModeloSuscripcion(Contrato):
+    """Un modelo (o despliegue de Foundry) de una suscripción, elegible o no como modelo disponible.
+
+    ``origen`` ``descubierto`` sale de la API del proveedor; ``declarado`` lo escribe un administrador
+    (un despliegue que la API no lista o unas capacidades que la API no da) y gana sobre el descubierto
+    de la misma clave. ``region`` se deriva de la suscripción y del SKU (Foundry): ``global``,
+    ``zona-<zona>`` o la región del recurso; ``None`` si no se puede saber, y entonces no sirve a
+    ``restringido`` ni ``interno``. ``ausente``: estaba elegido y la última lectura ya no lo trae.
+    """
+
+    modelo: str = Field(min_length=1, max_length=120)
+    despliegue: str | None = Field(default=None, max_length=120, description="Nombre en Foundry.")
+    sku: str | None = Field(default=None, max_length=60)
+    region: str | None = Field(default=None, max_length=40)
+    capacidades: Capacidades
+    origen: Literal["descubierto", "declarado"]
+    seleccionado: bool = False
+    ausente: bool = False
+    visto_en: AwareDatetime | None = None
+
+    @property
+    def clave(self) -> str:
+        return self.despliegue or self.modelo
+
+
+class LecturaSuscripcion(Contrato):
+    """Resultado del último descubrimiento de modelos de una suscripción; el error ya viene saneado."""
+
+    en: AwareDatetime
+    por: str | None = Field(default=None, max_length=100)
+    resultado: Literal["ok", "error"]
+    modelos: int = Field(ge=0)
+    error_codigo: str | None = Field(default=None, max_length=40)
+    error_detalle: str | None = Field(default=None, max_length=500)
+
+
+class SuscripcionModelo(EntidadConfiguracion):
+    """Conexión de una organización a un proveedor de modelos (desde 1.6).
+
+    La clave **no** forma parte de este contrato: se guarda cifrada aparte y ninguna API la devuelve;
+    aquí solo consta si hay una (``clave_configurada``). Foundry exige ``endpoint``; Anthropic usa
+    el endpoint fijo del proveedor y solo ``api-key``. ``region`` y ``zona_datos`` son los del recurso de
+    Foundry: con ellas y el SKU de cada despliegue se deriva la región de cada modelo.
+    """
+
+    org: Slug
+    id: Slug
+    nombre: str = Field(min_length=1, max_length=120)
+    proveedor: Proveedor
+    endpoint: str | None = Field(default=None, pattern=r"^https://", max_length=512)
+    proyecto: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Proyecto de Foundry (nombre o URL) para descubrir despliegues.",
+    )
+    region: str | None = Field(default=None, max_length=40)
+    zona_datos: str | None = Field(default=None, max_length=40)
+    autenticacion: AutenticacionSuscripcion = AutenticacionSuscripcion.api_key
+    clave_configurada: bool = False
+    clave_actualizada_en: AwareDatetime | None = None
+    habilitada: bool = True
+    modelos: list[ModeloSuscripcion] = Field(default_factory=list)
+    ultima_lectura: LecturaSuscripcion | None = None
+
+    @model_validator(mode="after")
+    def _coherente(self) -> SuscripcionModelo:
+        if self.proveedor == Proveedor.foundry:
+            if self.endpoint is None:
+                raise ValueError("una suscripción de Foundry exige endpoint")
+        else:
+            if self.endpoint is not None or self.proyecto or self.region or self.zona_datos:
+                raise ValueError(
+                    "Anthropic usa el endpoint del proveedor: sin endpoint, proyecto, región ni zona"
+                )
+            if self.autenticacion != AutenticacionSuscripcion.api_key:
+                raise ValueError("Anthropic solo se autentica con api-key")
+        if self.autenticacion == AutenticacionSuscripcion.identidad_servidor and self.clave_configurada:
+            raise ValueError("la identidad del servidor no lleva clave")
+        ids_unicos([m.clave for m in self.modelos], "modelos de la suscripción")
+        return self
+
+
 class RequisitoRol(Contrato):
     modelo: dict[Proveedor, str] = Field(min_length=1, description="Modelo por proveedor.")
     effort: Effort | None = None
@@ -216,6 +304,14 @@ class PerfilConfig(EntidadConfiguracion):
     org: Slug
     workspace: Slug | None = None
     nombre: Perfil
+    suscripcion: Slug | None = Field(
+        default=None,
+        description=(
+            "Desde 1.6: suscripción de la organización de la que salen los modelos del perfil; los modelos "
+            "de ``roles`` tienen que estar entre los que esa suscripción tiene elegidos. Sin ella rigen "
+            "las variables RAILSPEC_FOUNDRY_* / RAILSPEC_ANTHROPIC_* del servidor."
+        ),
+    )
     roles: dict[str, RequisitoRol] = Field(min_length=1)
     gate: dict[Riesgo, TopeGate]
     exploradores: dict[Riesgo, int]
@@ -386,6 +482,7 @@ COLECCIONES: tuple[Coleccion, ...] = (
         clave_aislamiento=("alcance.org", "alcance.workspace"),
     ),
     Coleccion(nombre="catalogo", modelo="ModeloCatalogo", clave_aislamiento=("org",)),
+    Coleccion(nombre="suscripciones", modelo="SuscripcionModelo", clave_aislamiento=("org",)),
     Coleccion(nombre="perfiles", modelo="PerfilConfig", clave_aislamiento=("org",)),
     Coleccion(nombre="presupuestos", modelo="PresupuestoConfig", clave_aislamiento=("org",)),
     Coleccion(nombre="proveedores_contexto", modelo="ProveedorContexto", clave_aislamiento=("org",)),

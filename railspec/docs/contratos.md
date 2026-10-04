@@ -174,7 +174,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.5`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.6`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -199,7 +199,10 @@ su prueba negativa.
   commit; `1.5` añade `commits_cubiertos` opcional en `graph.index`, con el
   que CI declara los commits que cada índice incorpora y el servidor retira
   solo las superposiciones de unidades integradas en ellos. La salida de
-  `graph.index` no cambia. Sin el campo (clientes 1.4) rige la regla de 1.4.
+  `graph.index` no cambia. Sin el campo (clientes 1.4) rige la regla de 1.4;
+  `1.6` añade la entidad `SuscripcionModelo` (colección `suscripciones`: conexiones de la
+  organización a Foundry o Anthropic con sus modelos descubiertos y elegidos, sin la clave) y
+  `PerfilConfig.suscripcion` opcional. Sin ella el perfil se resuelve como en 1.5.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 
@@ -238,6 +241,7 @@ está en [despliegue.md](despliegue.md#variables-de-los-manifiestos).
 | `RAILSPEC_POSTGRES_URL`, `RAILSPEC_POSTGRES_ESQUEMA` | Lo mismo en Postgres en lugar de Mongo; excluyente con `RAILSPEC_MONGO_URI` ([estado-postgres.md](estado-postgres.md)) |
 | `RAILSPEC_FALKORDB_URL` | Grafo central y vectores |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Proveedor primario (sin clave = Entra ID) |
+| `RAILSPEC_CLAVE_MAESTRA` | Cifra las claves de las suscripciones de modelos que se registran en la consola ([proveedores.md](proveedores.md#suscripciones-de-modelos)) |
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Adaptador de Anthropic tras bandera |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Identidad: inicio de sesión de la consola y comprobación de que cada token de GitHub lo emitió la App |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Proveedor de gobernanza |

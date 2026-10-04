@@ -131,6 +131,8 @@ class EntradaCatalogo:
     hosting: str  # "azure" | "anthropic"
     region: str | None
     capacidades: Capacidades
+    #: SKU del despliegue de Foundry (``DataZoneStandard``...), si la fuente lo da.
+    sku: str | None = None
 
     def a_contrato(self, org: str, leido_en: datetime) -> ModeloCatalogo:
         return ModeloCatalogo(
@@ -264,6 +266,7 @@ class FuenteFoundryDeclarada:
                 "azure",
                 region_de_sku(f.get("sku") or None, self.region, self.zona),
                 _capacidades_declaradas(capacidades_conocidas(f["modelo"]), f),
+                f.get("sku") or None,
             )
             for f in filas
         ]
@@ -307,6 +310,9 @@ class FuenteFoundryProyecto:
     proveedor_token: Callable[[], Awaitable[str]] | None = None
     transporte: Any | None = None
     proveedor: Proveedor = Proveedor.foundry
+    #: Sin ``sku`` en la respuesta, ``estricta`` deja la región sin determinar (no sirve a restringido ni
+    #: interno) en vez de suponer ``Standard``. La usan las suscripciones; las variables de entorno no.
+    estricta: bool = False
     nombres = ("proyecto",)
 
     async def leer(self) -> list[EntradaCatalogo]:
@@ -372,8 +378,9 @@ class FuenteFoundryProyecto:
             modelo,
             str(d["name"]),
             "azure",
-            region_de_sku(sku, self.region, self.zona),
+            None if self.estricta and not sku else region_de_sku(sku, self.region, self.zona),
             capacidades_conocidas(modelo),
+            sku or None,
         )
 
 

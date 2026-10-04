@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from .consola.config import ConfigConsola
+from .proveedores.cifrado import Cifrador, ErrorCifrado
 
 log = logging.getLogger("railspec.server")
 
@@ -62,6 +63,10 @@ class Configuracion:
     postgres_esquema: str = "railspec"
     foundry: ConfigFoundry | None = None
     anthropic: ConfigAnthropic | None = None
+    #: Clave maestra que cifra las claves de las suscripciones de modelos (``RAILSPEC_CLAVE_MAESTRA``).
+    #: Sin ella el servidor arranca (``RAILSPEC_FOUNDRY_*`` sigue valiendo) pero no puede guardar ni
+    #: usar suscripciones. Mal formada, el servidor no arranca.
+    cifrador: Cifrador | None = field(default=None, repr=False)
     pce_url: str | None = None
     #: Grafo central (railspec-graph). Sin él, el gate de código no ve impacto de grafo.
     falkordb_url: str | None = None
@@ -135,6 +140,7 @@ class Configuracion:
             postgres_esquema=env.get("RAILSPEC_POSTGRES_ESQUEMA") or "railspec",
             foundry=foundry,
             anthropic=anthropic,
+            cifrador=_cifrador(env),
             pce_url=env.get("RAILSPEC_PCE_URL") or None,
             falkordb_url=env.get("RAILSPEC_FALKORDB_URL") or None,
             pce_api_key=env.get("RAILSPEC_PCE_API_KEY") or None,
@@ -200,6 +206,13 @@ def validar_arranque(config: Configuracion) -> None:
             "de desarrollo, pero hay una base de datos o GitHub App configuradas: quita la variable (¿clave "
             "sobrante en el Secret?) o, solo en desarrollo, define RAILSPEC_PERMITIR_DESARROLLO=1"
         )
+
+
+def _cifrador(env: Mapping[str, str]) -> Cifrador | None:
+    try:
+        return Cifrador.desde_entorno(env)
+    except ErrorCifrado as exc:
+        raise ValueError(exc.detalle) from exc
 
 
 def _tokens(crudo: str) -> dict[str, tuple[str, int]]:

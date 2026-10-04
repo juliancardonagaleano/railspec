@@ -59,6 +59,11 @@ services:
         sync: false
       - key: RAILSPEC_FOUNDRY_DESPLIEGUES
         sync: false
+      # --- suscripciones de modelos (consola) ---
+      # Clave maestra que cifra las claves de las suscripciones. Genérala con `openssl rand -base64 32` y
+      # guárdala fuera de Render: sin ella las claves guardadas no se pueden descifrar.
+      - key: RAILSPEC_CLAVE_MAESTRA
+        sync: false
       # Regiones de Azure donde el chat puede enviar código (restringido e interno). Vacío = el chat se
       # niega en esos niveles.
       - key: RAILSPEC_CHAT_ZONA_DATOS

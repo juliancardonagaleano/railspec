@@ -20,7 +20,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import Field
-from railspec.contracts.comun import Fase, Perfil, Presupuesto, Proveedor, Riesgo
+from railspec.contracts.comun import Fase, Perfil, Presupuesto, Proveedor, Riesgo, Slug
 from railspec.contracts.repositorio import (
     EventoAuditoria,
     ModeloCatalogo,
@@ -81,7 +81,7 @@ async def _escritura(request: Request, org: str, workspace: str | None):
     return ctx, actor
 
 
-# --- catálogo ------------------------------------------------------------------------------------
+# --- catálogo -----------------------------------------------------------------------------------
 
 
 @router.get("/orgs/{org}/catalogo")
@@ -236,10 +236,65 @@ def validar_perfil(roles: dict[str, RequisitoRol], catalogo: list[ModeloCatalogo
     return avisos
 
 
-# --- perfiles ------------------------------------------------------------------------------------
+def validar_perfil_con_suscripcion(
+    ctx: ContextoConsola, org: str, id_: str | None, roles: dict[str, RequisitoRol]
+) -> list[str]:
+    """Con suscripciones, el perfil elige una y solo usa sus modelos elegidos; 422 si no. Devuelve avisos."""
+
+    if id_ is None:
+        raise HTTPException(
+            422,
+            "elige la suscripción de la que salen los modelos del perfil: la organización las tiene",
+        )
+    s = ctx.datos.suscripcion(org, id_)
+    if s is None:
+        raise HTTPException(422, f"la suscripción {id_} no existe en {org}")
+    if not s.habilitada:
+        raise HTTPException(422, f"la suscripción «{s.nombre}» está deshabilitada")
+    elegidos = {}
+    for m in s.modelos:
+        if m.seleccionado and not m.ausente:
+            elegidos[m.modelo] = m
+            if m.despliegue:
+                elegidos[m.despliegue] = m
+    errores: list[str] = []
+    avisos: list[str] = []
+    for rol, req in sorted(roles.items()):
+        nombre = req.modelo.get(s.proveedor)
+        if nombre is None:
+            errores.append(
+                f"{rol}: el perfil no da modelo para {s.proveedor.value}, el de la suscripción «{s.nombre}»"
+            )
+            continue
+        m = elegidos.get(nombre)
+        if m is None:
+            errores.append(f"{rol}: {nombre} no está entre los modelos disponibles de «{s.nombre}»")
+            continue
+        c = m.capacidades
+        if req.effort is not None and req.effort not in c.efforts:
+            errores.append(f"{rol}: {nombre} no admite effort {req.effort.value}")
+        if req.structured_outputs and not c.structured_outputs:
+            errores.append(f"{rol}: {nombre} no admite salidas estructuradas")
+        if req.contexto_min_tokens and req.contexto_min_tokens > c.contexto_max_tokens:
+            errores.append(f"{rol}: {nombre} tiene contexto de {c.contexto_max_tokens} tokens")
+        if s.proveedor == Proveedor.anthropic:
+            avisos.append(f"{rol}: Anthropic directo solo sirve a repositorios abiertos")
+        elif m.region in (None, "global"):
+            avisos.append(
+                f"{rol}: {nombre} no sirve a restringido ni interno ({m.region or 'región sin determinar'})"
+            )
+    if errores:
+        raise HTTPException(422, "; ".join(errores))
+    return avisos
+
+
+# --- perfiles -----------------------------------------------------------------------------------
 
 
 class PerfilEntrada(Entrada):
+    #: Suscripción de la organización de la que salen los modelos (1.6). Obligatoria si la organización tiene
+    #: alguna; sin suscripciones rige el catálogo del servidor (variables de entorno).
+    suscripcion: Slug | None = None
     roles: dict[str, RequisitoRol]
     gate: dict[Riesgo, TopeGate]
     exploradores: dict[Riesgo, int]
@@ -257,12 +312,16 @@ async def guardar_perfil(
     org: str, nombre: Perfil, entrada: PerfilEntrada, request: Request, workspace: str | None = None
 ) -> dict[str, Any]:
     ctx, actor = await _escritura(request, org, workspace)
-    avisos = validar_perfil(entrada.roles, ctx.datos.catalogo(org))
+    if entrada.suscripcion is not None or (ctx.suscripciones and ctx.datos.suscripciones(org)):
+        avisos = validar_perfil_con_suscripcion(ctx, org, entrada.suscripcion, entrada.roles)
+    else:
+        avisos = validar_perfil(entrada.roles, ctx.datos.catalogo(org))
     previo = ctx.datos.perfil(org, workspace, nombre.value)
     p = PerfilConfig(
         org=org,
         workspace=workspace,
         nombre=nombre,
+        suscripcion=entrada.suscripcion,
         roles=entrada.roles,
         gate=entrada.gate,
         exploradores=entrada.exploradores,
@@ -271,12 +330,21 @@ async def guardar_perfil(
     )
     ctx.datos.guardar_perfil(p, entrada.version)
     ctx.auditar(
-        actor, org, workspace, EventoAuditoria.cambio_configuracion, entidad="perfil", nombre=nombre.value
+        actor,
+        org,
+        workspace,
+        EventoAuditoria.cambio_configuracion,
+        entidad="perfil",
+        nombre=nombre.value,
+        suscripcion=entrada.suscripcion,
+        suscripcion_previa=previo.suscripcion
+        if previo and previo.suscripcion != entrada.suscripcion
+        else None,
     )
     return {"perfil": _json(p), "avisos": avisos}
 
 
-# --- presupuestos --------------------------------------------------------------------------------
+# --- presupuestos -------------------------------------------------------------------------------
 
 
 class PresupuestoEntrada(Entrada):
@@ -310,7 +378,7 @@ async def guardar_presupuesto(
     return _json(p)
 
 
-# --- proveedores de contexto ------------------------------------------------------------------------
+# --- proveedores de contexto --------------------------------------------------------------------
 
 
 class ProveedorContextoEntrada(Entrada):
