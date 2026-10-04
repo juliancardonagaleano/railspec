@@ -4,10 +4,12 @@ import type {
   AsignacionRol,
   CommitIntegrable,
   ConfigAuth,
+  DeclaracionModelo,
   Decision,
   DetalleUnidad,
   EscrituraPerfil,
   EscrituraProveedorContexto,
+  EscrituraSuscripcion,
   EscrituraVinculo,
   EstadoCatalogo,
   EstadoUnidad,
@@ -15,6 +17,7 @@ import type {
   GraphQueryEntrada,
   GraphQuerySalida,
   LineaDeTiempo,
+  ListaSuscripciones,
   ModeloCatalogo,
   Modo,
   Organizacion,
@@ -26,11 +29,13 @@ import type {
   Proveedor,
   ProveedorContexto,
   RepositorioGrafo,
+  ResultadoDescubrimiento,
   ResultadoSincronizacion,
   ResumenWorkspace,
   Rol,
   RolContexto,
   SujetoRolNuevo,
+  Suscripcion,
   TelemetryQueryEntrada,
   TelemetryQuerySalida,
   TokenChat,
@@ -149,6 +154,23 @@ export const catalogo = {
     pedir<ResultadoSincronizacion>(`/orgs/${c(org)}/catalogo/sincronizar`, { metodo: "POST", consulta: { proveedor } }),
 };
 
+export const suscripciones = {
+  listar: (org: string) => pedir<ListaSuscripciones>(`/orgs/${c(org)}/suscripciones`),
+  /** Sin `version` crea; con ella edita. La clave nunca vuelve en la respuesta. */
+  guardar: (org: string, id: string, datos: EscrituraSuscripcion) =>
+    pedir<Suscripcion>(`/orgs/${c(org)}/suscripciones/${c(id)}`, { metodo: "PUT", cuerpo: datos }),
+  borrar: (org: string, id: string) => pedir<null>(`/orgs/${c(org)}/suscripciones/${c(id)}`, { metodo: "DELETE" }),
+  /** 502 con `codigo` y `detalle` si el proveedor falla (el cliente lo recibe como `ErrorApi`). */
+  descubrir: (org: string, id: string) =>
+    pedir<ResultadoDescubrimiento>(`/orgs/${c(org)}/suscripciones/${c(id)}/descubrir`, { metodo: "POST" }),
+  elegir: (org: string, id: string, seleccionados: string[], version: number) =>
+    pedir<Suscripcion>(`/orgs/${c(org)}/suscripciones/${c(id)}/modelos`, { metodo: "PUT", cuerpo: { seleccionados, version } }),
+  declarar: (org: string, id: string, datos: DeclaracionModelo) =>
+    pedir<Suscripcion>(`/orgs/${c(org)}/suscripciones/${c(id)}/modelos`, { metodo: "POST", cuerpo: datos }),
+  retirar: (org: string, id: string, clave: string, version: number) =>
+    pedir<Suscripcion>(`/orgs/${c(org)}/suscripciones/${c(id)}/modelos/${c(clave)}`, { metodo: "DELETE", consulta: { version } }),
+};
+
 export const perfiles = {
   listar: (org: string, ws?: string) =>
     pedir<PerfilConfig[]>(`/orgs/${c(org)}/perfiles`, { consulta: { workspace: ws } }),
@@ -202,6 +224,7 @@ export const claves = {
   repositorios: (org: string, ws: string) => ["repositorios", org, ws] as const,
   catalogo: (org: string) => ["catalogo", org] as const,
   catalogoEstado: (org: string) => ["catalogo", org, "estado"] as const,
+  suscripciones: (org: string) => ["suscripciones", org] as const,
   perfiles: (org: string, ws?: string) => ["perfiles", org, ws ?? null] as const,
   presupuestos: (org: string, ws?: string) => ["presupuestos", org, ws ?? null] as const,
   proveedores: (org: string, ws?: string) => ["proveedores-contexto", org, ws ?? null] as const,

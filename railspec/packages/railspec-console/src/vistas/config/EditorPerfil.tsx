@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { catalogo, claves, perfiles } from "../../api/endpoints";
+import { catalogo, claves, perfiles, suscripciones } from "../../api/endpoints";
 import {
   EFFORTS,
   PROVEEDORES,
@@ -14,6 +14,7 @@ import {
 } from "../../api/tipos";
 import { Button } from "../../componentes/ui/button";
 import { Input } from "../../componentes/ui/input";
+import { Campo } from "../../componentes/ui/input";
 import { Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
 import { AvisoGuardado, ErrorGuardado, numeroOpcional, useGuardar } from "../../lib/mutaciones";
@@ -34,12 +35,15 @@ function FilaRol({
   nombre,
   req,
   editable,
+  proveedorUnico,
   alCambiar,
   alQuitar,
 }: {
   nombre: string;
   req: RequisitoRol;
   editable: boolean;
+  /** Con suscripción, solo cuenta el modelo de su proveedor; el otro no se puede escribir. */
+  proveedorUnico?: Proveedor;
   alCambiar: (r: RequisitoRol) => void;
   alQuitar: () => void;
 }) {
@@ -53,7 +57,7 @@ function FilaRol({
             id={id(p)}
             aria-label={`Modelo ${p} para ${nombre}`}
             list={`modelos-${p}`}
-            disabled={!editable}
+            disabled={!editable || (proveedorUnico !== undefined && proveedorUnico !== p)}
             className="h-8 min-w-36 text-xs"
             value={req.modelo[p] ?? ""}
             onChange={(e) => {
@@ -112,11 +116,19 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
   const [datos, setDatos] = useState<EscrituraPerfil>(inicial);
   const [nuevoRol, setNuevoRol] = useState("");
   const cat = useQuery({ queryKey: claves.catalogo(org), queryFn: () => catalogo.listar(org) });
+  const sus = useQuery({ queryKey: claves.suscripciones(org), queryFn: () => suscripciones.listar(org) });
+  const lasSuscripciones = sus.data?.suscripciones ?? [];
+  const elegida = lasSuscripciones.find((x) => x.id === datos.suscripcion) ?? null;
   const modelos = useMemo(() => {
     const r: Record<Proveedor, string[]> = { foundry: [], anthropic: [] };
-    for (const m of cat.data ?? []) r[m.proveedor].push(m.despliegue ?? m.modelo);
+    // Con suscripción, solo sus modelos elegidos; sin ella, el catálogo del servidor (respaldo de entorno).
+    if (elegida) {
+      for (const m of elegida.modelos) if (m.seleccionado && !m.ausente) r[elegida.proveedor].push(m.clave);
+    } else if (!datos.suscripcion) {
+      for (const m of cat.data ?? []) r[m.proveedor].push(m.despliegue ?? m.modelo);
+    }
     return r;
-  }, [cat.data]);
+  }, [cat.data, elegida, datos.suscripcion]);
 
   const guardar = useGuardar(
     () => perfiles.guardar(org, nombre, datos, ws),
@@ -152,6 +164,33 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
           ))}
         </datalist>
       ))}
+      {lasSuscripciones.length > 0 || datos.suscripcion ? (
+        <section>
+          <Campo
+            etiqueta="Suscripción"
+            htmlFor="perfil-suscripcion"
+            ayuda={
+              elegida
+                ? `Los modelos de cada rol salen de los elegidos en «${elegida.nombre}» (${elegida.proveedor}).`
+                : "La organización tiene suscripciones: elige una para que el perfil use sus modelos."
+            }
+          >
+            <Select
+              id="perfil-suscripcion"
+              className="max-w-sm"
+              disabled={!editable}
+              vacio="Sin suscripción (proveedor del servidor)"
+              value={datos.suscripcion ?? ""}
+              onChange={(e) => setDatos((d) => ({ ...d, suscripcion: e.target.value || null }))}
+              opciones={lasSuscripciones.map((x) => ({
+                valor: x.id,
+                etiqueta: `${x.nombre} (${x.proveedor})${x.habilitada ? "" : " · deshabilitada"}`,
+              }))}
+            />
+          </Campo>
+          {elegida && !elegida.habilitada ? <p className="mt-1 text-sm text-peligro">Esta suscripción está deshabilitada.</p> : null}
+        </section>
+      ) : null}
       <section>
         <h4 className="mb-1 text-sm font-semibold">Roles</h4>
         <Table>
@@ -176,6 +215,7 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
                 nombre={rol}
                 req={req}
                 editable={editable}
+                {...(elegida ? { proveedorUnico: elegida.proveedor } : {})}
                 alCambiar={(r) => setRol(rol, r)}
                 alQuitar={() => quitarRol(rol)}
               />

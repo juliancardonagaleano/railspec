@@ -24,6 +24,7 @@ const aEscritura = (p: PerfilConfig, conVersion: boolean): EscrituraPerfil => ({
   roles: p.roles,
   gate: p.gate,
   exploradores: p.exploradores,
+  ...(p.suscripcion ? { suscripcion: p.suscripcion } : {}),
   ...(conVersion ? { version: p.version } : {}),
 });
 
