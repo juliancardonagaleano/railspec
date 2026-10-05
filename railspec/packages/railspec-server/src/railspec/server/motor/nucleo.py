@@ -191,7 +191,11 @@ class Nucleo:
         await self.proveedores.refrescar(ws.org)
         pares = requisitos_del_gate(perfil, nivel, tope_gate(perfil, riesgo).adversarial)
         return self.proveedores.validar(
-            pares, nivel, org=ws.org, zona=workspace.zona_datos_azure if workspace else None
+            pares,
+            nivel,
+            org=ws.org,
+            zona=workspace.zona_datos_azure if workspace else None,
+            suscripcion=perfil.suscripcion,
         )
 
     def zona(self, estado: EstadoUnidad) -> str | None:
@@ -266,6 +270,7 @@ class Nucleo:
                         "resultado": "error",
                         "error": f.error[:300],
                         **({"despliegue": e.despliegue} if e.despliegue else {}),
+                        **({"suscripcion": e.suscripcion} if e.suscripcion else {}),
                     },
                 )
             )
@@ -320,6 +325,7 @@ class Nucleo:
                             "tokens_cache_lectura": u.tokens_cache_lectura,
                             "tokens_cache_escritura": u.tokens_cache_escritura,
                             **({"despliegue": ll.despliegue} if ll.despliegue else {}),
+                            **({"suscripcion": ll.suscripcion} if ll.suscripcion else {}),
                         },
                     )
                 )

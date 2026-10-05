@@ -67,7 +67,9 @@ from railspec.contracts.repositorio import (
     Auditoria,
     Capacidades,
     EventoAuditoria,
+    LecturaSuscripcion,
     ModeloCatalogo,
+    ModeloSuscripcion,
     Organizacion,
     PerfilConfig,
     PresupuestoConfig,
@@ -76,6 +78,7 @@ from railspec.contracts.repositorio import (
     RequisitoRol,
     Rol,
     SujetoEquipo,
+    SuscripcionModelo,
     TelemetriaNodo,
     TopeGate,
     VinculoRepositorio,
@@ -422,12 +425,48 @@ def modelo_catalogo() -> ModeloCatalogo:
     )
 
 
+def suscripcion_modelo() -> SuscripcionModelo:
+    return SuscripcionModelo(
+        version=1,
+        auditoria=AUDITORIA,
+        org="acme",
+        id="foundry-eu",
+        nombre="Foundry UE",
+        proveedor=Proveedor.foundry,
+        endpoint="https://acme-eu.services.ai.azure.com",
+        proyecto="https://acme-eu.services.ai.azure.com/api/projects/railspec",
+        region="swedencentral",
+        zona_datos="eu",
+        clave_configurada=True,
+        clave_actualizada_en=T0,
+        modelos=[
+            ModeloSuscripcion(
+                modelo="claude-sonnet-5-5",
+                despliegue="sonnet-55-eu",
+                sku="DataZoneStandard",
+                region="zona-eu",
+                capacidades=Capacidades(
+                    efforts=["low", "medium", "high"],
+                    thinking=True,
+                    structured_outputs=True,
+                    contexto_max_tokens=200000,
+                ),
+                origen="descubierto",
+                seleccionado=True,
+                visto_en=T0,
+            )
+        ],
+        ultima_lectura=LecturaSuscripcion(en=T0, por="julian", resultado="ok", modelos=1),
+    )
+
+
 def perfil() -> PerfilConfig:
     return PerfilConfig(
         version=1,
         auditoria=AUDITORIA,
         org="acme",
         nombre=Perfil.estandar,
+        suscripcion="foundry-eu",
         roles={
             "critico-profundo": RequisitoRol(
                 modelo={Proveedor.foundry: "sonnet-55-eastus2"}, effort="high", structured_outputs=True
@@ -544,6 +583,7 @@ EJEMPLOS = {
     "asignacion-rol": asignacion_rol,
     "vinculo-repositorio": vinculo,
     "modelo-catalogo": modelo_catalogo,
+    "suscripcion-modelo": suscripcion_modelo,
     "perfil": perfil,
     "presupuesto": presupuesto,
     "proveedor-contexto": proveedor_contexto,

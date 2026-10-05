@@ -1,0 +1,62 @@
+{
+  "auditoria": {
+    "actualizado_en": "2026-09-30T18:00:00Z",
+    "actualizado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    },
+    "creado_en": "2026-09-30T18:00:00Z",
+    "creado_por": {
+      "canal": "consola",
+      "github_id": 83125327,
+      "login": "juliancardonagaleano",
+      "proveedor_identidad": "github",
+      "tipo": "humano"
+    }
+  },
+  "autenticacion": "api-key",
+  "clave_actualizada_en": "2026-09-30T18:00:00Z",
+  "clave_configurada": true,
+  "endpoint": "https://acme-eu.services.ai.azure.com",
+  "habilitada": true,
+  "id": "foundry-eu",
+  "modelos": [
+    {
+      "ausente": false,
+      "capacidades": {
+        "contexto_max_tokens": 200000,
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "structured_outputs": true,
+        "thinking": true
+      },
+      "despliegue": "sonnet-55-eu",
+      "modelo": "claude-sonnet-5-5",
+      "origen": "descubierto",
+      "region": "zona-eu",
+      "seleccionado": true,
+      "sku": "DataZoneStandard",
+      "visto_en": "2026-09-30T18:00:00Z"
+    }
+  ],
+  "nombre": "Foundry UE",
+  "org": "acme",
+  "proveedor": "foundry",
+  "proyecto": "https://acme-eu.services.ai.azure.com/api/projects/railspec",
+  "region": "swedencentral",
+  "ultima_lectura": {
+    "en": "2026-09-30T18:00:00Z",
+    "modelos": 1,
+    "por": "julian",
+    "resultado": "ok"
+  },
+  "version": 1,
+  "version_contrato": "1.6",
+  "zona_datos": "eu"
+}

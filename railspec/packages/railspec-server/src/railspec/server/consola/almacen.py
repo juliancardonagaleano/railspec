@@ -5,7 +5,8 @@ si el dato cuelga de un workspace, también el workspace, aunque se busque por
 ``_id``. Las excepciones son datos de la organización entera o de la plataforma:
 ``organizaciones`` y ``organizacion`` (una organización es su propio espacio de
 nombres), ``workspaces`` (los de una organización), ``roles``, ``rol``,
-``asignaciones`` y ``catalogo`` (por organización; el workspace de una asignación
+``asignaciones``, ``catalogo``, ``suscripciones`` y ``suscripciones_claves`` (por organización; el workspace
+de una asignación
 lo mira quien la leyó para decidir si puede tocarla) y ``asignaciones_de_sujeto``,
 que busca por persona en todas las organizaciones para armar ``GET /yo``; solo
 devuelve las asignaciones de esa persona. ``test_aislamiento_almacenes`` lista cada
@@ -42,6 +43,7 @@ from railspec.contracts.repositorio import (
     PresupuestoConfig,
     ProveedorContexto,
     RegistroAuditoria,
+    SuscripcionModelo,
     VinculoRepositorio,
     Workspace,
 )
@@ -77,7 +79,7 @@ class AlmacenConsola:
         db.reportes.create_index([("_clave", ASCENDING)])
         db.catalogo_estado.create_index([("org", ASCENDING)])
 
-    # --- escritura con bloqueo optimista --------------------------------------------
+    # --- escritura con bloqueo optimista ---------------------------------------------------------
 
     def _guardar(
         self,
@@ -122,7 +124,7 @@ class AlmacenConsola:
     def _varios(self, coleccion: str, filtro: dict[str, Any], modelo: type, orden: list) -> list:
         return [modelo.model_validate(_limpio(d)) for d in self.db[coleccion].find(filtro).sort(orden)]
 
-    # --- organizaciones y workspaces ----------------------------------------------------
+    # --- organizaciones y workspaces -------------------------------------------------------------
 
     def organizaciones(self, ids: set[str] | None) -> list[Organizacion]:
         filtro = {} if ids is None else {"id": {"$in": sorted(ids)}}
@@ -145,7 +147,7 @@ class AlmacenConsola:
         filtro = {"alcance.org": a.org, "alcance.workspace": a.workspace, "_id": f"{a.org}/{a.workspace}"}
         return self._guardar("workspaces", filtro, w, version_esperada)
 
-    # --- roles (R3) ----------------------------------------------------------------------
+    # --- roles (R3) ------------------------------------------------------------------------------
 
     def roles(
         self, org: str, workspace: str | None = None, solo_workspace: bool = False
@@ -178,7 +180,7 @@ class AlmacenConsola:
         filtro = {"$or": filtro_sujetos(github_id, equipos)}
         return self._varios("roles", filtro, AsignacionRol, [("org", ASCENDING)])
 
-    # --- vínculos de repositorio ------------------------------------------------------------
+    # --- vínculos de repositorio -----------------------------------------------------------------
 
     def vinculos(self, org: str, ws: str) -> list[VinculoRepositorio]:
         return self._varios(
@@ -199,7 +201,7 @@ class AlmacenConsola:
     def borrar_vinculo(self, a: AlcanceRepositorio) -> bool:
         return self.db.vinculos.delete_one(_filtro_vinculo(a)).deleted_count == 1
 
-    # --- perfiles, presupuestos, proveedores de contexto, catálogo -----------------------------
+    # --- perfiles, presupuestos, proveedores de contexto, catálogo -------------------------------
 
     def perfiles(self, org: str, ws: str | None) -> list[PerfilConfig]:
         filtro = {"org": org, "workspace": {"$in": [None, ws]} if ws else None}
@@ -266,7 +268,45 @@ class AlmacenConsola:
         cursor = self.db.catalogo_estado.find({"org": org}).sort([("proveedor", ASCENDING)])
         return [_limpio(d) for d in cursor]
 
-    # --- auditoría ------------------------------------------------------------------------------
+    # --- suscripciones de modelos (1.6) ----------------------------------------------------------
+
+    def suscripciones(self, org: str) -> list[SuscripcionModelo]:
+        return self._varios("suscripciones", {"org": org}, SuscripcionModelo, [("id", ASCENDING)])
+
+    def suscripcion(self, org: str, id_: str) -> SuscripcionModelo | None:
+        return self._uno("suscripciones", {"org": org, "id": id_}, SuscripcionModelo)
+
+    def guardar_suscripcion(self, s: SuscripcionModelo, version_esperada: int | None) -> SuscripcionModelo:
+        filtro = {"org": s.org, "id": s.id, "_id": f"{s.org}/{s.id}"}
+        return self._guardar("suscripciones", filtro, s, version_esperada)
+
+    def borrar_suscripcion(self, org: str, id_: str) -> bool:
+        """Borra la suscripción y su clave cifrada."""
+
+        self.borrar_clave_suscripcion(org, id_)
+        return self.db.suscripciones.delete_one({"org": org, "id": id_}).deleted_count == 1
+
+    def perfiles_con_suscripcion(self, org: str, id_: str) -> list[PerfilConfig]:
+        """Perfiles de la organización (de cualquier workspace) asociados a la suscripción."""
+
+        orden = [("workspace", ASCENDING), ("nombre", ASCENDING)]
+        return self._varios("perfiles", {"org": org, "suscripcion": id_}, PerfilConfig, orden)
+
+    def clave_suscripcion(self, org: str, id_: str) -> str | None:
+        """La clave **cifrada** (``proveedores.cifrado``); el valor en claro no se guarda en ningún lado."""
+
+        doc = self.db.suscripciones_claves.find_one({"org": org, "_id": f"{org}/{id_}"})
+        return str(doc["cifrada"]) if doc else None
+
+    def guardar_clave_suscripcion(self, org: str, id_: str, cifrada: str) -> None:
+        clave = f"{org}/{id_}"
+        doc = {"_id": clave, "org": org, "id": id_, "cifrada": cifrada}
+        self.db.suscripciones_claves.replace_one({"org": org, "_id": clave}, doc, upsert=True)
+
+    def borrar_clave_suscripcion(self, org: str, id_: str) -> None:
+        self.db.suscripciones_claves.delete_one({"org": org, "_id": f"{org}/{id_}"})
+
+    # --- auditoría -------------------------------------------------------------------------------
 
     def registrar_auditoria(self, registro: RegistroAuditoria) -> None:
         self.db.auditoria.insert_one({"_id": str(registro.id), **_doc(registro)})
@@ -306,7 +346,7 @@ class AlmacenConsola:
             siguiente = _cerrar_cursor(docs[-1]["en"], docs[-1]["_id"])
         return [RegistroAuditoria.model_validate(_limpio(d)) for d in docs], siguiente
 
-    # --- unidades (solo lectura) -------------------------------------------------------------------
+    # --- unidades (solo lectura) -----------------------------------------------------------------
 
     def unidades(self, org: str, ws: str, limite: int = 5000) -> list[dict[str, Any]]:
         proyeccion = {"fase": 1, "estado": 1, "gates": 1, "integracion": 1, "checkpoint_pendiente": 1}

@@ -53,6 +53,8 @@ class ContextoConsola:
     fuente_codigo: Any | None = None
     #: ``Catalogo`` del servidor (lectura por API de cada proveedor); ``None`` sin proveedores de modelo.
     catalogo: Any | None = None
+    #: ``ServicioSuscripciones`` (conexiones a Foundry/Anthropic registradas desde la consola, contrato 1.6).
+    suscripciones: Any | None = None
     #: Sin Mongo (solo desarrollo): toda persona sin asignaciones es ``desarrollador``.
     abierto: bool = False
     reloj: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))

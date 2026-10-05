@@ -58,8 +58,19 @@ def ensamblar(
         almacen = almacen_desde_postgres(config.postgres_url, config.postgres_esquema)
     else:
         almacen = almacen_desde_uri(config.mongo_uri, config.mongo_db)
+    from .proveedores.suscripciones import ServicioSuscripciones
+
+    datos_consola = AlmacenConsola(almacen.db)
+    suscripciones = ServicioSuscripciones(datos_consola, config.cifrador)
+    if config.cifrador is None:
+        log.warning(
+            "sin RAILSPEC_CLAVE_MAESTRA: las suscripciones de modelos no se guardan ni se usan; "
+            "las variables RAILSPEC_FOUNDRY_* / RAILSPEC_ANTHROPIC_* siguen valiendo"
+        )
     if proveedores is None:
-        proveedores = _proveedores(config, almacen)
+        proveedores = _proveedores(config, almacen, suscripciones)
+    elif isinstance(proveedores, Proveedores) and proveedores.suscripciones is None:
+        proveedores.suscripciones = suscripciones
     if gobernanza is None:
         gobernanza = _contexto(config, almacen)
     if motor_grafo is None and config.falkordb_url is not None:
@@ -137,7 +148,6 @@ def ensamblar(
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
     app.include_router(router_chat(servicio_chat, identidad))
     app.include_router(router_renovacion(RenovadorGithub(config.consola.github_app, cliente_github)))
-    datos_consola = AlmacenConsola(almacen.db)
     catalogo = getattr(proveedores, "catalogo", None)
     if catalogo is not None and catalogo.registrar is None:
         catalogo.registrar = datos_consola.guardar_estado_catalogo
@@ -155,6 +165,7 @@ def ensamblar(
         acceso_grafo=acceso,
         fuente_codigo=fuente_codigo,
         catalogo=catalogo,
+        suscripciones=suscripciones,
         abierto=config.modo_memoria,
     )
     montar_consola(app, consola)
@@ -174,7 +185,7 @@ def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dic
     return sondas
 
 
-def _proveedores(config: Configuracion, almacen: Any) -> Proveedores:
+def _proveedores(config: Configuracion, almacen: Any, suscripciones: Any | None = None) -> Proveedores:
     from .proveedores.catalogo import Catalogo, FuenteAnthropic, FuenteFoundryDeclarada, FuenteFoundryProyecto
     from .proveedores.claude import AdaptadorClaude, cliente_anthropic
     from .proveedores.foundry import proveedor_foundry, proveedor_token_entra
@@ -201,12 +212,21 @@ def _proveedores(config: Configuracion, almacen: Any) -> Proveedores:
         disponibles[Proveedor.anthropic] = AdaptadorClaude(Proveedor.anthropic, cliente, region="global")
         fuentes.append(FuenteAnthropic(cliente))
     if not disponibles:
-        log.warning("sin proveedores de modelo: unit.start rechazará los perfiles (perfil-insatisfacible)")
+        log.warning(
+            "sin proveedores de modelo por variables de entorno: los perfiles necesitan una suscripción "
+            "registrada en la consola (unit.start rechaza el resto: perfil-insatisfacible)"
+        )
     catalogo = Catalogo(fuentes, almacen, ttl_s=config.catalogo_ttl_s) if fuentes else None
     from .proveedores.cache import CacheNodos
 
     cache = CacheNodos(almacen, config.cache_nodos_s) if config.cache_nodos_s > 0 else None
-    return Proveedores(disponibles, catalogo, zona_recurso=f.zona_datos if f else None, cache=cache)
+    return Proveedores(
+        disponibles,
+        catalogo,
+        zona_recurso=f.zona_datos if f else None,
+        cache=cache,
+        suscripciones=suscripciones,
+    )
 
 
 class _FuentesFoundry:

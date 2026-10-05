@@ -31,6 +31,9 @@ necesita acceso de inferencia al recurso y lectura del proyecto si se usa
 
 ## Variables de entorno
 
+Estas variables fijan el proveedor **del servidor**, que sigue valiendo como respaldo; las
+conexiones por organización se registran desde la consola ([Suscripciones de modelos](#suscripciones-de-modelos)).
+
 | Variable | Defecto | Dónde | Uso |
 | --- | --- | --- | --- |
 | `RAILSPEC_FOUNDRY_ENDPOINT` | vacío | ConfigMap | Endpoint del recurso (`https://<recurso>.services.ai.azure.com`). Sin él no hay Foundry. |
@@ -57,6 +60,94 @@ invertidas: en el clúster se usa la forma compacta, por ejemplo
 declarar capacidades con JSON, la variable se pone en el Secret (que no pasa
 por el renderizador) en vez del ConfigMap; el Secret va después del
 ConfigMap en `envFrom` del Deployment y su valor gana.
+
+## Suscripciones de modelos
+
+Desde el contrato 1.6 una organización registra desde la consola sus propias
+conexiones a Foundry y a Anthropic, sin tocar variables de entorno ni
+redesplegar. Una **suscripción** (`SuscripcionModelo`) lleva el proveedor, su
+endpoint, región y zona de datos (Foundry), la autenticación y la clave. Con
+ella se **descubren** los modelos que el proveedor ofrece, se **eligen** los
+que quedan disponibles y un **perfil** se asocia a una suscripción y solo
+puede usar los modelos elegidos en ella.
+
+| Campo | Foundry | Anthropic |
+| --- | --- | --- |
+| `endpoint` | Obligatorio: `https://<recurso>.services.ai.azure.com` (https y dominio de Azure; ver `RAILSPEC_FOUNDRY_HOSTS`). Solo se guarda el origen. | No lleva. |
+| `proyecto`, `region`, `zona_datos` | Nombre del proyecto (para leer los despliegues), región del recurso y zona de datos (`us` o `eu`, la de los SKU DataZone). | No llevan: su región es `global`. |
+| `autenticacion` | `api-key` (clave del recurso) o `identidad-servidor` (Entra ID/Workload Identity del servidor, sin clave). | Solo `api-key`. |
+
+**Claves.** Se escriben en el formulario, se cifran con AES-256-GCM antes de
+llegar a la base (ligadas a su organización y suscripción) y viven en una
+colección aparte. **Ninguna respuesta de la API, log ni evento de auditoría las
+devuelve**: la consola solo sabe si hay una (`clave_configurada`). Cambiar el
+endpoint obliga a escribirla otra vez. El cifrado exige una clave maestra:
+
+| Variable | Dónde | Uso |
+| --- | --- | --- |
+| `RAILSPEC_CLAVE_MAESTRA` | Secret | 32 bytes en base64 (`openssl rand -base64 32`). Sin ella el servidor arranca y avisa, pero la consola no puede guardar ni usar suscripciones con clave (responde 503 con la variable que falta). Si se pierde, las claves guardadas son irrecuperables y hay que escribirlas otra vez. |
+| `RAILSPEC_CLAVE_MAESTRA_ANTERIOR` | Secret | Una o varias claves anteriores, separadas por coma, que solo sirven para descifrar. **Rotación**: pon la nueva en `RAILSPEC_CLAVE_MAESTRA` y la vieja aquí; cada clave se vuelve a cifrar con la nueva la próxima vez que se escribe, y la vieja se puede quitar cuando ninguna suscripción la use. |
+| `RAILSPEC_FOUNDRY_HOSTS` | entorno del contenedor | Dominios extra permitidos para el endpoint de una suscripción (nubes soberanas, Private Link con dominio propio): `host` o `*.dominio`, separados por coma. Por defecto, `*.services.ai.azure.com`, `*.openai.azure.com` y `*.cognitiveservices.azure.com`. |
+
+**Quién.** Crear, editar, borrar, descubrir y elegir modelos es de un
+`org-admin` (o de quien administra la plataforma); leerlas, de cualquier rol
+de la organización, porque quien edita un perfil tiene que ver qué puede elegir.
+
+**Descubrir.** `POST …/suscripciones/{id}/descubrir` llama a la API real del
+proveedor con un tope de 45 s: los despliegues del proyecto de Foundry
+(`proyecto` es obligatorio) o `GET /v1/models` de Anthropic. Los modelos nuevos
+quedan listados sin elegir; los ya elegidos que dejan de aparecer pasan a
+`ausente` (no se borran ni se sirven). Si falla, la elección anterior se
+conserva y la respuesta es 502 con un `codigo` (`autenticacion`, `permiso`,
+`no-encontrado`, `limite`, `proveedor`, `tiempo`, `red`, `forma`, `cifrado-ilegible`,
+`clave-maestra-ausente`…)
+y un `detalle` que nombra la suscripción pero nunca la URL ni la clave. El
+último resultado queda en `ultima_lectura`. La forma de la API de proyectos de
+Foundry sigue sin verificarse contra un recurso real; si no responde o no
+acepta la clave, un despliegue se **declara a mano** (nombre, modelo, SKU y,
+si hace falta, capacidades) y queda elegido igual.
+
+**Elegir.** Solo los modelos elegidos están disponibles para los perfiles de
+esa suscripción. La región de cada uno se deriva de la suscripción y del SKU:
+`Global*` → `global`, `DataZone*` → la zona de la suscripción, el resto → su
+región. Sin SKU conocido la región queda sin determinar y el modelo no sirve a
+`restringido` ni a `interno`.
+
+**Política de datos.** Es la de siempre, aplicada con los datos de la
+suscripción y no con supuestos globales: `restringido` e `interno` solo usan
+Foundry con SKU `DataZone*` o `Standard` en la zona del workspace (la zona y
+la región salen de la suscripción); `abierto` puede usar además cualquier SKU
+global y Anthropic directo, que no sirve a ningún otro nivel. Una suscripción
+`habilitada: false` no sirve a nadie.
+
+**Perfiles.** `PerfilConfig.suscripcion` apunta a una suscripción. Al guardar
+un perfil la consola comprueba (422 si falla) que la suscripción exista y esté
+habilitada y que cada modelo de sus roles esté elegido en ella, admita el
+`effort`, las salidas estructuradas y el contexto pedidos; avisa (sin impedirlo)
+de los modelos que no sirven a `restringido`/`interno`. Si la organización ya
+tiene suscripciones, un perfil nuevo o editado tiene que elegir una. No se puede
+borrar una suscripción que algún perfil usa (409 con la lista).
+
+**Respaldo con variables de entorno.** Un perfil **sin** suscripción sigue
+resolviéndose como antes: catálogo de la organización y los proveedores que
+fijan `RAILSPEC_FOUNDRY_*` y `RAILSPEC_ANTHROPIC_*`. Un perfil **con**
+suscripción no cae nunca a ese respaldo: si la suscripción se borra, se
+deshabilita o pierde el modelo, la unidad falla con `perfil-insatisfacible` en
+lugar de enviar código a otro destino. El chat usa la suscripción del perfil por
+defecto del workspace. La auditoría de cada llamada incluye la suscripción.
+
+**Migrar de `RAILSPEC_FOUNDRY_*` a una suscripción.**
+
+1. Define `RAILSPEC_CLAVE_MAESTRA` y redespliega.
+2. En Configuración → Suscripciones crea una suscripción de Foundry con los
+   mismos valores que tenías (`RAILSPEC_FOUNDRY_ENDPOINT`, `_REGION`,
+   `_ZONA_DATOS`, el nombre del proyecto de `_PROYECTO`) y la clave de
+   `RAILSPEC_FOUNDRY_API_KEY` (o `identidad-servidor` si no usabas clave).
+3. Pulsa Descubrir y elige los modelos. Los de `RAILSPEC_FOUNDRY_DESPLIEGUES`
+   se declaran a mano con su SKU.
+4. Edita cada perfil y asócialo a la suscripción; la consola lo valida.
+5. Cuando ningún perfil dependa del respaldo, quita las variables
+   `RAILSPEC_FOUNDRY_*`. Hasta entonces siguen valiendo.
 
 ## Catálogo de modelos
 

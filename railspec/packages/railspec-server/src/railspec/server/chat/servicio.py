@@ -52,6 +52,7 @@ from railspec.contracts.comun import (
     AlcanceWorkspace,
     Canal,
     NivelCodigo,
+    Perfil,
     Proveedor,
     TipoActor,
 )
@@ -313,8 +314,31 @@ class ServicioChat:
 
     # --- modelo ----------------------------------------------------------------------------------
 
+    def _suscripcion_del_workspace(self, alcance: AlcanceWorkspace) -> tuple[str | None, str | None]:
+        """Suscripción (la del perfil por defecto del workspace) y zona de datos del workspace.
+
+        El chat no tiene perfil propio: usa la suscripción del perfil por defecto del workspace, que es la
+        que el administrador asoció en la consola. Sin ella, rigen las variables de entorno del servidor.
+        """
+
+        leer_ws = getattr(self.almacen, "workspace", None)
+        leer_perfil = getattr(self.almacen, "perfil", None)
+        workspace = leer_ws(alcance) if leer_ws else None
+        if leer_perfil is None:
+            return None, workspace.zona_datos_azure if workspace else None
+        nombre = workspace.perfil_por_defecto if workspace else Perfil.estandar
+        perfil = leer_perfil(alcance, nombre)
+        return (
+            perfil.suscripcion if perfil else None,
+            workspace.zona_datos_azure if workspace else None,
+        )
+
     async def _elegir(
-        self, org: str, nivel: NivelCodigo, restricciones: dict[str, Any]
+        self,
+        org: str,
+        nivel: NivelCodigo,
+        restricciones: dict[str, Any],
+        alcance: AlcanceWorkspace | None = None,
     ) -> tuple[Any, str, dict[str, Any]]:
         """Proveedor, modelo y campos extra de ``PeticionModelo`` (despliegue y región si existen).
 
@@ -325,11 +349,16 @@ class ServicioChat:
         refrescar = getattr(self.proveedores, "refrescar", None)
         if refrescar is not None:
             await (refrescar(org) if "org" in inspect.signature(refrescar).parameters else refrescar())
-        extra_elegir = {"org": org} if "org" in inspect.signature(self.proveedores.elegir).parameters else {}
+        parametros = inspect.signature(self.proveedores.elegir).parameters
+        extra_elegir: dict[str, Any] = {"org": org} if "org" in parametros else {}
+        modelos = self.config.modelos
+        suscripcion, zona = self._suscripcion_del_workspace(alcance) if alcance else (None, None)
+        if suscripcion and "suscripcion" in parametros:
+            extra_elegir |= {"suscripcion": suscripcion, "zona": zona}
+            modelo = modelos.get(Proveedor.foundry) or next(iter(modelos.values()))
+            modelos = {p: modelo for p in Proveedor}
         try:
-            eleccion = self.proveedores.elegir(
-                "chat", RequisitoRol(modelo=self.config.modelos), nivel, **extra_elegir
-            )
+            eleccion = self.proveedores.elegir("chat", RequisitoRol(modelo=modelos), nivel, **extra_elegir)
         except PerfilInsatisfacible as exc:
             raise ErrorChat(CodigoError.perfil_insatisfacible.value, str(exc), 422) from exc
         if restricciones["modelos"] is not None and eleccion.modelo not in restricciones["modelos"]:
@@ -346,7 +375,8 @@ class ServicioChat:
                     "restringido/interno: el chat solo usa modelos de Azure con región fija",
                     422,
                 )
-            if region not in self.config.zona_datos:
+            # Con suscripción la zona ya la comprobó la selección contra la del workspace.
+            if not getattr(eleccion, "suscripcion", None) and region not in self.config.zona_datos:
                 raise ErrorChat(
                     CodigoError.perfil_insatisfacible.value,
                     f"la región {region} no está en la zona de datos configurada para el chat",
@@ -502,7 +532,7 @@ class ServicioChat:
             raise ErrorChat("pregunta-invalida", "la pregunta debe tener entre 1 y 8000 caracteres", 422)
         vinculos = self._vinculos(conv)
         nivel, politica, restricciones = politica_efectiva(vinculos)
-        proveedor, modelo, extra = await self._elegir(conv.alcance.org, nivel, restricciones)
+        proveedor, modelo, extra = await self._elegir(conv.alcance.org, nivel, restricciones, conv.alcance)
         previos = self.chat.mensajes(conv.alcance, id_)
         m_usuario = MensajeChat(
             id=self.nuevo_id(),

@@ -334,6 +334,21 @@
       "title": "Roles",
       "type": "object"
     },
+    "suscripcion": {
+      "anyOf": [
+        {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.6: suscripción de la organización de la que salen los modelos del perfil; los modelos de ``roles`` tienen que estar entre los que esa suscripción tiene elegidos. Sin ella rigen las variables RAILSPEC_FOUNDRY_* / RAILSPEC_ANTHROPIC_* del servidor.",
+      "title": "Suscripcion"
+    },
     "version": {
       "description": "Bloqueo optimista; +1 en cada escritura.",
       "minimum": 1,
@@ -341,14 +356,15 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.5",
+      "default": "1.6",
       "enum": [
         "1.0",
         "1.1",
         "1.2",
         "1.3",
         "1.4",
-        "1.5"
+        "1.5",
+        "1.6"
       ],
       "title": "Version Contrato",
       "type": "string"

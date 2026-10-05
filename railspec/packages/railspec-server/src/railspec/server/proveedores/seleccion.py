@@ -23,6 +23,7 @@ from railspec.contracts.repositorio import RequisitoRol
 from .base import ProveedorModelo
 from .cache import CacheNodos
 from .catalogo import REGION_GLOBAL, Catalogo, EntradaCatalogo
+from .suscripciones import ErrorSuscripcion, ServicioSuscripciones
 
 
 class PerfilInsatisfacible(Exception):
@@ -38,6 +39,8 @@ class Eleccion:
     despliegue: str | None = None
     #: Región o zona donde corre la inferencia, para la auditoría.
     region: str | None = None
+    #: Suscripción de la organización de la que sale el modelo (``None`` = variables de entorno del servidor).
+    suscripcion: str | None = None
 
 
 class Proveedores:
@@ -47,8 +50,11 @@ class Proveedores:
         catalogo: Catalogo | None = None,
         zona_recurso: str | None = None,
         cache: CacheNodos | None = None,
+        suscripciones: ServicioSuscripciones | None = None,
     ) -> None:
         self._disponibles = disponibles
+        #: Suscripciones registradas desde la consola (1.6); ``elegir(..., suscripcion=)`` solo usa estas.
+        self.suscripciones = suscripciones
         self.catalogo = catalogo
         #: Caché de nodos por hash de entradas; ``None`` = siempre llama al proveedor.
         self.cache = cache
@@ -73,7 +79,16 @@ class Proveedores:
         *,
         org: str | None = None,
         zona: str | None = None,
+        suscripcion: str | None = None,
     ) -> Eleccion:
+        """Proveedor, modelo y despliegue que sirven ``requisito`` en ``nivel``, o ``PerfilInsatisfacible``.
+
+        Con ``suscripcion`` (la del perfil) solo valen los modelos que esa suscripción de ``org`` tiene
+        elegidos; sin ella rigen las variables de entorno del servidor (el respaldo anterior a 1.6).
+        """
+
+        if suscripcion is not None:
+            return self._con_suscripcion(rol, requisito, nivel, org, zona, suscripcion)
         orden = [Proveedor.foundry]
         if nivel == NivelCodigo.abierto:
             orden.append(Proveedor.anthropic)
@@ -90,6 +105,49 @@ class Proveedores:
                 return eleccion
             motivos.append(motivo)
         raise PerfilInsatisfacible(f"rol {rol} en nivel {nivel.value}: " + "; ".join(motivos))
+
+    def _con_suscripcion(
+        self,
+        rol: str,
+        req: RequisitoRol,
+        nivel: NivelCodigo,
+        org: str | None,
+        zona: str | None,
+        id_: str,
+    ) -> Eleccion:
+        donde = f"rol {rol} en nivel {nivel.value}, suscripción {id_}: "
+        if self.suscripciones is None or org is None:
+            raise PerfilInsatisfacible(donde + "este servidor no tiene suscripciones de modelos")
+        try:
+            activa = self.suscripciones.activa(org, id_)
+        except ErrorSuscripcion as exc:
+            raise PerfilInsatisfacible(donde + exc.detalle) from exc
+        s = activa.suscripcion
+        restringe = nivel != NivelCodigo.abierto
+        if s.proveedor == Proveedor.anthropic and restringe:
+            raise PerfilInsatisfacible(
+                donde + f"«{s.nombre}» es Anthropic directo y solo sirve a repositorios abiertos"
+            )
+        nombre = req.modelo.get(s.proveedor)
+        if nombre is None:
+            raise PerfilInsatisfacible(donde + f"el perfil no da modelo para {s.proveedor.value}")
+        candidatas = [e for e in activa.entradas if nombre in (e.modelo, e.despliegue)]
+        if not candidatas:
+            raise PerfilInsatisfacible(
+                donde
+                + f"{nombre} no está entre los modelos elegidos de «{s.nombre}»: elígelo en la suscripción"
+            )
+        rechazos: list[str] = []
+        for e in candidatas:
+            falta = self._falta(e, req, restringe, zona, activa.zona_recurso)
+            if falta is None:
+                try:
+                    adaptador = self.suscripciones.adaptador(s)
+                except ErrorSuscripcion as exc:
+                    raise PerfilInsatisfacible(donde + exc.detalle) from exc
+                return Eleccion(adaptador, e.modelo, e.despliegue, e.region, s.id)
+            rechazos.append(f"{e.destino}: {falta}")
+        raise PerfilInsatisfacible(donde + f"{nombre}: " + ", ".join(rechazos))
 
     def _con(
         self, p: Proveedor, nombre: str, req: RequisitoRol, nivel: NivelCodigo, zona: str | None
@@ -109,13 +167,16 @@ class Proveedores:
             return None, f"{nombre} no está en el catálogo de {p.value}"
         rechazos: list[str] = []
         for e in candidatas:
-            falta = self._falta(e, req, restringe, zona)
+            falta = self._falta(e, req, restringe, zona, self.zona_recurso)
             if falta is None:
                 return Eleccion(adaptador, e.modelo, e.despliegue, e.region), ""
             rechazos.append(f"{e.destino}: {falta}")
         return None, f"{p.value}/{nombre}: " + ", ".join(rechazos)
 
-    def _falta(self, e: EntradaCatalogo, req: RequisitoRol, restringe: bool, zona: str | None) -> str | None:
+    @staticmethod
+    def _falta(
+        e: EntradaCatalogo, req: RequisitoRol, restringe: bool, zona: str | None, zona_recurso: str | None
+    ) -> str | None:
         caps = e.capacidades
         if req.structured_outputs and not caps.structured_outputs:
             return "sin salida estructurada"
@@ -123,7 +184,7 @@ class Proveedores:
             return f"no admite effort {req.effort.value}"
         if req.contexto_min_tokens is not None and caps.contexto_max_tokens < req.contexto_min_tokens:
             return f"contexto {caps.contexto_max_tokens} < {req.contexto_min_tokens}"
-        if restringe and not e.en_zona(zona, self.zona_recurso):
+        if restringe and not e.en_zona(zona, zona_recurso):
             donde = e.region or "región desconocida"
             return f"fuera de la zona de datos ({donde}{f', workspace {zona}' if zona else ''})"
         return None
@@ -135,6 +196,7 @@ class Proveedores:
         *,
         org: str | None = None,
         zona: str | None = None,
+        suscripcion: str | None = None,
     ) -> list[str]:
         """Motivos por los que algún ``(rol, requisito)`` no se puede servir; vacío = perfil válido."""
 
@@ -146,7 +208,7 @@ class Proveedores:
                 continue
             vistos.add(clave)
             try:
-                self.elegir(rol, req, nivel, org=org, zona=zona)
+                self.elegir(rol, req, nivel, org=org, zona=zona, suscripcion=suscripcion)
             except PerfilInsatisfacible as exc:
                 motivos.append(str(exc))
         return motivos

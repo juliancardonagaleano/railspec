@@ -116,7 +116,9 @@ def cliente_foundry(endpoint: str, api_key: str | None, proveedor_token: Proveed
     return AsyncAnthropicFoundry(base_url=f"{base}/", azure_ad_token_provider=proveedor_token)
 
 
-def cliente_anthropic(api_key: str) -> Any:
+def cliente_anthropic(api_key: str, **opciones: Any) -> Any:
+    """``AsyncAnthropic``; ``opciones`` (``timeout``, ``max_retries``) para lecturas con tope propio."""
+
     from anthropic import AsyncAnthropic
 
-    return AsyncAnthropic(api_key=api_key)
+    return AsyncAnthropic(api_key=api_key, **opciones)

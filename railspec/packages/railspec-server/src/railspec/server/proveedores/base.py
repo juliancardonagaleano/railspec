@@ -84,6 +84,8 @@ class PeticionModelo(Generic[T]):
     metadatos: dict[str, str] = field(default_factory=dict)
     despliegue: str | None = None
     region: str | None = None
+    #: Suscripción de la que sale el modelo. No viaja al proveedor: entra en la clave de la caché de nodos.
+    suscripcion: str | None = None
     commits: tuple[str, ...] = ()
 
     @property

@@ -1,6 +1,6 @@
 """Caché de nodos de modelo por hash de sus entradas (idempotencia del DAG).
 
-Clave: proveedor, modelo, despliegue, effort, tope de tokens, esquema de
+Clave: proveedor, modelo, despliegue, suscripción, effort, tope de tokens, esquema de
 salida, sistema, contenido y los commits del código evaluado. La misma llamada con las mismas entradas no se
 paga dos veces: un turno del DAG que se repite tras una caída, otra réplica
 que reanuda desde el checkpoint o un gate que vuelve a evaluar el mismo
@@ -36,6 +36,7 @@ def clave_nodo(proveedor: Proveedor, peticion: PeticionModelo) -> str:
         peticion.sistema,
         peticion.contenido,
         ",".join(peticion.commits),
+        peticion.suscripcion or "",
     ]
     return hashlib.sha256("\0".join(partes).encode("utf-8")).hexdigest()
 

@@ -29,7 +29,8 @@ Las claves y cadenas de conexión las pones tú en el panel de Render. No las pe
 3. **Comprobar el arranque.** `curl https://<url>/healthz` debe dar `{"estado":"ok","postgres":"ok"}` (la primera vez tarda: el servicio gratuito arranca en frío). Si la construcción falla, el registro de *Events* en Render dice qué paso del Dockerfile.
 4. **GitHub App de la consola.** Con la URL real del servicio (`https://<nombre>.onrender.com`; si el nombre `railspec` ya estaba tomado, Render le añade un sufijo), crea la App con URL de retorno `https://<url>/consola/api/auth/github/callback` ([consola.md](consola.md)) y pon su client id y secret en `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET`. Guardar el entorno redespliega el servicio.
 5. **Comprobar la consola.** Entra en `https://<url>/consola/` con tu cuenta de GitHub; `RAILSPEC_CONSOLA_ADMINS` te hace administrador de la plataforma y desde ahí creas la organización.
-6. **Modelos.** Con los despliegues de Foundry declarados ([proveedores.md](proveedores.md)), ejecuta en una sesión con red a Azure `python -m railspec.server.humo --sin-llamada` para validar la configuración sin gastar tokens.
+6. **Clave maestra.** Genera `openssl rand -base64 32`, pégala en `RAILSPEC_CLAVE_MAESTRA` (panel de Render) y guarda una copia fuera de Render: cifra las claves de las suscripciones y, si se pierde, hay que escribirlas otra vez. Sin ella la consola no guarda suscripciones.
+7. **Modelos.** En la consola, Configuración → Suscripciones: registra tu recurso de Foundry (endpoint, proyecto, región, zona de datos y clave), pulsa Descubrir, elige los modelos y asocia cada perfil a la suscripción ([proveedores.md](proveedores.md#suscripciones-de-modelos)). Ya no hace falta `RAILSPEC_FOUNDRY_*`; si las tenías, sigue [Migrar de `RAILSPEC_FOUNDRY_*`](proveedores.md#suscripciones-de-modelos). Para validar la configuración del servidor sin gastar tokens, ejecuta en una sesión con red a Azure `python -m railspec.server.humo --sin-llamada`.
 
 ## Variables del servicio
 
@@ -42,7 +43,8 @@ Las claves y cadenas de conexión las pones tú en el panel de Render. No las pe
 | `RAILSPEC_CONSOLA_SECRETO` | Aleatorio de 256 bits que genera Render | Render |
 | `RAILSPEC_CONSOLA_ADMINS` | `83125327` (el github_id de Julian) | Blueprint |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | De la GitHub App | Tú, en el panel |
-| `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Del recurso de Foundry | Tú, en el panel |
+| `RAILSPEC_CLAVE_MAESTRA` | `openssl rand -base64 32`; cifra las claves de las suscripciones de la consola | Tú, en el panel |
+| `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Del recurso de Foundry; opcionales desde 1.6 (respaldo de los perfiles sin suscripción) | Tú, en el panel |
 | `RAILSPEC_FOUNDRY_REGION`, `RAILSPEC_FOUNDRY_ZONA_DATOS`, `RAILSPEC_FOUNDRY_DESPLIEGUES` | Región, zona de datos y despliegues declarados ([proveedores.md](proveedores.md)) | Tú, en el panel |
 | `RAILSPEC_CHAT_ZONA_DATOS` | Regiones de Azure donde el chat puede enviar código; vacío = el chat se niega en `restringido` e `interno` | Tú, en el panel |
 
