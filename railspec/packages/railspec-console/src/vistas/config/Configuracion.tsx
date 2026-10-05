@@ -7,6 +7,7 @@ import { Catalogo } from "./Catalogo";
 import { Perfiles } from "./Perfiles";
 import { Presupuestos } from "./Presupuestos";
 import { Proveedores } from "./Proveedores";
+import { Suscripciones } from "./Suscripciones";
 
 function PestanasConfig({ org, ws, editable, orgAdmin }: { org: string; ws?: string; editable: boolean; orgAdmin: boolean }) {
   const [pestana, setPestana] = useState("perfiles");
@@ -17,6 +18,7 @@ function PestanasConfig({ org, ws, editable, orgAdmin }: { org: string; ws?: str
         <TabsTrigger valor="perfiles">Perfiles</TabsTrigger>
         <TabsTrigger valor="presupuestos">Presupuestos</TabsTrigger>
         <TabsTrigger valor="proveedores">Proveedores de contexto</TabsTrigger>
+        <TabsTrigger valor="suscripciones">Suscripciones</TabsTrigger>
         <TabsTrigger valor="catalogo">Catálogo de modelos</TabsTrigger>
       </TabsList>
       <TabsContent valor="perfiles">
@@ -27,6 +29,9 @@ function PestanasConfig({ org, ws, editable, orgAdmin }: { org: string; ws?: str
       </TabsContent>
       <TabsContent valor="proveedores">
         <Proveedores org={org} {...conWs} editable={editable} />
+      </TabsContent>
+      <TabsContent valor="suscripciones">
+        <Suscripciones org={org} editable={orgAdmin} />
       </TabsContent>
       <TabsContent valor="catalogo">
         <Catalogo org={org} puedeSincronizar={orgAdmin} />

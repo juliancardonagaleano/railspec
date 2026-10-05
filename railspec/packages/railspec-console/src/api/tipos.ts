@@ -740,6 +740,8 @@ export interface PerfilConfig {
   roles: Record<string, RequisitoRol>;
   gate: Partial<Record<Riesgo, TopeGate>>;
   exploradores: Partial<Record<Riesgo, number>>;
+  /** Suscripción de la que salen los modelos del perfil (contrato 1.6); `null` = respaldo del servidor. */
+  suscripcion?: string | null;
   version: number;
   auditoria: Auditoria;
 }
@@ -748,6 +750,7 @@ export interface EscrituraPerfil {
   roles: Record<string, RequisitoRol>;
   gate: Partial<Record<Riesgo, TopeGate>>;
   exploradores: Partial<Record<Riesgo, number>>;
+  suscripcion?: string | null;
   version?: number;
 }
 
@@ -793,4 +796,93 @@ export interface EscrituraProveedorContexto {
   fases?: Fase[];
   presupuesto_tokens?: number | null;
   version?: number;
+}
+
+// ---------------------------------------------------------------- suscripciones de modelos (1.6)
+
+export const AUTENTICACIONES = ["api-key", "identidad-servidor"] as const;
+export type Autenticacion = (typeof AUTENTICACIONES)[number];
+
+export interface ModeloSuscripcion {
+  modelo: string;
+  despliegue?: string | null;
+  sku?: string | null;
+  region?: string | null;
+  capacidades: ModeloCatalogo["capacidades"];
+  origen: "descubierto" | "declarado";
+  seleccionado: boolean;
+  /** Estaba elegido y la última lectura ya no lo trae: no se sirve hasta descubrir de nuevo o declararlo. */
+  ausente: boolean;
+  visto_en?: string | null;
+  /** Despliegue o id del modelo: lo que se elige en un perfil. */
+  clave: string;
+  hosting: "azure" | "anthropic";
+  /** Puede servir a restringido/interno (Azure y con región conocida que no sea global). */
+  restringible: boolean;
+}
+
+export interface LecturaSuscripcion {
+  en: string;
+  por?: string | null;
+  resultado: "ok" | "error";
+  modelos: number;
+  error_codigo?: string | null;
+  error_detalle?: string | null;
+}
+
+/** Nunca lleva la clave: solo `clave_configurada`. */
+export interface Suscripcion {
+  org: string;
+  id: string;
+  nombre: string;
+  proveedor: Proveedor;
+  endpoint?: string | null;
+  proyecto?: string | null;
+  region?: string | null;
+  zona_datos?: string | null;
+  autenticacion: Autenticacion;
+  clave_configurada: boolean;
+  clave_actualizada_en?: string | null;
+  habilitada: boolean;
+  modelos: ModeloSuscripcion[];
+  ultima_lectura?: LecturaSuscripcion | null;
+  perfiles: { nombre: Perfil; workspace: string | null }[];
+  version: number;
+  auditoria: Auditoria;
+}
+
+export interface ListaSuscripciones {
+  cifrado: { disponible: boolean; variable: string };
+  suscripciones: Suscripcion[];
+}
+
+export interface EscrituraSuscripcion {
+  proveedor: Proveedor;
+  nombre: string;
+  autenticacion: Autenticacion;
+  endpoint?: string | null;
+  proyecto?: string | null;
+  region?: string | null;
+  zona_datos?: string | null;
+  habilitada: boolean;
+  /** Solo escritura. Vacía o ausente = conservar la guardada. */
+  clave?: string | null;
+  version?: number;
+}
+
+export interface DeclaracionModelo {
+  modelo: string;
+  despliegue: string;
+  sku: string;
+  structured_outputs?: boolean | null;
+  contexto?: number | null;
+  version: number;
+}
+
+export interface ResultadoDescubrimiento {
+  resultado: "ok" | "error";
+  modelos: number;
+  suscripcion: Suscripcion;
+  codigo?: string;
+  detalle?: string;
 }
