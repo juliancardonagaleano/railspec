@@ -564,6 +564,21 @@ Pruebas: `npm --prefix railspec/packages/railspec-console test` (Vitest),
 del compose, `python -m pytest railspec/integracion`. El job `consola` de
 `railspec-ci.yml` corre `npm ci`, typecheck, pruebas y build.
 
+Humo con navegador (`railspec-console/humo/humo.mjs`): arranca `railspec-server` en
+memoria (modo desarrollo, con `dist/`) y recorre con Chromium el camino de una persona
+nueva: login con token (y token rechazado), Inicio, crear organización y workspace,
+Configuración, alta de una suscripción Foundry (la clave no vuelve a verse), modelo
+declarado, perfil asociado a la suscripción, rol `lector` y solo lectura, y Salir. Falla
+si el navegador registra una excepción, un error de consola o un 4xx/5xx no declarado.
+No toca Foundry ni Anthropic: el descubrimiento real de modelos sigue sin probarse con
+credenciales de verdad. Necesita Playwright con Chromium, que no es dependencia del
+paquete (`npm i --no-save playwright`, o `RAILSPEC_HUMO_PLAYWRIGHT` con su carpeta):
+
+```
+npm --prefix railspec/packages/railspec-console run build
+npm --prefix railspec/packages/railspec-console run humo     # capturas en humo/salida/
+```
+
 ## Pendiente
 
 - Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el

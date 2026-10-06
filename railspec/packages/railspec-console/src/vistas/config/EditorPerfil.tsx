@@ -150,9 +150,14 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
   const setGate = (r: Riesgo, parcial: Partial<TopeGate>) =>
     setDatos((d) => ({ ...d, gate: { ...d.gate, [r]: { ...TOPE_BASE, ...d.gate[r], ...parcial } } }));
 
+  // El contrato exige al menos un modelo por rol: sin esto el servidor responde 422 al guardar la plantilla tal cual.
+  const rolesSinModelo = Object.entries(datos.roles)
+    .filter(([, req]) => Object.keys(req.modelo).length === 0)
+    .map(([rol]) => rol);
+
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    guardar.mutate(undefined);
+    if (rolesSinModelo.length === 0) guardar.mutate(undefined);
   };
 
   return (
@@ -222,6 +227,11 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
             ))}
           </TableBody>
         </Table>
+        {editable && rolesSinModelo.length > 0 ? (
+          <p role="status" className="mt-2 text-sm text-peligro">
+            Falta el modelo ({elegida ? elegida.proveedor : "foundry o anthropic"}) de: {rolesSinModelo.join(", ")}.
+          </p>
+        ) : null}
         {editable ? (
           <div className="mt-2 flex gap-2">
             <Input
@@ -323,7 +333,7 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
       <ErrorGuardado error={guardar.error} />
       {editable ? (
         <div>
-          <Button type="submit" disabled={guardar.isPending || Object.keys(datos.roles).length === 0}>
+          <Button type="submit" disabled={guardar.isPending || Object.keys(datos.roles).length === 0 || rolesSinModelo.length > 0}>
             {guardar.isPending ? "Guardando…" : "Guardar perfil"}
           </Button>
         </div>

@@ -122,6 +122,7 @@ describe("perfiles de esfuerzo", () => {
     await user.click(screen.getByLabelText("Structured outputs para redactor"));
     await user.type(screen.getByLabelText("Nombre del nuevo rol"), "critico");
     await user.click(screen.getByRole("button", { name: "Añadir rol" }));
+    await user.type(screen.getByLabelText("Modelo anthropic para critico"), "claude-sonnet-5-5");
     await user.clear(screen.getByLabelText("Críticos riesgo medio"));
     await user.type(screen.getByLabelText("Críticos riesgo medio"), "4");
     await user.click(screen.getByLabelText("Adversarial riesgo medio"));
@@ -139,7 +140,7 @@ describe("perfiles de esfuerzo", () => {
     expect(put!.cuerpo).toEqual({
       roles: {
         redactor: { modelo: { anthropic: "claude-sonnet-5-5", foundry: "opus-dz" }, effort: "high", structured_outputs: true },
-        critico: { modelo: {}, structured_outputs: false },
+        critico: { modelo: { anthropic: "claude-sonnet-5-5" }, structured_outputs: false },
       },
       gate: {
         bajo: { criticos: 1, iteraciones: 1, adversarial: false },
@@ -286,7 +287,7 @@ describe("editor de perfil", () => {
     expect(s.de("PUT", "/orgs/acme/perfiles/estandar")).toHaveLength(0);
   });
 
-  it("vaciar un modelo lo quita del rol y vaciar el contexto mínimo envía null", async () => {
+  it("vaciar el contexto mínimo y el effort envía null, y el modelo se conserva", async () => {
     const user = userEvent.setup();
     const s = montarEditor(
       { "PUT /orgs/acme/perfiles/estandar": () => ({ perfil: perfilConfig("estandar", { version: 4 }), avisos: [] }) },
@@ -298,14 +299,33 @@ describe("editor de perfil", () => {
       },
     );
 
-    await user.clear(await screen.findByLabelText("Modelo anthropic para redactor"));
-    await user.clear(screen.getByLabelText("Contexto mínimo para redactor"));
+    await user.clear(await screen.findByLabelText("Contexto mínimo para redactor"));
     await user.selectOptions(screen.getByLabelText("Effort para redactor"), "—");
     await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
     await screen.findByText(/^Guardado · versión 4\b/);
     expect(s.de("PUT", "/orgs/acme/perfiles/estandar")[0]!.cuerpo.roles).toEqual({
-      redactor: { modelo: {}, effort: null, structured_outputs: false, contexto_min_tokens: null },
+      redactor: { modelo: { anthropic: "claude-sonnet-5-5" }, effort: null, structured_outputs: false, contexto_min_tokens: null },
     });
+  });
+
+  it("un rol sin modelo bloquea el guardado y nombra al rol (el contrato exige uno por rol)", async () => {
+    const user = userEvent.setup();
+    const s = montarEditor(
+      {},
+      { inicial: { ...inicial, roles: { redactor: { modelo: { anthropic: "claude-sonnet-5-5" }, structured_outputs: false }, critico: { modelo: {}, structured_outputs: false } } } },
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Falta el modelo (foundry o anthropic) de: critico.");
+    expect(screen.getByRole("button", { name: "Guardar perfil" })).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Modelo foundry para critico"), "opus-dz");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar perfil" })).toBeEnabled();
+
+    await user.clear(screen.getByLabelText("Modelo anthropic para redactor"));
+    expect(screen.getByRole("status")).toHaveTextContent("de: redactor.");
+    expect(screen.getByRole("button", { name: "Guardar perfil" })).toBeDisabled();
+    expect(s.de("PUT", "/orgs/acme/perfiles/estandar")).toHaveLength(0);
   });
 
   it("de un workspace guarda en su ámbito (?workspace=) y sin versión cuando es un ajuste nuevo", async () => {
