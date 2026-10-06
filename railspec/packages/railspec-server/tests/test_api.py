@@ -540,3 +540,43 @@ def test_graph_query_con_repositorios_vinculados():
         assert r.estado_http == 403 and r.cuerpo["codigo"] == "fuera-de-alcance"
 
     asyncio.run(caso())
+
+
+def test_graph_query_solo_ve_los_repositorios_vinculados_al_workspace_pedido():
+    """El workspace es el límite de visibilidad: un ``lector`` ve los repositorios vinculados a *su*
+    workspace (los de otro workspace de la organización no entran) y no hay rol por repositorio."""
+
+    from apoyo_motor import JULIAN, vinculo
+    from railspec.contracts.comun import AlcanceRepositorio, NivelCodigo
+    from railspec.contracts.tools import GraphQuerySalida
+    from railspec.server.api.grafo import manejador_graph_query
+
+    vistos = []
+
+    class GrafoFalso:
+        def consultar(self, entrada, visibles):
+            vistos.append(sorted((v.workspace, v.repositorio) for v in visibles))
+            return GraphQuerySalida(resultados=[], commits={})
+
+    def en(workspace, repositorio):
+        v = vinculo(NivelCodigo.interno)
+        return v.model_copy(
+            update={"alcance": AlcanceRepositorio(org=ORG, workspace=workspace, repositorio=repositorio)}
+        )
+
+    async def caso():
+        motor, _ = construir()
+        motor.n.almacen.guardar_configuracion(
+            [en(WS, "certificados-api"), en(WS, "pagos-api"), en("otro-workspace", "secreto-api")]
+        )
+        extra = {"graph.query": manejador_graph_query(GrafoFalso(), motor.n.almacen)}
+        registro = Registro.del_motor(motor, AutorizadorRoles(motor.n.almacen, abierto=True), extra)
+        entrada = {
+            "alcance": {"org": ORG, "workspace": WS},
+            "consulta": {"verbo": "resolve", "nombre": "firmar"},
+        }
+        r = await registro.invocar("graph.query", entrada, JULIAN, Superficie.mcp)
+        assert r.ok
+        assert vistos == [[(WS, "certificados-api"), (WS, "pagos-api")]]
+
+    asyncio.run(caso())

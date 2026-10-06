@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -49,6 +49,15 @@ from .perfiles import ACTOR_SERVIDOR, perfil_por_defecto, tope_gate
 log = logging.getLogger("railspec.motor")
 
 Reloj = Callable[[], datetime]
+
+#: De más a menos restrictivo: con varios repositorios en una unidad rige el que esté más a la izquierda.
+RESTRICCION = (NivelCodigo.restringido, NivelCodigo.interno, NivelCodigo.abierto)
+
+
+def mas_restrictivo(niveles: Iterable[NivelCodigo]) -> NivelCodigo:
+    """El nivel más restrictivo de ``niveles``; sin ninguno, ``restringido`` (el por defecto)."""
+
+    return min(niveles, key=RESTRICCION.index, default=NivelCodigo.restringido)
 
 
 def reloj_utc() -> datetime:
@@ -164,28 +173,46 @@ class Nucleo:
         workspace = leer_ws(ws) if leer_ws else None
         return workspace.perfil_por_defecto if workspace else Perfil.estandar
 
-    def nivel(self, estado: EstadoUnidad, repositorio: str | None = None) -> NivelCodigo:
-        repo = repositorio or primario(estado)
+    def nivel_de(self, ws: AlcanceWorkspace, repositorio: str) -> NivelCodigo:
+        """Nivel de un repositorio según su vínculo; sin vínculo rige ``restringido``."""
+
         vinculo = self.almacen.vinculo(
-            AlcanceRepositorio(org=estado.unidad.org, workspace=estado.unidad.workspace, repositorio=repo)
+            AlcanceRepositorio(org=ws.org, workspace=ws.workspace, repositorio=repositorio)
         )
-        # Sin vínculo registrado rige el valor por defecto de la política: restringido.
         return vinculo.nivel_codigo if vinculo else NivelCodigo.restringido
 
+    def niveles(self, ws: AlcanceWorkspace, repositorios: Iterable[str]) -> NivelCodigo:
+        """Nivel efectivo de un conjunto de repositorios: gana el más restrictivo."""
+
+        return mas_restrictivo(self.nivel_de(ws, r) for r in repositorios)
+
+    def nivel(self, estado: EstadoUnidad, repositorio: str | None = None) -> NivelCodigo:
+        """Nivel de ``repositorio`` o, sin él, el efectivo de la unidad.
+
+        Todo lo que sale de la unidad hacia un modelo (elección del modelo, material del gate,
+        auditoría) usa el efectivo: el más restrictivo de todos sus repositorios, no el del
+        primario. Quien necesita el de un repositorio concreto (el nivel que declara su snapshot)
+        lo pide por nombre.
+        """
+
+        ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
+        if repositorio is not None:
+            return self.nivel_de(ws, repositorio)
+        return self.niveles(ws, (r.repositorio for r in estado.repositorios))
+
     async def validar_perfil(
-        self, ws: AlcanceWorkspace, nombre: Perfil, repositorio: str, riesgo: Riesgo
+        self, ws: AlcanceWorkspace, nombre: Perfil, repositorios: str | Iterable[str], riesgo: Riesgo
     ) -> list[str]:
         """Motivos por los que el catálogo conectado no puede servir el perfil; vacío = válido.
 
         Se llama antes de crear la unidad: el motor rechaza el arranque en vez
-        de degradar el modelo en silencio a mitad de un gate.
+        de degradar el modelo en silencio a mitad de un gate. Con varios
+        repositorios se valida contra el nivel más restrictivo de todos, el
+        mismo con el que correrá el gate.
         """
 
         perfil = self.almacen.perfil(ws, nombre) or perfil_por_defecto(ws, nombre)
-        vinculo = self.almacen.vinculo(
-            AlcanceRepositorio(org=ws.org, workspace=ws.workspace, repositorio=repositorio)
-        )
-        nivel = vinculo.nivel_codigo if vinculo else NivelCodigo.restringido
+        nivel = self.niveles(ws, [repositorios] if isinstance(repositorios, str) else repositorios)
         leer_ws = getattr(self.almacen, "workspace", None)
         workspace = leer_ws(ws) if leer_ws else None
         await self.proveedores.refrescar(ws.org)
@@ -228,7 +255,7 @@ class Nucleo:
         """
 
         repo = primario(estado)
-        nivel = self.nivel(estado, repo)
+        nivel = self.nivel(estado)  # efectivo: el más restrictivo de los repositorios de la unidad
         alcance_ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
         for f in fallidas:
             ahora = self.reloj()
@@ -370,4 +397,4 @@ def primario(estado: EstadoUnidad) -> str:
     return next(r.repositorio for r in estado.repositorios if r.rol == RolRepositorio.primario)
 
 
-__all__ = ["Direccion", "Nucleo", "Reloj", "primario", "reloj_utc"]
+__all__ = ["Direccion", "Nucleo", "RESTRICCION", "Reloj", "mas_restrictivo", "primario", "reloj_utc"]

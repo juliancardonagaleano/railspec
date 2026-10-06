@@ -143,6 +143,29 @@ La clave de la caché de nodos incluye el commit del código evaluado
 (`repositorio@commit` de cada repositorio de la unidad): el mismo material
 sobre otro commit es otra pregunta. Ver [proveedores.md](proveedores.md).
 
+## Política de datos con varios repositorios
+
+Una unidad puede tocar varios repositorios (el primero es el primario; los demás,
+transversales), cada uno con su `nivel_codigo`. **Gana el más restrictivo**
+(`restringido` > `interno` > `abierto`; un repositorio sin vínculo cuenta como
+`restringido`). Ese nivel efectivo (`Nucleo.nivel(estado)`) es el que rige todo lo
+que sale de la unidad hacia un modelo:
+
+- `unit.start` valida el perfil contra el nivel efectivo del conjunto de
+  repositorios, no contra el del primero: si el catálogo no puede servirlo, responde
+  `perfil-insatisfacible` antes de crear la unidad.
+- El gate elige modelo y zona con el nivel efectivo, y cada llamada se audita con él
+  (`nivel_codigo`).
+- El material del gate de código solo incluye el diff si ningún repositorio de la
+  unidad es `restringido`. Los símbolos y las rutas (sin texto de código) van siempre.
+- La comprobación del snapshot (`el vínculo fija nivel …`) sigue siendo por
+  repositorio: cada snapshot declara el nivel de su propio vínculo.
+
+Los roles son por workspace, no por repositorio: un `lector` ve (`graph.query`,
+`unit.list`, `unit.status`, estadísticas) todos los repositorios vinculados a su
+workspace y ninguno de otro workspace. Limitar por repositorio exigiría un rol por
+repositorio, que el modelo de datos no tiene; el límite de visibilidad es el workspace.
+
 ## Variables de entorno
 
 | Variable | Uso |
@@ -192,4 +215,9 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
   registro no anuncia la tool cuyo manejador falta.
 - Presupuesto por tier, meta de llamadas y contador de aciertos de la caché
   (contrato 1.6); `unit.advance` ignora `version_vista` y `dueno` no se exige.
+- El nivel de código se lee en vivo del vínculo (`Nucleo.nivel`): bajarlo o
+  subirlo con una unidad en curso cambia el modelo y el material de sus gates
+  siguientes. Congelarlo al crear la unidad necesita un campo nuevo en el estado de
+  la unidad (contrato 1.7) y queda para entonces; hasta ese momento, quien relaja la
+  política (`org-admin`) debe hacerlo sin unidades abiertas en ese repositorio.
 - La forma de la respuesta de PCE no está verificada contra el servicio real.
