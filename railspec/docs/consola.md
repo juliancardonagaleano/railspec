@@ -272,6 +272,13 @@ resultado de lectura y los perfiles que la usan.
   campo nunca se rellena con la guardada y, al editar, vacío significa «conservar».
   Cambiar el endpoint pide la clave otra vez. Solo un `org-admin` edita; los demás
   roles ven la lista.
+- **Compatibles (contrato 1.8).** Con el proveedor «Compatible» el formulario pide un
+  servicio (OpenCode Zen, MiniMax) cuyos endpoints fija el servidor, o
+  «Personalizado» con al menos un endpoint propio (chat completions de OpenAI o
+  mensajes de Anthropic). Sirven solo a repositorios `abierto`: el formulario y el
+  editor de perfiles lo avisan, y el effort queda deshabilitado. Declarar un
+  modelo a mano pide su protocolo y, si se sabe, su tarifa en USD por millón de
+  tokens (entrada y salida juntas); sin tarifa el costo cuenta 0 USD.
 - **Descubrir modelos.** Lee los modelos del proveedor. Si falla, la pantalla
   muestra el código y el detalle sin tocar la elección anterior. Cada modelo
   aparece con su región, su SKU y si sirve a `restringido`/`interno`; se marcan

@@ -3,10 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { claves, suscripciones } from "../../api/endpoints";
 import {
   AUTENTICACIONES,
+  PROTOCOLOS_COMPATIBLE,
   PROVEEDORES,
   type Autenticacion,
   type ModeloSuscripcion,
+  type PrecioModelo,
   type Proveedor,
+  type ProtocoloCompatible,
+  type ServicioCompatible,
   type Suscripcion,
 } from "../../api/tipos";
 import { Aviso, Cargando, ErrorVista, Vacio } from "../../componentes/Estados";
@@ -35,15 +39,26 @@ export const idDesdeNombre = (nombre: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
 
-const ETIQUETA_PROVEEDOR: Record<Proveedor, string> = { foundry: "Azure AI Foundry", anthropic: "Anthropic" };
+const ETIQUETA_PROVEEDOR: Record<Proveedor, string> = {
+  foundry: "Azure AI Foundry",
+  anthropic: "Anthropic",
+  compatible: "Compatible (OpenCode Zen, MiniMax…)",
+};
+const PERSONALIZADO = "personalizado";
+const ETIQUETA_PROTOCOLO: Record<ProtocoloCompatible, string> = {
+  "anthropic-messages": "Messages de Anthropic",
+  "openai-chat": "Chat completions de OpenAI",
+};
 
 function FormularioSuscripcion({
   org,
   actual,
+  servicios,
   alCerrar,
 }: {
   org: string;
   actual?: Suscripcion;
+  servicios: ServicioCompatible[];
   alCerrar: () => void;
 }) {
   const [proveedor, setProveedor] = useState<Proveedor>(actual?.proveedor ?? "foundry");
@@ -55,11 +70,27 @@ function FormularioSuscripcion({
   const [autenticacion, setAutenticacion] = useState<Autenticacion>(actual?.autenticacion ?? "api-key");
   const [clave, setClave] = useState("");
   const [habilitada, setHabilitada] = useState(actual?.habilitada ?? true);
+  const [servicio, setServicio] = useState(actual?.servicio ?? (actual?.proveedor === "compatible" ? PERSONALIZADO : (servicios[0]?.id ?? PERSONALIZADO)));
+  const [epChat, setEpChat] = useState(actual?.servicio ? "" : (actual?.endpoint ?? ""));
+  const [epMensajes, setEpMensajes] = useState(actual?.servicio ? "" : (actual?.endpoint_mensajes ?? ""));
   const foundry = proveedor === "foundry";
+  const compatible = proveedor === "compatible";
+  const conocido = compatible ? servicios.find((x) => x.id === servicio) : undefined;
+  const propio = compatible && !conocido;
   const id = actual?.id ?? idDesdeNombre(nombre);
-  const cambiaEndpoint = Boolean(actual) && foundry && endpoint.trim() !== (actual?.endpoint ?? "");
+  // Cambiar a dónde apunta la suscripción obliga a escribir la clave otra vez: no viaja a un host nuevo sin que la veas.
+  const destino = (sv: string | null | undefined, ep: string | null | undefined, em: string | null | undefined) =>
+    sv ? `${sv}||` : `|${ep ?? ""}|${em ?? ""}`;
+  const cambiaEndpoint =
+    Boolean(actual) &&
+    (foundry
+      ? endpoint.trim() !== (actual?.endpoint ?? "")
+      : compatible &&
+        destino(conocido?.id, epChat.trim(), epMensajes.trim()) !==
+          destino(actual?.servicio, actual?.endpoint, actual?.endpoint_mensajes));
   const necesitaClave = autenticacion === "api-key" && (!actual || cambiaEndpoint || !actual.clave_configurada);
   const claveFalta = necesitaClave && !clave.trim();
+  const sinEndpoint = propio && !epChat.trim() && !epMensajes.trim();
 
   const guardar = useGuardar(
     () =>
@@ -70,6 +101,8 @@ function FormularioSuscripcion({
         ...(foundry
           ? { endpoint: endpoint.trim(), proyecto: proyecto.trim() || null, region: region.trim() || null, zona_datos: zona.trim() || null }
           : {}),
+        ...(conocido ? { servicio: conocido.id } : {}),
+        ...(propio ? { endpoint: epChat.trim() || null, endpoint_mensajes: epMensajes.trim() || null } : {}),
         habilitada,
         ...(autenticacion === "api-key" && clave ? { clave } : {}),
         ...(actual ? { version: actual.version } : {}),
@@ -80,7 +113,7 @@ function FormularioSuscripcion({
   );
   const enviar = (e: FormEvent) => {
     e.preventDefault();
-    if (!claveFalta && id) guardar.mutate(undefined);
+    if (!claveFalta && !sinEndpoint && id) guardar.mutate(undefined);
   };
   return (
     <Dialog abierto alCerrar={alCerrar} titulo={actual ? `Editar ${actual.nombre}` : "Nueva suscripción"} className="max-w-xl">
@@ -94,7 +127,7 @@ function FormularioSuscripcion({
               onChange={(e) => {
                 const p = e.target.value as Proveedor;
                 setProveedor(p);
-                if (p === "anthropic") setAutenticacion("api-key");
+                if (p !== "foundry") setAutenticacion("api-key");
               }}
               opciones={PROVEEDORES.map((p) => ({ valor: p, etiqueta: ETIQUETA_PROVEEDOR[p] }))}
             />
@@ -133,6 +166,36 @@ function FormularioSuscripcion({
             </Campo>
           </>
         ) : null}
+        {compatible ? (
+          <>
+            <Aviso tono="aviso">
+              Un proveedor compatible solo sirve a repositorios <b>abiertos</b>: no garantiza región ni retención. Los repositorios
+              restringidos e internos no lo pueden usar.
+            </Aviso>
+            <Campo etiqueta="Servicio" htmlFor="sus-servicio" ayuda={conocido ? conocido.nota : "Endpoints propios de la organización."}>
+              <Select
+                id="sus-servicio"
+                value={servicio}
+                onChange={(e) => setServicio(e.target.value)}
+                opciones={[
+                  ...servicios.map((x) => ({ valor: x.id, etiqueta: x.nombre })),
+                  { valor: PERSONALIZADO, etiqueta: "Personalizado (otro endpoint)" },
+                ]}
+              />
+            </Campo>
+            {propio ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Campo etiqueta="Endpoint de chat completions" htmlFor="sus-ep-chat" ayuda="URL base de la API de OpenAI, https://…/v1.">
+                  <Input id="sus-ep-chat" type="url" pattern="^https://.*" maxLength={512} value={epChat} onChange={(e) => setEpChat(e.target.value)} />
+                </Campo>
+                <Campo etiqueta="Endpoint de mensajes" htmlFor="sus-ep-msg" ayuda="URL base de la API de Anthropic. Basta con uno de los dos.">
+                  <Input id="sus-ep-msg" type="url" pattern="^https://.*" maxLength={512} value={epMensajes} onChange={(e) => setEpMensajes(e.target.value)} />
+                </Campo>
+              </div>
+            ) : null}
+            {sinEndpoint ? <p className="text-sm text-peligro">Escribe al menos un endpoint.</p> : null}
+          </>
+        ) : null}
         {autenticacion === "api-key" || !foundry ? (
           <Campo
             etiqueta="Clave"
@@ -164,7 +227,7 @@ function FormularioSuscripcion({
           <Button variante="secundario" onClick={alCerrar}>
             Cancelar
           </Button>
-          <Button type="submit" disabled={guardar.isPending || claveFalta || !id}>
+          <Button type="submit" disabled={guardar.isPending || claveFalta || sinEndpoint || !id}>
             {guardar.isPending ? "Guardando…" : "Guardar"}
           </Button>
         </div>
@@ -174,60 +237,124 @@ function FormularioSuscripcion({
 }
 
 function FormularioDespliegue({ org, s, alCerrar }: { org: string; s: Suscripcion; alCerrar: () => void }) {
+  const compatible = s.proveedor === "compatible";
   const [despliegue, setDespliegue] = useState("");
   const [modelo, setModelo] = useState("");
   const [sku, setSku] = useState("DataZoneStandard");
   const [contexto, setContexto] = useState("");
   const [structured, setStructured] = useState(true);
+  const [protocolo, setProtocolo] = useState<ProtocoloCompatible>(s.endpoint ? "openai-chat" : "anthropic-messages");
+  const [pEntrada, setPEntrada] = useState("");
+  const [pSalida, setPSalida] = useState("");
+  const [pCache, setPCache] = useState("");
+  // La tarifa va completa o no va: sin ella el costo del modelo cuenta 0 USD en los topes.
+  const hayPrecio = pEntrada.trim() !== "" || pSalida.trim() !== "" || pCache.trim() !== "";
+  const precioIncompleto = compatible && hayPrecio && (pEntrada.trim() === "" || pSalida.trim() === "");
+  const precio: PrecioModelo | null =
+    compatible && hayPrecio && !precioIncompleto
+      ? { entrada: Number(pEntrada), salida: Number(pSalida), ...(pCache.trim() !== "" ? { cache_lectura: Number(pCache) } : {}) }
+      : null;
   const declarar = useGuardar(
     () =>
-      suscripciones.declarar(org, s.id, {
-        modelo: modelo.trim(),
-        despliegue: despliegue.trim(),
-        sku: sku.trim(),
-        structured_outputs: structured,
-        contexto: numeroOpcional(contexto),
-        version: s.version,
-      }),
+      suscripciones.declarar(
+        org,
+        s.id,
+        compatible
+          ? {
+              modelo: modelo.trim(),
+              protocolo,
+              ...(precio ? { precio_usd_mtok: precio } : {}),
+              contexto: numeroOpcional(contexto),
+              version: s.version,
+            }
+          : {
+              modelo: modelo.trim(),
+              despliegue: despliegue.trim(),
+              sku: sku.trim(),
+              structured_outputs: structured,
+              contexto: numeroOpcional(contexto),
+              version: s.version,
+            },
+      ),
     [claves.suscripciones(org)],
     alCerrar,
   );
+  const hayEndpoint = (p: ProtocoloCompatible) => (p === "openai-chat" ? Boolean(s.endpoint) : Boolean(s.endpoint_mensajes));
+  const protocolosPosibles = PROTOCOLOS_COMPATIBLE.filter(hayEndpoint);
   return (
-    <Dialog abierto alCerrar={alCerrar} titulo="Declarar despliegue">
+    <Dialog abierto alCerrar={alCerrar} titulo={compatible ? "Declarar modelo" : "Declarar despliegue"}>
       <form
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          declarar.mutate(undefined);
+          if (!precioIncompleto) declarar.mutate(undefined);
         }}
       >
         <p className="text-sm text-suave">
-          Para un despliegue que la API de Foundry no lista. Queda elegido y disponible para los perfiles de {s.nombre}.
+          {compatible
+            ? `Para un modelo que ${s.nombre} no lista. Queda elegido y disponible para sus perfiles; la salida estructurada la emula Railspec.`
+            : `Para un despliegue que la API de Foundry no lista. Queda elegido y disponible para los perfiles de ${s.nombre}.`}
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Campo etiqueta="Despliegue" htmlFor="dep-nombre" ayuda="El nombre en Foundry.">
-            <Input id="dep-nombre" required maxLength={120} value={despliegue} onChange={(e) => setDespliegue(e.target.value)} />
-          </Campo>
-          <Campo etiqueta="Modelo" htmlFor="dep-modelo" ayuda="Id de catálogo, p. ej. claude-opus-5-5.">
-            <Input id="dep-modelo" required maxLength={120} value={modelo} onChange={(e) => setModelo(e.target.value)} />
-          </Campo>
-          <Campo etiqueta="SKU" htmlFor="dep-sku" ayuda="Define la región: DataZoneStandard, Standard, GlobalStandard…">
-            <Input id="dep-sku" required maxLength={60} pattern="[A-Za-z0-9]+" value={sku} onChange={(e) => setSku(e.target.value)} />
-          </Campo>
-          <Campo etiqueta="Contexto (tokens, opcional)" htmlFor="dep-ctx">
-            <Input id="dep-ctx" type="number" min={1} value={contexto} onChange={(e) => setContexto(e.target.value)} />
-          </Campo>
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={structured} onChange={(e) => setStructured(e.target.checked)} />
-          Admite salidas estructuradas
-        </label>
+        {compatible ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Campo etiqueta="Modelo" htmlFor="dep-modelo" ayuda="El id que espera la API, p. ej. MiniMax-M3.">
+              <Input id="dep-modelo" required maxLength={120} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+            </Campo>
+            <Campo etiqueta="Protocolo" htmlFor="dep-protocolo" ayuda="La API con la que se llama a este modelo.">
+              <Select
+                id="dep-protocolo"
+                value={protocolo}
+                onChange={(e) => setProtocolo(e.target.value as ProtocoloCompatible)}
+                opciones={protocolosPosibles.map((p) => ({ valor: p, etiqueta: ETIQUETA_PROTOCOLO[p] }))}
+              />
+            </Campo>
+            <Campo etiqueta="Contexto (tokens, opcional)" htmlFor="dep-ctx">
+              <Input id="dep-ctx" type="number" min={1} value={contexto} onChange={(e) => setContexto(e.target.value)} />
+            </Campo>
+            <div className="grid grid-cols-3 gap-2 sm:col-span-2">
+              <Campo etiqueta="USD/Mtok entrada" htmlFor="dep-p-entrada">
+                <Input id="dep-p-entrada" type="number" min={0} step="any" value={pEntrada} onChange={(e) => setPEntrada(e.target.value)} />
+              </Campo>
+              <Campo etiqueta="USD/Mtok salida" htmlFor="dep-p-salida">
+                <Input id="dep-p-salida" type="number" min={0} step="any" value={pSalida} onChange={(e) => setPSalida(e.target.value)} />
+              </Campo>
+              <Campo etiqueta="USD/Mtok caché (opc.)" htmlFor="dep-p-cache">
+                <Input id="dep-p-cache" type="number" min={0} step="any" value={pCache} onChange={(e) => setPCache(e.target.value)} />
+              </Campo>
+            </div>
+            {precioIncompleto ? <p className="text-sm text-peligro sm:col-span-2">La tarifa necesita al menos entrada y salida.</p> : null}
+            {!hayPrecio ? (
+              <p className="text-xs text-suave sm:col-span-2">Sin tarifa, el costo de este modelo cuenta 0 USD en los topes.</p>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Campo etiqueta="Despliegue" htmlFor="dep-nombre" ayuda="El nombre en Foundry.">
+                <Input id="dep-nombre" required maxLength={120} value={despliegue} onChange={(e) => setDespliegue(e.target.value)} />
+              </Campo>
+              <Campo etiqueta="Modelo" htmlFor="dep-modelo" ayuda="Id de catálogo, p. ej. claude-opus-5-5.">
+                <Input id="dep-modelo" required maxLength={120} value={modelo} onChange={(e) => setModelo(e.target.value)} />
+              </Campo>
+              <Campo etiqueta="SKU" htmlFor="dep-sku" ayuda="Define la región: DataZoneStandard, Standard, GlobalStandard…">
+                <Input id="dep-sku" required maxLength={60} pattern="[A-Za-z0-9]+" value={sku} onChange={(e) => setSku(e.target.value)} />
+              </Campo>
+              <Campo etiqueta="Contexto (tokens, opcional)" htmlFor="dep-ctx">
+                <Input id="dep-ctx" type="number" min={1} value={contexto} onChange={(e) => setContexto(e.target.value)} />
+              </Campo>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={structured} onChange={(e) => setStructured(e.target.checked)} />
+              Admite salidas estructuradas
+            </label>
+          </>
+        )}
         <ErrorGuardado error={declarar.error} />
         <div className="flex justify-end gap-2">
           <Button variante="secundario" onClick={alCerrar}>
             Cancelar
           </Button>
-          <Button type="submit" disabled={declarar.isPending}>
+          <Button type="submit" disabled={declarar.isPending || precioIncompleto}>
             {declarar.isPending ? "Guardando…" : "Declarar"}
           </Button>
         </div>
@@ -251,12 +378,13 @@ function ModelosDeSuscripcion({ org, s, editable }: { org: string; s: Suscripcio
   const retirar = useGuardar((m: ModeloSuscripcion) => suscripciones.retirar(org, s.id, m.clave, s.version), [claves.suscripciones(org)]);
   const alternar = (clave: string, marcado: boolean) => setElegidos((xs) => (marcado ? [...xs, clave] : xs.filter((x) => x !== clave)));
   const foundry = s.proveedor === "foundry";
+  const compatible = s.proveedor === "compatible";
   return (
     <div className="flex flex-col gap-2">
       {s.modelos.length === 0 ? (
         <p className="text-sm text-suave">
           Sin modelos todavía. {editable ? "Pulsa «Descubrir modelos»" : "Un admin. de organización puede descubrirlos"}
-          {foundry ? " o declara un despliegue a mano." : "."}
+          {foundry ? " o declara un despliegue a mano." : compatible ? " o declara un modelo a mano." : "."}
         </p>
       ) : (
         <Table>
@@ -265,7 +393,7 @@ function ModelosDeSuscripcion({ org, s, editable }: { org: string; s: Suscripcio
               <TableHead>Disponible</TableHead>
               <TableHead>{foundry ? "Despliegue" : "Modelo"}</TableHead>
               {foundry ? <TableHead>Modelo</TableHead> : null}
-              <TableHead>SKU / región</TableHead>
+              <TableHead>{compatible ? "Protocolo / tarifa" : "SKU / región"}</TableHead>
               <TableHead>Capacidades</TableHead>
               <TableHead className="text-right">Contexto</TableHead>
               <TableHead>
@@ -300,7 +428,18 @@ function ModelosDeSuscripcion({ org, s, editable }: { org: string; s: Suscripcio
                 </TableCell>
                 {foundry ? <TableCell className="font-mono text-xs">{m.modelo}</TableCell> : null}
                 <TableCell className="text-xs">
-                  {m.sku ?? "—"} · {m.region ?? "sin región"}{" "}
+                  {compatible ? (
+                    <>
+                      {m.protocolo ? ETIQUETA_PROTOCOLO[m.protocolo] : "—"} ·{" "}
+                      {m.precio_usd_mtok
+                        ? `${m.precio_usd_mtok.entrada}/${m.precio_usd_mtok.salida} USD/Mtok`
+                        : "sin tarifa"}
+                    </>
+                  ) : (
+                    <>
+                      {m.sku ?? "—"} · {m.region ?? "sin región"}
+                    </>
+                  )}{" "}
                   {m.restringible ? <Badge tono="exito">restringido/interno</Badge> : <Badge tono="neutro">solo abierto</Badge>}
                 </TableCell>
                 <TableCell className="text-xs">
@@ -330,9 +469,9 @@ function ModelosDeSuscripcion({ org, s, editable }: { org: string; s: Suscripcio
               {guardar.isPending ? "Guardando…" : "Guardar modelos disponibles"}
             </Button>
           ) : null}
-          {foundry ? (
+          {foundry || compatible ? (
             <Button tamano="pequeno" variante="secundario" onClick={() => setDeclarando(true)}>
-              Declarar despliegue
+              {compatible ? "Declarar modelo" : "Declarar despliegue"}
             </Button>
           ) : null}
         </div>
@@ -394,7 +533,9 @@ function TarjetaSuscripcion({
         ) : null}
       </div>
       <p className="text-xs text-suave">
+        {s.servicio ? `servicio ${s.servicio} · ` : ""}
         {s.endpoint ? `${s.endpoint} · ` : ""}
+        {s.endpoint_mensajes ? `${s.endpoint_mensajes} · ` : ""}
         {s.proyecto ? `proyecto ${s.proyecto} · ` : ""}
         {s.region ? `${s.region} · ` : ""}
         {s.zona_datos ? `zona ${s.zona_datos} · ` : ""}
@@ -421,7 +562,7 @@ function TarjetaSuscripcion({
   );
 }
 
-/** Suscripciones de modelos de la organización (Foundry y Anthropic): alta, descubrimiento y elección. */
+/** Suscripciones de modelos de la organización (Foundry, Anthropic y compatibles): alta, descubrimiento y elección. */
 export function Suscripciones({ org, editable }: { org: string; editable: boolean }) {
   const lista = useQuery({ queryKey: claves.suscripciones(org), queryFn: () => suscripciones.listar(org) });
   // Se guarda el id y no la suscripción: tras un 409 la lista se recarga y el formulario se abre con la versión vigente.
@@ -436,7 +577,7 @@ export function Suscripciones({ org, editable }: { org: string; editable: boolea
         <div>
           <CardTitle>Suscripciones de modelos</CardTitle>
           <CardDescription>
-            Conexiones de la organización a Foundry y a Anthropic. Descubre los modelos de cada una, elige los que quedan disponibles y
+            Conexiones de la organización a Foundry, a Anthropic y a servicios compatibles (OpenCode Zen, MiniMax…). Descubre los modelos de cada una, elige los que quedan disponibles y
             asocia los perfiles a una suscripción.
           </CardDescription>
         </div>
@@ -480,6 +621,7 @@ export function Suscripciones({ org, editable }: { org: string; editable: boolea
         <FormularioSuscripcion
           key={editando === CLAVE_NUEVA ? CLAVE_NUEVA : editando.version}
           org={org}
+          servicios={lista.data?.servicios_compatibles ?? []}
           {...(editando === CLAVE_NUEVA ? {} : { actual: editando })}
           alCerrar={() => setEditandoId(null)}
         />
