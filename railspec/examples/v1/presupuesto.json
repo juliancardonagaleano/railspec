@@ -19,10 +19,17 @@
   },
   "org": "acme",
   "por_fase": {},
+  "por_tier": {
+    "bajo": {
+      "costo_usd_max": 5.0,
+      "llamadas_max": 80
+    }
+  },
   "por_unidad": {
     "costo_usd_max": 25.0,
+    "llamadas_max": 400,
     "tokens_max": 2000000
   },
   "version": 1,
-  "version_contrato": "1.6"
+  "version_contrato": "1.7"
 }

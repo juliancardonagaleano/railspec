@@ -8,6 +8,7 @@ las unidades que ya existen, aunque no haya retrocompatibilidad de formato.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import Annotated
 
@@ -169,6 +170,16 @@ class NivelCodigo(StrEnum):
     abierto = "abierto"
 
 
+#: Cuanto menor, más restrictivo. Los niveles se combinan por el más restrictivo (``mas_restrictivo``).
+ORDEN_RESTRICCION = {NivelCodigo.restringido: 0, NivelCodigo.interno: 1, NivelCodigo.abierto: 2}
+
+
+def mas_restrictivo(niveles: Iterable[NivelCodigo]) -> NivelCodigo:
+    """El nivel que rige cuando se combinan varios repositorios; ``ValueError`` si no hay ninguno."""
+
+    return min(niveles, key=ORDEN_RESTRICCION.__getitem__)
+
+
 class RolRepositorio(StrEnum):
     primario = "primario"
     transversal = "transversal"
@@ -241,6 +252,14 @@ class Presupuesto(Contrato):
     tokens_max: int | None = Field(default=None, ge=1)
     segundos_max: int | None = Field(default=None, ge=1)
     costo_usd_max: float | None = Field(default=None, gt=0)
+    llamadas_max: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Desde 1.7: tope de llamadas al modelo. Cuenta las que salen hacia el proveedor (un "
+            "acierto de caché no cuenta) y, como los demás topes, escala al humano al alcanzarse."
+        ),
+    )
 
 
 class Criterio(Contrato):

@@ -15,14 +15,25 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 from railspec.contracts import esquemas
 from railspec.contracts.chat import MensajeChat, ReglaGate, VeredictoGateSalida
-from railspec.contracts.comun import Actor, TipoActor, verificar_texto_plano
+from railspec.contracts.comun import (
+    Actor,
+    NivelCodigo,
+    TipoActor,
+    mas_restrictivo,
+    verificar_texto_plano,
+)
 from railspec.contracts.estado import EstadoLocal, EstadoUnidad, ResultadoGate
 from railspec.contracts.eventos import EventoSync
 from railspec.contracts.insumo import Insumo
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.portabilidad import PaqueteUnidad
 from railspec.contracts.reporte import ReporteOrden
-from railspec.contracts.repositorio import AsignacionRol, RegistroAuditoria, VinculoRepositorio
+from railspec.contracts.repositorio import (
+    AsignacionRol,
+    PresupuestoConfig,
+    RegistroAuditoria,
+    VinculoRepositorio,
+)
 from railspec.contracts.snapshot import Snapshot, id_simbolo
 from railspec.contracts.tools import (
     MAX_COMMITS_CUBIERTOS,
@@ -300,6 +311,66 @@ def test_auditoria_de_llamada_a_modelo_completa() -> None:
     d = _dump(f.auditoria)
     d["region"] = None
     _rechaza(RegistroAuditoria, d, "region")
+
+
+def _auditoria(evento: str, **campos: Any) -> dict[str, Any]:
+    d = _dump(f.auditoria)
+    for c in ("repositorio", "nivel_codigo", "proveedor", "modelo", "region", "sha256_enviado"):
+        d[c] = None
+    d.update(evento=evento, unidad="0001-emitir-pdf", **campos)
+    return d
+
+
+def test_auditoria_de_rehabilitacion_y_cambio_de_modo() -> None:
+    humano = _dump(f.estado_unidad)["dueno"]
+    rehab = _auditoria("rehabilitacion-gate", actor=humano, gate="codigo")
+    TypeAdapter(RegistroAuditoria).validate_python(rehab)
+    cambio = _auditoria("cambio-modo", actor=humano, modo_anterior="interactivo", modo_nuevo="semi-autonomo")
+    TypeAdapter(RegistroAuditoria).validate_python(cambio)
+
+    _rechaza(RegistroAuditoria, {**rehab, "gate": None}, "necesita gate")
+    _rechaza(RegistroAuditoria, {**rehab, "actor": _dump(f.auditoria)["actor"]}, "exige un actor humano")
+    _rechaza(RegistroAuditoria, {**cambio, "modo_nuevo": None}, "necesita modo_nuevo")
+    _rechaza(RegistroAuditoria, {**cambio, "modo_nuevo": "interactivo"}, "cambia el modo")
+    _rechaza(RegistroAuditoria, {**cambio, "gate": "spec"}, "gate solo va con rehabilitacion-gate")
+    _rechaza(RegistroAuditoria, {**rehab, "modo_anterior": "interactivo"}, "solo van con cambio-modo")
+
+
+def test_nivel_congelado_de_la_unidad() -> None:
+    d = _dump(f.estado_unidad)
+    assert d["nivel_efectivo"] == "restringido"  # el más restrictivo de interno y restringido
+    d["nivel_efectivo"] = "interno"
+    _rechaza(EstadoUnidad, d, "más restrictivo")
+    d["nivel_efectivo"] = None
+    _rechaza(EstadoUnidad, d, "más restrictivo")
+    # Una unidad anterior a 1.7 no trae nivel en ningún repositorio.
+    for r in d["repositorios"]:
+        r["nivel_codigo"] = None
+    TypeAdapter(EstadoUnidad).validate_python(d)
+    d["repositorios"][0]["nivel_codigo"] = "abierto"
+    _rechaza(EstadoUnidad, d, "en todos los repositorios de la unidad o en ninguno")
+
+
+def test_mas_restrictivo() -> None:
+    assert mas_restrictivo([NivelCodigo.abierto, NivelCodigo.interno]) == NivelCodigo.interno
+    assert mas_restrictivo([NivelCodigo.abierto, NivelCodigo.restringido, NivelCodigo.interno]) == (
+        NivelCodigo.restringido
+    )
+    assert mas_restrictivo([NivelCodigo.abierto]) == NivelCodigo.abierto
+
+
+def test_topes_de_presupuesto_por_tier_y_llamadas() -> None:
+    p = _dump(f.presupuesto)
+    assert p["por_tier"]["bajo"]["llamadas_max"] == 80
+    p["por_tier"]["extremo"] = {"tokens_max": 1}
+    _rechaza(PresupuestoConfig, p, "extremo")
+    p = _dump(f.presupuesto)
+    p["por_unidad"]["llamadas_max"] = 0
+    _rechaza(PresupuestoConfig, p, "llamadas_max")
+    # Sin por_tier (configuración anterior a 1.7) sigue siendo válido.
+    p = _dump(f.presupuesto)
+    del p["por_tier"]
+    TypeAdapter(PresupuestoConfig).validate_python(p)
 
 
 # --- Chat, gate de salida e insumo (R6, R9, R10) ------------------------------------------

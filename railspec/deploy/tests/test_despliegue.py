@@ -939,7 +939,7 @@ def test_reindexar_declara_los_commits_cubiertos_en_cada_lote(tmp_path):
     servidor = ServidorDoble()
     assert _correr(raiz, c3, c1, servidor).aplicado
     assert [(c["version_contrato"], c["commits_cubiertos"]) for c in servidor.cuerpos] == [
-        ("1.6", [c3, c2])
+        ("1.7", [c3, c2])
     ] * 2
 
 
@@ -961,7 +961,7 @@ def test_un_servidor_14_que_rechaza_la_lista_recibe_el_indice_sin_ella(tmp_path,
     servidor = ServidorDoble([(422, rechazo)])
     assert _correr(raiz, c3, c1, servidor).aplicado
     primero, *resto = servidor.cuerpos
-    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.6"
+    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.7"
     assert resto and all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in resto)
     assert "sin cobertura" in capsys.readouterr().out
 

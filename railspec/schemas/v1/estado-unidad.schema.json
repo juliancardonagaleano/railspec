@@ -288,6 +288,13 @@
           "title": "Costo Usd",
           "type": "number"
         },
+        "llamadas": {
+          "default": 0,
+          "description": "Desde 1.7: llamadas al modelo que salieron al proveedor.",
+          "minimum": 0,
+          "title": "Llamadas",
+          "type": "integer"
+        },
         "segundos": {
           "default": 0,
           "minimum": 0,
@@ -619,6 +626,16 @@
       "title": "Modo",
       "type": "string"
     },
+    "NivelCodigo": {
+      "description": "Política de código propietario aprobada el 2026-09-30.",
+      "enum": [
+        "restringido",
+        "interno",
+        "abierto"
+      ],
+      "title": "NivelCodigo",
+      "type": "string"
+    },
     "OidcGithubActions": {
       "additionalProperties": false,
       "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
@@ -681,6 +698,20 @@
           ],
           "default": null,
           "title": "Costo Usd Max"
+        },
+        "llamadas_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.7: tope de llamadas al modelo. Cuenta las que salen hacia el proveedor (un acierto de caché no cuenta) y, como los demás topes, escala al humano al alcanzarse.",
+          "title": "Llamadas Max"
         },
         "segundos_max": {
           "anyOf": [
@@ -754,6 +785,18 @@
           "pattern": "^[0-9a-f]{40}$",
           "title": "Base Commit",
           "type": "string"
+        },
+        "nivel_codigo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NivelCodigo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.7: nivel de código del vínculo, fijado al crear la unidad y que no sigue a los cambios posteriores del vínculo. None = unidad anterior a 1.7: el nivel se lee del vínculo en cada uso, como hasta 1.6."
         },
         "rama": {
           "anyOf": [
@@ -1096,6 +1139,18 @@
       "title": "Modo Conversion",
       "type": "array"
     },
+    "nivel_efectivo": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NivelCodigo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.7: el más restrictivo de los niveles congelados de los repositorios de la unidad; rige su política de datos (modelos, gate multi-repo, lectores). None solo si ningún repositorio trae nivel (unidad anterior a 1.7)."
+    },
     "orden_vigente": {
       "anyOf": [
         {
@@ -1169,7 +1224,7 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.6",
+      "default": "1.7",
       "enum": [
         "1.0",
         "1.1",
@@ -1177,7 +1232,8 @@
         "1.3",
         "1.4",
         "1.5",
-        "1.6"
+        "1.6",
+        "1.7"
       ],
       "title": "Version Contrato",
       "type": "string"

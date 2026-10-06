@@ -9,9 +9,10 @@
   "arnes": "claude-code",
   "comando_validacion": "pytest",
   "consumo": {
-    "costo_usd": 0.0,
-    "segundos": 0,
-    "tokens": 0
+    "costo_usd": 1.37,
+    "llamadas": 18,
+    "segundos": 95,
+    "tokens": 84000
   },
   "creado_en": "2026-09-30T13:00:00Z",
   "depende_de": [],
@@ -46,19 +47,25 @@
   "modelo_ejecucion": [],
   "modo": "interactivo",
   "modo_conversion": [],
+  "nivel_efectivo": "restringido",
   "orden_vigente": "00000000-0000-4000-8000-000000000001",
   "pedido": "Quiero que los certificados se emitan en PDF firmado digitalmente.",
   "perfil": "estandar",
-  "presupuesto": {},
+  "presupuesto": {
+    "llamadas_max": 120,
+    "tokens_max": 500000
+  },
   "repositorios": [
     {
       "base_commit": "4063ae9000000000000000000000000000000000",
+      "nivel_codigo": "interno",
       "rama": "rs/0001",
       "repositorio": "certificados-api",
       "rol": "primario"
     },
     {
       "base_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "nivel_codigo": "restringido",
       "repositorio": "reporteria",
       "rol": "transversal"
     }
@@ -73,5 +80,5 @@
     "workspace": "certificados"
   },
   "version": 12,
-  "version_contrato": "1.6"
+  "version_contrato": "1.7"
 }

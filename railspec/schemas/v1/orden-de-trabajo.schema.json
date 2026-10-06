@@ -673,7 +673,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.6",
+          "default": "1.7",
           "enum": [
             "1.0",
             "1.1",
@@ -681,7 +681,8 @@
             "1.3",
             "1.4",
             "1.5",
-            "1.6"
+            "1.6",
+            "1.7"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -820,7 +821,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.6",
+          "default": "1.7",
           "enum": [
             "1.0",
             "1.1",
@@ -828,7 +829,8 @@
             "1.3",
             "1.4",
             "1.5",
-            "1.6"
+            "1.6",
+            "1.7"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -971,7 +973,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.6",
+          "default": "1.7",
           "enum": [
             "1.0",
             "1.1",
@@ -979,7 +981,8 @@
             "1.3",
             "1.4",
             "1.5",
-            "1.6"
+            "1.6",
+            "1.7"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1099,7 +1102,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.6",
+          "default": "1.7",
           "enum": [
             "1.0",
             "1.1",
@@ -1107,7 +1110,8 @@
             "1.3",
             "1.4",
             "1.5",
-            "1.6"
+            "1.6",
+            "1.7"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1143,6 +1147,20 @@
           ],
           "default": null,
           "title": "Costo Usd Max"
+        },
+        "llamadas_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.7: tope de llamadas al modelo. Cuenta las que salen hacia el proveedor (un acierto de caché no cuenta) y, como los demás topes, escala al humano al alcanzarse.",
+          "title": "Llamadas Max"
         },
         "segundos_max": {
           "anyOf": [

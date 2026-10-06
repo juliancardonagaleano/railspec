@@ -28,6 +28,7 @@ from .comun import (
     GateFase,
     GobernanzaConsultada,
     Modo,
+    NivelCodigo,
     Perfil,
     Presupuesto,
     Proveedor,
@@ -38,6 +39,7 @@ from .comun import (
     UnidadId,
     Veredicto,
     ids_unicos,
+    mas_restrictivo,
 )
 from .eventos import Direccion, EventoSync
 from .hallazgos import Hallazgo, bloqueantes
@@ -176,6 +178,14 @@ class RepositorioUnidad(Contrato):
     rol: RolRepositorio
     rama: str | None = Field(default=None, max_length=255)
     base_commit: Commit
+    nivel_codigo: NivelCodigo | None = Field(
+        default=None,
+        description=(
+            "Desde 1.7: nivel de código del vínculo, fijado al crear la unidad y que no sigue a los "
+            "cambios posteriores del vínculo. None = unidad anterior a 1.7: el nivel se lee del "
+            "vínculo en cada uso, como hasta 1.6."
+        ),
+    )
 
 
 class EjecucionModelo(Contrato):
@@ -216,6 +226,9 @@ class Consumo(Contrato):
     tokens: int = Field(default=0, ge=0)
     segundos: int = Field(default=0, ge=0)
     costo_usd: float = Field(default=0.0, ge=0)
+    llamadas: int = Field(
+        default=0, ge=0, description="Desde 1.7: llamadas al modelo que salieron al proveedor."
+    )
 
 
 class EstadoUnidad(Mensaje):
@@ -231,6 +244,14 @@ class EstadoUnidad(Mensaje):
     carril: str | None = Field(default=None, max_length=40)
     arnes: Arnes | None = Field(default=None, description="None si la unidad nació en la consola.")
     repositorios: list[RepositorioUnidad] = Field(min_length=1)
+    nivel_efectivo: NivelCodigo | None = Field(
+        default=None,
+        description=(
+            "Desde 1.7: el más restrictivo de los niveles congelados de los repositorios de la unidad; "
+            "rige su política de datos (modelos, gate multi-repo, lectores). None solo si ningún "
+            "repositorio trae nivel (unidad anterior a 1.7)."
+        ),
+    )
     fase: Fase
     estado: EstadoFase
     modo: Modo
@@ -261,6 +282,12 @@ class EstadoUnidad(Mensaje):
         _exigir_humano(self.dueno, "ser dueño de una unidad")
         if not any(r.rol == RolRepositorio.primario for r in self.repositorios):
             raise ValueError("una unidad necesita al menos un repositorio primario")
+        niveles = [r.nivel_codigo for r in self.repositorios]
+        if any(n is None for n in niveles):
+            if any(n is not None for n in niveles) or self.nivel_efectivo is not None:
+                raise ValueError("el nivel se congela en todos los repositorios de la unidad o en ninguno")
+        elif self.nivel_efectivo != mas_restrictivo(n for n in niveles if n is not None):
+            raise ValueError("nivel_efectivo debe ser el más restrictivo de los repositorios")
         if self.actualizado_en < self.creado_en:
             raise ValueError("actualizado_en anterior a creado_en")
         if self.unidad.unidad in self.depende_de:
