@@ -2,13 +2,14 @@
 //
 // Reglas de conducta de Railspec aplicadas en OpenCode. Cada decisión la toma
 // `railspec hook opencode` (la misma guardia que el hook de Claude Code):
-// - tool.execute.before: rechaza escrituras fuera de la orden vigente de la unidad.
+// - tool.execute.before: rechaza escrituras fuera de la orden vigente de la unidad, también las que
+//   hace `bash` por `sed -i`, una redirección `>` sobre un archivo existente o código inline.
 // - config: abre la carpeta de worktrees de las unidades en permission.external_directory
 //   al arrancar (la ruta es de cada máquina, así que no puede ir en opencode.json).
 //   El hook permission.ask no se invoca en OpenCode 1.18, por eso se usa config.
 // Salida de emergencia: RAILSPEC_GUARDIA=0 en el entorno de OpenCode.
 
-const ESCRITURAS = new Set(["edit", "write", "multiedit", "patch", "apply_patch"])
+const ESCRITURAS = new Set(["edit", "write", "multiedit", "patch", "apply_patch", "bash"])
 
 const apagada = () => ["0", "no", "false", "off"].includes((process.env.RAILSPEC_GUARDIA ?? "").trim().toLowerCase())
 

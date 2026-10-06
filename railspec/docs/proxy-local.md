@@ -457,6 +457,7 @@ Con una unidad en curso en el repositorio:
 | Escribir `spec.md`, `plan.md` o `tasks.md` de la unidad | Solo con la orden de redactar o refinar que pide ese artefacto |
 | Escribir en `.railspec/` del worktree (estado del proxy) | Rechazada siempre |
 | Escribir sin orden vigente | Rechazada: primero `unit_advance` |
+| Un comando de shell que escribe un archivo por uno de los tres patrones (ver «Guardia de Bash») | Se juzga el archivo como si lo escribiera `Edit`: dentro del alcance pasa, fuera se rechaza |
 | Escribir en el worktree de una unidad cerrada | Rechazada |
 | `unit_approve`, `unit_set_mode`, `unit_integrate` | Pide confirmación al humano (Claude Code, Copilot); en Codex, ver abajo |
 | Cualquier otra cosa, o sin unidades en curso | La guardia no opina; decide el arnés |
@@ -470,7 +471,7 @@ conducta piden al agente no esquivar un rechazo (tampoco con la shell).
 
 **Claude Code.** `instalar` añade a `hooks.PreToolUse` de
 `.claude/settings.json` una entrada con `matcher`
-`Write|Edit|MultiEdit|NotebookEdit|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
+`Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
 y el comando `railspec hook claude-code`. La entrada propia se reconoce por el
 comando: reinstalar la reemplaza y `desinstalar` la quita sin tocar los hooks
 ajenos. El hook responde `permissionDecision: deny` con el motivo, que el
@@ -482,8 +483,8 @@ aunque alguien haya puesto la tool en `allow` o la sesión corra con
 carga al arrancar:
 
 - `tool.execute.before` envía a la guardia las llamadas a `edit`, `write`,
-  `multiedit`, `patch` y `apply_patch` (de un parche se revisan todas las
-  rutas) y lanza un error con el motivo si las rechaza.
+  `multiedit`, `patch`, `apply_patch` (de un parche se revisan todas las
+  rutas) y `bash` y lanza un error con el motivo si las rechaza.
 - `config` añade `permission.external_directory["<carpeta de worktrees>/**"] =
   "allow"`. La ruta es de cada máquina y no puede versionarse en
   `opencode.json`; el plugin la calcula al arrancar (respeta
@@ -493,9 +494,9 @@ carga al arrancar:
 
 **Codex.** `instalar` añade a `hooks.PreToolUse` de `.codex/hooks.json` (mismo
 formato de archivo que los hooks de Claude Code) una entrada con `matcher`
-`apply_patch|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
+`apply_patch|Bash|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
 y el comando `railspec hook codex`. `apply_patch` es la única tool de edición
-de Codex (de un parche se revisan todas las rutas). La entrada propia se
+de Codex (de un parche se revisan todas las rutas) y `Bash` pasa por la guardia de Bash. La entrada propia se
 reconoce por el comando, como en Claude Code. Tres cosas lo distinguen:
 
 - **El hook tiene que estar confiado.** Codex no ejecuta un hook de proyecto
@@ -524,7 +525,7 @@ reconoce por el comando, como en Claude Code. Tres cosas lo distinguen:
 Copilot carga todos los `*.json` de esa carpeta, así que es un archivo solo de
 Railspec y los hooks ajenos no se tocan. Contiene un `preToolUse` con
 `"bash"` y `"powershell"` = `railspec hook copilot`, `timeoutSec` 30 y `matcher`
-`create|edit|apply_patch|railspec-unit_approve|railspec-unit_set_mode|railspec-unit_integrate`:
+`create|edit|apply_patch|bash|railspec-unit_approve|railspec-unit_set_mode|railspec-unit_integrate`:
 Copilot edita con `create` y `edit` o, con los modelos GPT-5 de código, con
 `apply_patch` (el parche llega como texto), y nombra las tools MCP
 `<servidor>-<tool>`. El hook responde `permissionDecision` `deny` o `ask` con el
@@ -535,13 +536,44 @@ confirmation»). Si el hook falla Copilot rechaza la tool; si agota el tiempo,
 la deja pasar. Solo corre en carpetas de confianza (también en `-p`); en una
 carpeta sin confianza no hay guardia.
 
-**Lo que no se aplica.** Los comandos de shell (`Bash` en Claude Code y Codex,
-`bash` en OpenCode y Copilot) no se revisan: no hay forma fiable de saber qué escribe un
-comando. Ahí siguen rigiendo solo las reglas escritas, y el proxy rechaza al
-reportar los archivos fuera de alcance (`unit_report` con un cambio fuera de
-`alcance.permitidos` falla). En OpenCode, un `tool.execute.before` no puede
+**Guardia de Bash.** Los comandos de shell (`Bash` en Claude Code y Codex, `bash` en
+OpenCode y Copilot) pasan por la guardia, pero solo por los tres patrones que ya
+bloqueaba el kit viejo (`.spec/scripts/guard_bash_spec_writes.py`): no hay forma
+fiable de saber qué escribe un comando cualquiera. Cada patrón saca de la orden los
+archivos que toca, y esos archivos se juzgan como si los escribiera `Edit` (clon
+principal con unidad en curso, alcance de la orden, `.railspec/`): lo que `Edit`
+podría escribir pasa, lo demás se rechaza con el patrón, el archivo y el motivo. Un
+`sed -i` sobre un archivo del alcance, por ejemplo, no se bloquea.
+
+| Patrón | Casa con | No casa con |
+|---|---|---|
+| 1 | `sed -i` o `sed --in-place`, con o sin sufijo, sobre un archivo | `sed` sin `-i`; el guion y las redirecciones no cuentan como archivos |
+| 2 | Una redirección que trunca (`>`, `>|`, `&>`, `2>`) hacia un archivo que **ya existe** | `>>`, un archivo nuevo, `2>&1` |
+| 3 | Código inline (`-c`, `-e`, heredoc o `<<<`) a `python`, `python3`, `bash`, `sh`, `zsh`, `node` o `perl` que nombra un archivo (una ruta absoluta, relativa explícita o con extensión; un nombre suelto solo si existe) | Un script (`python3 script.py`); `awk`, `ruby` y cualquier intérprete fuera de esa lista cerrada |
+
+El análisis sigue los comandos encadenados (`&&`, `;`, `|`, subshells, `$(...)`,
+comillas invertidas), los prefijos (`sudo`, `env`, `VAR=1`), el nombre con ruta o
+versión (`/usr/bin/python3.12`) y los `cd` literales de la propia orden, que cambian
+contra qué carpeta se resuelven las rutas relativas. No cubre la mayoría de lo que
+puede escribir una shell: `tee`, `cp`, `mv`, `dd`, `git checkout`, `find -exec`,
+`xargs`, un script versionado o una redirección que crea el archivo. Un comando que
+solo *nombra* un archivo en código inline se rechaza aunque lo lea, igual que en el
+kit viejo. Ante un error de la propia guardia la shell **falla abierta** (avisa por
+`stderr` y deja decidir al arnés): a diferencia de una edición, un fallo no puede dejar
+al agente sin shell. En lo demás siguen rigiendo las reglas escritas, y el proxy
+rechaza al reportar los archivos fuera de alcance (`unit_report` con un cambio fuera
+de `alcance.permitidos` falla).
+
+**Lo que no se aplica.** En OpenCode, un `tool.execute.before` no puede
 pedir confirmación; las tres tools humanas preguntan por
 `permission.railspec_<tool>: "ask"`. En Codex, tampoco: ver arriba.
+
+**La guardia de Bash no se ha probado en los arneses reales.** Sus pruebas
+(`test_local_guardia_bash.py`) llaman a `railspec hook <arnés>` con la entrada de cada
+arnés, pero el `matcher` con `Bash`/`bash` y el campo `command` de Codex, Copilot y
+OpenCode se dedujeron de las demás tools, no de una corrida real: falta repetir la
+verificación de abajo con un `sed -i` fuera del alcance. Al cambiar el hook, Codex pide
+confiarlo otra vez (`/hooks`).
 
 **Verificado de verdad** (2026-10-01) con una unidad en curso creada por el
 proxy contra el servidor doble de las pruebas:

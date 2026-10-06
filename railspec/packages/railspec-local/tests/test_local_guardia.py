@@ -396,15 +396,16 @@ def test_matchers_cubren_las_tools_de_cada_arnes():
 
     codex = adaptadores.HOOK_CODEX["matcher"]
     assert re.fullmatch(codex, "apply_patch")
+    assert re.fullmatch(codex, "Bash")
     assert all(re.fullmatch(codex, f"mcp__railspec__{t}") for t in guardia.TOOLS_HUMANAS)
-    assert not any(re.fullmatch(codex, t) for t in ("Bash", "mcp__railspec__unit_advance", "view_image"))
+    assert not any(re.fullmatch(codex, t) for t in ("mcp__railspec__unit_advance", "view_image"))
     assert adaptadores.HOOK_CODEX["hooks"][0]["command"] == "railspec hook codex"
 
     entrada = adaptadores.HOOK_COPILOT["hooks"]["preToolUse"][0]
     copilot = entrada["matcher"]
-    assert all(re.fullmatch(copilot, t) for t in ("create", "edit", "apply_patch"))
+    assert all(re.fullmatch(copilot, t) for t in ("create", "edit", "apply_patch", "bash"))
     assert all(re.fullmatch(copilot, f"railspec-{t}") for t in guardia.TOOLS_HUMANAS)
-    assert not any(re.fullmatch(copilot, t) for t in ("bash", "view", "grep", "railspec-unit_advance"))
+    assert not any(re.fullmatch(copilot, t) for t in ("view", "grep", "railspec-unit_advance"))
     # Windows y el resto de plataformas llaman al mismo comando.
     assert entrada["bash"] == entrada["powershell"] == "railspec hook copilot"
 
