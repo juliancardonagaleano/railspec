@@ -8,7 +8,13 @@ from typing import Any
 from railspec.contracts.comun import Proveedor
 
 from .config import Configuracion, validar_arranque
-from .estado import CheckpointsMongo, almacen_desde_postgres, almacen_desde_uri, almacen_en_memoria
+from .estado import (
+    CheckpointsMongo,
+    almacen_desde_postgres,
+    almacen_desde_uri,
+    almacen_en_memoria,
+    asegurar_esquema,
+)
 from .motor import Motor, Nucleo
 from .motor.gobernanza import ProveedorGobernanza
 from .proveedores import Proveedores
@@ -58,6 +64,9 @@ def ensamblar(
         almacen = almacen_desde_postgres(config.postgres_url, config.postgres_esquema)
     else:
         almacen = almacen_desde_uri(config.mongo_uri, config.mongo_db)
+    # Un retroceso de despliegue sobre un estado más nuevo no arranca (EsquemaIncompatible).
+    esquema = asegurar_esquema(almacen.db)
+    log.info("esquema del estado: versión %d", esquema.almacenada)
     from .proveedores.suscripciones import ServicioSuscripciones
 
     datos_consola = AlmacenConsola(almacen.db)
@@ -169,7 +178,28 @@ def ensamblar(
         abierto=config.modo_memoria,
     )
     montar_consola(app, consola)
+    if config.consola.carpeta_spa is not None:
+        _redirigir_raiz(app)
+    if config.metricas_token:
+        from .metricas import montar_metricas
+
+        montar_metricas(
+            app, token=config.metricas_token, version_app=app.version, esquema=esquema, sondas=sondas
+        )
     return motor, app
+
+
+def _redirigir_raiz(app: Any) -> None:
+    """``/`` no es ninguna superficie: sin esto responde Not Found a quien abre el dominio."""
+
+    from fastapi.responses import RedirectResponse
+
+    from .consola.api import RUTA_SPA
+
+    @app.get("/", include_in_schema=False)
+    async def _raiz() -> RedirectResponse:
+        # Temporal (no 308): el destino de la raíz puede cambiar.
+        return RedirectResponse(RUTA_SPA + "/", status_code=307)
 
 
 def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dict[str, Any]:

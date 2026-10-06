@@ -285,6 +285,27 @@ mientras el proceso atiende) y disponibilidad en `GET /healthz` (503 si Mongo
 o FalkorDB no responden), así una caída de la base saca la réplica del
 Service sin reiniciarla.
 
+La raíz `/` redirige (307) a `/consola/` cuando el servidor sirve la SPA
+(`RAILSPEC_CONSOLA_DIR`); sin SPA no hay a dónde redirigir y responde 404.
+
+### Esquema del estado y métricas
+
+Al arrancar, el servidor deja la versión del esquema del estado en la colección
+`meta_esquema` (`estado/esquema.py`). Con una base vacía escribe la suya; con una
+versión menor aplica las migraciones registradas, en orden y de forma
+idempotente; con una **mayor** no arranca (`EsquemaIncompatible`): un retroceso
+de despliegue no debe escribir sobre un estado que no entiende. Cambiar la forma
+de lo guardado de modo que el código anterior no lo lea exige subir
+`VERSION_ESQUEMA` y registrar su migración en `MIGRACIONES`.
+
+`GET /metrics` (texto de Prometheus) solo existe si defines
+`RAILSPEC_METRICAS_TOKEN` (16 caracteres o más) y exige
+`Authorization: Bearer <token>`. Publica la versión del servidor, la versión del
+esquema del código y la guardada (`railspec_estado_esquema{origen}`), el estado
+de cada sonda (`railspec_sonda_ok{sonda}`), las peticiones por superficie y
+clase de estado y el instante de arranque. Los contadores son de cada réplica:
+Prometheus los suma.
+
 ## Reindexado del canónico
 
 `railspec-reindexar.yml` corre en cada push a `master` si la variable
