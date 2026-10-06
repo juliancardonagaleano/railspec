@@ -24,6 +24,7 @@ from .comun import (
     Effort,
     Fase,
     GateFase,
+    Modo,
     NivelCodigo,
     Perfil,
     Presupuesto,
@@ -322,6 +323,14 @@ class PresupuestoConfig(EntidadConfiguracion):
     workspace: Slug | None = None
     por_unidad: Presupuesto
     por_fase: dict[Fase, Presupuesto] = Field(default_factory=dict)
+    por_tier: dict[Riesgo, Presupuesto] = Field(
+        default_factory=dict,
+        description=(
+            "Desde 1.7: tope de cada unidad según su riesgo (el tier). Rige como ``por_unidad``: por "
+            "cada tope, el efectivo es el menor de los dos. Sin entrada para un riesgo, solo rige "
+            "``por_unidad``."
+        ),
+    )
     mensual_usd: float | None = Field(default=None, gt=0)
 
 
@@ -410,6 +419,7 @@ class EventoAuditoria(StrEnum):
     desvinculo_repositorio = "desvinculo-repositorio"
     bloqueo_gate_salida = "bloqueo-gate-salida"
     importacion = "importacion"  # desde 1.4: unit.import
+    cambio_modo = "cambio-modo"  # desde 1.7: unit.set_mode
 
 
 class RegistroAuditoria(Mensaje):
@@ -433,6 +443,11 @@ class RegistroAuditoria(Mensaje):
     artefactos_importados: int | None = Field(
         default=None, ge=0, le=3, description="Desde 1.4: artefactos aprobados por importación."
     )
+    gate: GateFase | None = Field(
+        default=None, description="Desde 1.7: gate que rehabilitó el evento rehabilitacion-gate."
+    )
+    modo_anterior: Modo | None = Field(default=None, description="Desde 1.7: evento cambio-modo.")
+    modo_nuevo: Modo | None = Field(default=None, description="Desde 1.7: evento cambio-modo.")
 
     @model_validator(mode="after")
     def _llamada(self) -> RegistroAuditoria:
@@ -449,6 +464,21 @@ class RegistroAuditoria(Mensaje):
                 raise ValueError("importacion exige un actor humano")
         elif self.origen_importacion is not None or self.artefactos_importados is not None:
             raise ValueError("origen_importacion y artefactos_importados solo van con importacion")
+        rehabilitacion = self.evento == EventoAuditoria.rehabilitacion_gate
+        cambio_modo = self.evento == EventoAuditoria.cambio_modo
+        if rehabilitacion or cambio_modo:
+            exigidos = ("unidad", "gate") if rehabilitacion else ("unidad", "modo_anterior", "modo_nuevo")
+            faltan = [c for c in exigidos if getattr(self, c) is None]
+            if faltan:
+                raise ValueError(f"{self.evento.value} necesita {', '.join(faltan)}")
+            if self.actor.tipo != TipoActor.humano:
+                raise ValueError(f"{self.evento.value} exige un actor humano")
+        if not rehabilitacion and self.gate is not None:
+            raise ValueError("gate solo va con rehabilitacion-gate")
+        if not cambio_modo and (self.modo_anterior is not None or self.modo_nuevo is not None):
+            raise ValueError("modo_anterior y modo_nuevo solo van con cambio-modo")
+        if cambio_modo and self.modo_anterior == self.modo_nuevo:
+            raise ValueError("un cambio de modo cambia el modo")
         if self.evento in (EventoAuditoria.llamada_modelo, EventoAuditoria.lectura_codigo):
             faltan = [
                 c for c in ("repositorio", "nivel_codigo", "sha256_enviado") if getattr(self, c) is None

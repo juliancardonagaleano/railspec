@@ -51,6 +51,7 @@ from railspec.contracts.comun import (
     Veredicto,
 )
 from railspec.contracts.estado import (
+    Consumo,
     EstadoLocal,
     EstadoUnidad,
     RepositorioUnidad,
@@ -240,10 +241,20 @@ def estado_unidad() -> EstadoUnidad:
         arnes=Arnes.claude_code,
         repositorios=[
             RepositorioUnidad(
-                repositorio="certificados-api", rol=RolRepositorio.primario, rama="rs/0001", base_commit=BASE
+                repositorio="certificados-api",
+                rol=RolRepositorio.primario,
+                rama="rs/0001",
+                base_commit=BASE,
+                nivel_codigo=NivelCodigo.interno,
             ),
-            RepositorioUnidad(repositorio="reporteria", rol=RolRepositorio.transversal, base_commit="b" * 40),
+            RepositorioUnidad(
+                repositorio="reporteria",
+                rol=RolRepositorio.transversal,
+                base_commit="b" * 40,
+                nivel_codigo=NivelCodigo.restringido,
+            ),
         ],
+        nivel_efectivo=NivelCodigo.restringido,
         fase=Fase.implement,
         estado=EstadoFase.en_progreso,
         modo=Modo.interactivo,
@@ -263,6 +274,8 @@ def estado_unidad() -> EstadoUnidad:
         },
         orden_vigente=uid(1),
         secuencia_ordenes=4,
+        presupuesto=Presupuesto(tokens_max=500_000, llamadas_max=120),
+        consumo=Consumo(tokens=84_000, segundos=95, costo_usd=1.37, llamadas=18),
         creado_en=T0 - timedelta(hours=5),
         actualizado_en=T0,
         actualizado_por=SERVIDOR,
@@ -486,7 +499,8 @@ def presupuesto() -> PresupuestoConfig:
         version=1,
         auditoria=AUDITORIA,
         org="acme",
-        por_unidad=Presupuesto(tokens_max=2_000_000, costo_usd_max=25.0),
+        por_unidad=Presupuesto(tokens_max=2_000_000, costo_usd_max=25.0, llamadas_max=400),
+        por_tier={Riesgo.bajo: Presupuesto(costo_usd_max=5.0, llamadas_max=80)},
     )
 
 

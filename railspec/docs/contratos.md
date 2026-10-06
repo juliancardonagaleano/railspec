@@ -156,6 +156,25 @@ su prueba negativa.
   `supervisado` y `desatendido` no se importan. Es idempotente por
   workspace, repositorio primario y origen, y responde `ya_existia`.
   `unit.export` devuelve el paquete con origen `railspec`.
+- **Topes, nivel congelado y auditoría (1.7).** Todo es opcional y un
+  mensaje 1.6 sigue siendo válido.
+  - `Presupuesto.llamadas_max` topa las llamadas al modelo que salen hacia el
+    proveedor (un acierto de caché no cuenta); `Consumo.llamadas` es su
+    contador. `PresupuestoConfig.por_tier` da un `Presupuesto` por riesgo
+    (`bajo`, `medio`, `alto`): rige junto a `por_unidad` y, por cada tope, el
+    efectivo es el menor de los dos. Los topes siguen escalando al humano al
+    alcanzarse.
+  - `RepositorioUnidad.nivel_codigo` congela el nivel del vínculo al crear la
+    unidad y `EstadoUnidad.nivel_efectivo` es el más restrictivo de ellos
+    (`restringido` < `interno` < `abierto`, helper `mas_restrictivo`). El
+    contrato exige que se congelen en todos los repositorios o en ninguno y que
+    `nivel_efectivo` coincida; fijarlo al crear y aplicarlo (modelos del gate,
+    qué ve cada lector) es del servidor. Sin nivel (unidad anterior a 1.7) el
+    servidor lo lee del vínculo en cada uso, como hasta 1.6.
+  - `RegistroAuditoria` gana el evento `cambio-modo` (`unit.set_mode`:
+    `modo_anterior` y `modo_nuevo`, distintos) y exige para `rehabilitacion-gate`
+    el `gate` rehabilitado. Ambos piden `unidad` y un actor humano. El servidor
+    todavía no los escribe; el contrato los deja listos.
 - **Embeddings.** Son opcionales en el delta y en la búsqueda. Si el proxy
   no tiene codificador local, sube el delta sin embeddings y busca sin
   `vector_b64`; los símbolos sin vector solo se encuentran por texto en la superposición
@@ -174,7 +193,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.6`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.7`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -202,7 +221,11 @@ su prueba negativa.
   `graph.index` no cambia. Sin el campo (clientes 1.4) rige la regla de 1.4;
   `1.6` añade la entidad `SuscripcionModelo` (colección `suscripciones`: conexiones de la
   organización a Foundry o Anthropic con sus modelos descubiertos y elegidos, sin la clave) y
-  `PerfilConfig.suscripcion` opcional. Sin ella el perfil se resuelve como en 1.5.
+  `PerfilConfig.suscripcion` opcional. Sin ella el perfil se resuelve como en 1.5;
+  `1.7` añade `Presupuesto.llamadas_max`, `Consumo.llamadas`, `PresupuestoConfig.por_tier`,
+  el nivel congelado (`RepositorioUnidad.nivel_codigo`, `EstadoUnidad.nivel_efectivo`) y,
+  en el registro de auditoría, el evento `cambio-modo` con `gate`, `modo_anterior` y
+  `modo_nuevo`. Sin ellos rige lo de 1.6.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

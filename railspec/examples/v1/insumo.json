@@ -54,7 +54,7 @@
   "restricciones": [
     "No cambiar el formato del número de certificado."
   ],
-  "sha256": "bff117cb86a00010d27401b1a5f79d4f7095e8f9dafc6c996ddccd3cb4c7f143",
+  "sha256": "ac43da52168e48f6c59c22e6ad61b30ff59fdcd9f517bb0f9fee6be9e3c7b63c",
   "veredicto_gate": {
     "evaluado_en": "2026-09-30T18:00:00Z",
     "permitido": true,
@@ -104,5 +104,5 @@
     ],
     "version_gate": "1.0.0"
   },
-  "version_contrato": "1.6"
+  "version_contrato": "1.7"
 }
