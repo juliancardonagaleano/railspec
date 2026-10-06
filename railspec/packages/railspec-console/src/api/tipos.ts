@@ -28,7 +28,7 @@ export type Perfil = (typeof PERFILES)[number];
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
-export const PROVEEDORES = ["foundry", "anthropic"] as const;
+export const PROVEEDORES = ["foundry", "anthropic", "compatible"] as const;
 export type Proveedor = (typeof PROVEEDORES)[number];
 
 export type Canal = "arnes" | "consola" | "ci" | "servidor";
@@ -646,7 +646,7 @@ export interface ModeloCatalogo {
   proveedor: Proveedor;
   modelo: string;
   despliegue?: string | null;
-  hosting: "azure" | "anthropic";
+  hosting: "azure" | "anthropic" | "externo";
   region?: string | null;
   capacidades: {
     efforts?: Effort[];
@@ -803,6 +803,25 @@ export interface EscrituraProveedorContexto {
 export const AUTENTICACIONES = ["api-key", "identidad-servidor"] as const;
 export type Autenticacion = (typeof AUTENTICACIONES)[number];
 
+export const PROTOCOLOS_COMPATIBLE = ["anthropic-messages", "openai-chat"] as const;
+export type ProtocoloCompatible = (typeof PROTOCOLOS_COMPATIBLE)[number];
+
+/** Tarifa en USD por millón de tokens (1.8). */
+export interface PrecioModelo {
+  entrada: number;
+  salida: number;
+  cache_lectura?: number;
+}
+
+/** Un servicio conocido de proveedores compatibles: el servidor fija sus endpoints. */
+export interface ServicioCompatible {
+  id: string;
+  nombre: string;
+  endpoint: string | null;
+  endpoint_mensajes: string | null;
+  nota: string;
+}
+
 export interface ModeloSuscripcion {
   modelo: string;
   despliegue?: string | null;
@@ -816,9 +835,12 @@ export interface ModeloSuscripcion {
   visto_en?: string | null;
   /** Despliegue o id del modelo: lo que se elige en un perfil. */
   clave: string;
-  hosting: "azure" | "anthropic";
+  hosting: "azure" | "anthropic" | "externo";
   /** Puede servir a restringido/interno (Azure y con región conocida que no sea global). */
   restringible: boolean;
+  /** Solo compatibles (1.8): la API que habla el modelo y su tarifa si se declaró. */
+  protocolo?: ProtocoloCompatible | null;
+  precio_usd_mtok?: PrecioModelo | null;
 }
 
 export interface LecturaSuscripcion {
@@ -837,6 +859,10 @@ export interface Suscripcion {
   nombre: string;
   proveedor: Proveedor;
   endpoint?: string | null;
+  /** Solo compatibles (1.8): URL base de la API de mensajes de Anthropic. */
+  endpoint_mensajes?: string | null;
+  /** Solo compatibles (1.8): id del servicio conocido; sin él, los endpoints son propios. */
+  servicio?: string | null;
   proyecto?: string | null;
   region?: string | null;
   zona_datos?: string | null;
@@ -853,6 +879,7 @@ export interface Suscripcion {
 
 export interface ListaSuscripciones {
   cifrado: { disponible: boolean; variable: string };
+  servicios_compatibles?: ServicioCompatible[];
   suscripciones: Suscripcion[];
 }
 
@@ -861,6 +888,8 @@ export interface EscrituraSuscripcion {
   nombre: string;
   autenticacion: Autenticacion;
   endpoint?: string | null;
+  endpoint_mensajes?: string | null;
+  servicio?: string | null;
   proyecto?: string | null;
   region?: string | null;
   zona_datos?: string | null;
@@ -872,8 +901,12 @@ export interface EscrituraSuscripcion {
 
 export interface DeclaracionModelo {
   modelo: string;
-  despliegue: string;
-  sku: string;
+  /** Foundry: nombre del despliegue y su SKU. */
+  despliegue?: string;
+  sku?: string;
+  /** Compatibles (1.8): la API que habla el modelo y, si se sabe, su tarifa. */
+  protocolo?: ProtocoloCompatible;
+  precio_usd_mtok?: PrecioModelo | null;
   structured_outputs?: boolean | null;
   contexto?: number | null;
   version: number;

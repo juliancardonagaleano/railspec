@@ -1,7 +1,14 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EscrituraPerfil, ListaSuscripciones, ModeloSuscripcion, PerfilConfig, Suscripcion } from "../../api/tipos";
+import type {
+  EscrituraPerfil,
+  ListaSuscripciones,
+  ModeloSuscripcion,
+  PerfilConfig,
+  ServicioCompatible,
+  Suscripcion,
+} from "../../api/tipos";
 import { auditoria, json, montarConQuery, perfilConfig, servidorFalso } from "../../pruebas/servidor";
 import { EditorPerfil } from "./EditorPerfil";
 import { idDesdeNombre, Suscripciones } from "./Suscripciones";
@@ -50,6 +57,46 @@ const lista = (ss: Suscripcion[], disponible = true): ListaSuscripciones => ({
   cifrado: { disponible, variable: "RAILSPEC_CLAVE_MAESTRA" },
   suscripciones: ss,
 });
+
+const SERVICIOS: ServicioCompatible[] = [
+  {
+    id: "minimax",
+    nombre: "MiniMax",
+    endpoint: "https://api.minimax.io/v1",
+    endpoint_mensajes: "https://api.minimax.io/anthropic",
+    nota: "Sus términos permiten usar entradas y salidas para mejorar el servicio. Solo abiertos.",
+  },
+];
+
+const listaCompatibles = (ss: Suscripcion[]): ListaSuscripciones => ({ ...lista(ss), servicios_compatibles: SERVICIOS });
+
+const minimax = (o: Partial<Suscripcion> = {}): Suscripcion =>
+  suscripcion({
+    id: "minimax",
+    nombre: "MiniMax",
+    proveedor: "compatible",
+    servicio: "minimax",
+    endpoint: "https://api.minimax.io/v1",
+    endpoint_mensajes: "https://api.minimax.io/anthropic",
+    proyecto: null,
+    region: null,
+    zona_datos: null,
+    ...o,
+  });
+
+const modeloCompatible = (clave: string, o: Partial<ModeloSuscripcion> = {}): ModeloSuscripcion =>
+  modelo(clave, {
+    modelo: clave,
+    despliegue: null,
+    sku: null,
+    region: null,
+    capacidades: { efforts: [], structured_outputs: true, contexto_max_tokens: 204800 },
+    hosting: "externo",
+    restringible: false,
+    protocolo: "anthropic-messages",
+    precio_usd_mtok: null,
+    ...o,
+  });
 
 describe("suscripciones de modelos", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -325,5 +372,173 @@ describe("perfil asociado a una suscripción", () => {
     montarConQuery(<EditorPerfil org="acme" nombre="estandar" inicial={inicial(perfilConfig("estandar"))} editable />);
     await screen.findByLabelText("Modelo foundry para redactor");
     expect(screen.queryByLabelText("Suscripción")).toBeNull();
+  });
+});
+
+describe("suscripciones de proveedores compatibles (contrato 1.8)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("da de alta MiniMax por su servicio: no pide endpoints, avisa que solo sirve a abiertos y envía el servicio", async () => {
+    const user = userEvent.setup();
+    let creada: Suscripcion[] = [];
+    const s = servidorFalso({
+      "GET /orgs/acme/suscripciones": () => listaCompatibles(creada),
+      "PUT /orgs/acme/suscripciones/minimax": () => {
+        creada = [minimax()];
+        return creada[0];
+      },
+    });
+    montarConQuery(<Suscripciones org="acme" editable />);
+
+    await user.click(await screen.findByRole("button", { name: "Nueva suscripción" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Nueva suscripción" });
+    await user.selectOptions(within(dialogo).getByLabelText("Proveedor"), "compatible");
+    expect(within(dialogo).getByText(/solo sirve a repositorios/)).toBeInTheDocument();
+    expect(within(dialogo).getByLabelText("Servicio")).toHaveValue("minimax");
+    expect(within(dialogo).getByText(/mejorar el servicio/)).toBeInTheDocument();
+    expect(within(dialogo).queryByLabelText("Endpoint de chat completions")).toBeNull();
+    expect(within(dialogo).queryByLabelText("Proyecto")).toBeNull();
+    await user.type(within(dialogo).getByLabelText("Nombre"), "MiniMax");
+    const clave = within(dialogo).getByLabelText("Clave");
+    expect(clave).toHaveAttribute("type", "password");
+    expect(within(dialogo).getByRole("button", { name: "Guardar" })).toBeDisabled();
+    await user.type(clave, CLAVE);
+    await user.click(within(dialogo).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(s.de("PUT", "/orgs/acme/suscripciones/minimax")).toHaveLength(1));
+    const cuerpo = s.de("PUT", "/orgs/acme/suscripciones/minimax")[0]!.cuerpo;
+    expect(cuerpo).toMatchObject({ proveedor: "compatible", servicio: "minimax", autenticacion: "api-key", clave: CLAVE });
+    for (const campo of ["endpoint", "endpoint_mensajes", "proyecto", "region", "zona_datos"]) expect(cuerpo).not.toHaveProperty(campo);
+    expect(document.body.textContent).not.toContain(CLAVE);
+  });
+
+  it("un servicio personalizado pide al menos un endpoint y los envía; los de un servicio conocido no", async () => {
+    const user = userEvent.setup();
+    const s = servidorFalso({
+      "GET /orgs/acme/suscripciones": () => listaCompatibles([]),
+      "PUT /orgs/acme/suscripciones/mi-gateway": () => minimax({ id: "mi-gateway", servicio: null }),
+    });
+    montarConQuery(<Suscripciones org="acme" editable />);
+
+    await user.click(await screen.findByRole("button", { name: "Nueva suscripción" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Nueva suscripción" });
+    await user.selectOptions(within(dialogo).getByLabelText("Proveedor"), "compatible");
+    await user.selectOptions(within(dialogo).getByLabelText("Servicio"), "personalizado");
+    await user.type(within(dialogo).getByLabelText("Nombre"), "Mi gateway");
+    await user.type(within(dialogo).getByLabelText("Clave"), CLAVE);
+    expect(within(dialogo).getByText("Escribe al menos un endpoint.")).toBeInTheDocument();
+    expect(within(dialogo).getByRole("button", { name: "Guardar" })).toBeDisabled();
+    await user.type(within(dialogo).getByLabelText("Endpoint de chat completions"), "https://gw.example.com/v1");
+    await user.click(within(dialogo).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(s.de("PUT", "/orgs/acme/suscripciones/mi-gateway")).toHaveLength(1));
+    const cuerpo = s.de("PUT", "/orgs/acme/suscripciones/mi-gateway")[0]!.cuerpo;
+    expect(cuerpo).toMatchObject({ proveedor: "compatible", endpoint: "https://gw.example.com/v1", endpoint_mensajes: null });
+    expect(cuerpo).not.toHaveProperty("servicio");
+  });
+
+  it("al editar, cambiar de servicio exige la clave otra vez y sin cambios se conserva", async () => {
+    const user = userEvent.setup();
+    const s = servidorFalso({
+      "GET /orgs/acme/suscripciones": () => listaCompatibles([minimax({ version: 2 })]),
+      "PUT /orgs/acme/suscripciones/minimax": () => minimax({ version: 3 }),
+    });
+    montarConQuery(<Suscripciones org="acme" editable />);
+
+    await user.click(await screen.findByRole("button", { name: "Editar" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Editar MiniMax" });
+    expect(within(dialogo).getByLabelText("Proveedor")).toBeDisabled();
+    await user.selectOptions(within(dialogo).getByLabelText("Servicio"), "personalizado");
+    await user.type(within(dialogo).getByLabelText("Endpoint de chat completions"), "https://otro.example.com/v1");
+    expect(within(dialogo).getByText(/cambiaste el endpoint/)).toBeInTheDocument();
+    expect(within(dialogo).getByRole("button", { name: "Guardar" })).toBeDisabled();
+    await user.selectOptions(within(dialogo).getByLabelText("Servicio"), "minimax");
+    await user.click(within(dialogo).getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(s.de("PUT", "/orgs/acme/suscripciones/minimax")).toHaveLength(1));
+    const cuerpo = s.de("PUT", "/orgs/acme/suscripciones/minimax")[0]!.cuerpo;
+    expect(cuerpo).toMatchObject({ servicio: "minimax", version: 2 });
+    expect(cuerpo).not.toHaveProperty("clave");
+  });
+
+  it("la tabla muestra protocolo y tarifa; declarar un modelo envía protocolo y tarifa, y retirarlo lo quita", async () => {
+    const user = userEvent.setup();
+    let actual = minimax({ modelos: [modeloCompatible("MiniMax-M2.7", { seleccionado: true })] });
+    const s = servidorFalso({
+      "GET /orgs/acme/suscripciones": () => listaCompatibles([actual]),
+      "POST /orgs/acme/suscripciones/minimax/modelos": () => {
+        actual = minimax({
+          version: 2,
+          modelos: [
+            ...actual.modelos,
+            modeloCompatible("MiniMax-M3", {
+              origen: "declarado",
+              seleccionado: true,
+              protocolo: "openai-chat",
+              precio_usd_mtok: { entrada: 0.3, salida: 1.2, cache_lectura: 0 },
+            }),
+          ],
+        });
+        return actual;
+      },
+    });
+    montarConQuery(<Suscripciones org="acme" editable />);
+
+    const fila = await screen.findByText("MiniMax-M2.7");
+    expect(within(fila.closest("tr")!).getByText(/Messages de Anthropic · sin tarifa/)).toBeInTheDocument();
+    expect(within(fila.closest("tr")!).getByText("solo abierto")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Declarar despliegue" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Declarar modelo" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Declarar modelo" });
+    expect(within(dialogo).getByText(/Sin tarifa, el costo de este modelo cuenta 0 USD/)).toBeInTheDocument();
+    await user.type(within(dialogo).getByLabelText("Modelo"), "MiniMax-M3");
+    await user.selectOptions(within(dialogo).getByLabelText("Protocolo"), "openai-chat");
+    await user.type(within(dialogo).getByLabelText("USD/Mtok entrada"), "0.3");
+    // La tarifa va completa: con solo la entrada no se puede declarar.
+    expect(within(dialogo).getByText(/al menos entrada y salida/)).toBeInTheDocument();
+    expect(within(dialogo).getByRole("button", { name: "Declarar" })).toBeDisabled();
+    await user.type(within(dialogo).getByLabelText("USD/Mtok salida"), "1.2");
+    await user.click(within(dialogo).getByRole("button", { name: "Declarar" }));
+
+    expect(await screen.findByText("declarado")).toBeInTheDocument();
+    const cuerpo = s.de("POST", "/orgs/acme/suscripciones/minimax/modelos")[0]!.cuerpo;
+    expect(cuerpo).toMatchObject({ modelo: "MiniMax-M3", protocolo: "openai-chat", precio_usd_mtok: { entrada: 0.3, salida: 1.2 }, version: 1 });
+    expect(cuerpo).not.toHaveProperty("despliegue");
+    expect(cuerpo).not.toHaveProperty("sku");
+    expect(screen.getByText(/Chat completions de OpenAI · 0\.3\/1\.2 USD\/Mtok/)).toBeInTheDocument();
+  });
+
+  it("el perfil con una suscripción compatible deshabilita el effort, lo quita y avisa que solo sirve a abiertos", async () => {
+    const user = userEvent.setup();
+    const s = servidorFalso({
+      "GET /orgs/acme/suscripciones": () => listaCompatibles([minimax({ modelos: [modeloCompatible("MiniMax-M3", { seleccionado: true })] })]),
+      "GET /orgs/acme/catalogo": () => [],
+      "PUT /orgs/acme/perfiles/estandar": (l) => ({ perfil: perfilConfig("estandar", { ...l.cuerpo, version: 4 }), avisos: [] }),
+    });
+    const inicial: EscrituraPerfil = {
+      roles: { redactor: { modelo: {}, effort: "high", structured_outputs: false } },
+      gate: perfilConfig("estandar").gate,
+      exploradores: perfilConfig("estandar").exploradores,
+      version: 3,
+    };
+    montarConQuery(<EditorPerfil org="acme" nombre="estandar" inicial={inicial} editable />);
+
+    await user.selectOptions(await screen.findByLabelText("Suscripción"), "minimax");
+    expect(screen.getByText(/solo sirve a repositorios abiertos y no admite effort/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Effort para redactor")).toBeDisabled();
+    expect(screen.getByLabelText("Modelo foundry para redactor")).toBeDisabled();
+    const entrada = screen.getByLabelText("Modelo compatible para redactor");
+    expect(entrada).toBeEnabled();
+    const sugerencias = [...document.querySelectorAll("#modelos-compatible option")].map((o) => o.getAttribute("value"));
+    expect(sugerencias).toEqual(["MiniMax-M3"]);
+
+    await user.type(entrada, "MiniMax-M3");
+    await user.click(screen.getByRole("button", { name: "Guardar perfil" }));
+    await waitFor(() => expect(s.de("PUT", "/orgs/acme/perfiles/estandar")).toHaveLength(1));
+    expect(s.de("PUT", "/orgs/acme/perfiles/estandar")[0]!.cuerpo).toMatchObject({
+      suscripcion: "minimax",
+      roles: { redactor: { modelo: { compatible: "MiniMax-M3" }, effort: null } },
+    });
   });
 });

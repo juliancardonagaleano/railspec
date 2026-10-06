@@ -315,7 +315,7 @@ describe("editor de perfil", () => {
       { inicial: { ...inicial, roles: { redactor: { modelo: { anthropic: "claude-sonnet-5-5" }, structured_outputs: false }, critico: { modelo: {}, structured_outputs: false } } } },
     );
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Falta el modelo (foundry o anthropic) de: critico.");
+    expect(await screen.findByRole("status")).toHaveTextContent("Falta el modelo (foundry, anthropic o compatible) de: critico.");
     expect(screen.getByRole("button", { name: "Guardar perfil" })).toBeDisabled();
 
     await user.type(screen.getByLabelText("Modelo foundry para critico"), "opus-dz");

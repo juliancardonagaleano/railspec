@@ -73,9 +73,10 @@ function FilaRol({
         <Select
           aria-label={`Effort para ${nombre}`}
           className="h-8 text-xs"
-          disabled={!editable}
+          disabled={!editable || proveedorUnico === "compatible"}
           vacio="—"
-          value={req.effort ?? ""}
+          title={proveedorUnico === "compatible" ? "Los proveedores compatibles no admiten effort." : undefined}
+          value={proveedorUnico === "compatible" ? "" : (req.effort ?? "")}
           onChange={(e) => alCambiar({ ...req, effort: (e.target.value || null) as Effort | null })}
           opciones={EFFORTS.map((x) => ({ valor: x, etiqueta: x }))}
         />
@@ -120,7 +121,7 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
   const lasSuscripciones = sus.data?.suscripciones ?? [];
   const elegida = lasSuscripciones.find((x) => x.id === datos.suscripcion) ?? null;
   const modelos = useMemo(() => {
-    const r: Record<Proveedor, string[]> = { foundry: [], anthropic: [] };
+    const r: Record<Proveedor, string[]> = { foundry: [], anthropic: [], compatible: [] };
     // Con suscripción, solo sus modelos elegidos; sin ella, el catálogo del servidor (respaldo de entorno).
     if (elegida) {
       for (const m of elegida.modelos) if (m.seleccionado && !m.ausente) r[elegida.proveedor].push(m.clave);
@@ -186,7 +187,16 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
               disabled={!editable}
               vacio="Sin suscripción (proveedor del servidor)"
               value={datos.suscripcion ?? ""}
-              onChange={(e) => setDatos((d) => ({ ...d, suscripcion: e.target.value || null }))}
+              onChange={(e) => {
+                const id = e.target.value || null;
+                const compat = lasSuscripciones.find((x) => x.id === id)?.proveedor === "compatible";
+                // Un proveedor compatible no admite effort: se quita al elegirlo para que el perfil se pueda guardar.
+                setDatos((d) => ({
+                  ...d,
+                  suscripcion: id,
+                  ...(compat ? { roles: Object.fromEntries(Object.entries(d.roles).map(([rol, r]) => [rol, { ...r, effort: null }])) } : {}),
+                }));
+              }}
               opciones={lasSuscripciones.map((x) => ({
                 valor: x.id,
                 etiqueta: `${x.nombre} (${x.proveedor})${x.habilitada ? "" : " · deshabilitada"}`,
@@ -194,6 +204,11 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
             />
           </Campo>
           {elegida && !elegida.habilitada ? <p className="mt-1 text-sm text-peligro">Esta suscripción está deshabilitada.</p> : null}
+          {elegida?.proveedor === "compatible" ? (
+            <p className="mt-1 text-sm text-suave">
+              Un proveedor compatible solo sirve a repositorios abiertos y no admite effort.
+            </p>
+          ) : null}
         </section>
       ) : null}
       <section>
@@ -229,7 +244,7 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
         </Table>
         {editable && rolesSinModelo.length > 0 ? (
           <p role="status" className="mt-2 text-sm text-peligro">
-            Falta el modelo ({elegida ? elegida.proveedor : "foundry o anthropic"}) de: {rolesSinModelo.join(", ")}.
+            Falta el modelo ({elegida ? elegida.proveedor : "foundry, anthropic o compatible"}) de: {rolesSinModelo.join(", ")}.
           </p>
         ) : null}
         {editable ? (
