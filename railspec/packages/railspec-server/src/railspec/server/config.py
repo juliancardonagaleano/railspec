@@ -102,6 +102,8 @@ class Configuracion:
     chat_modelo: str = "claude-sonnet-5-5"
     host: str = "0.0.0.0"
     puerto: int = 8080
+    #: ``RAILSPEC_METRICAS_TOKEN``: Bearer de ``GET /metrics`` (ver ``metricas.py``). Sin él no hay endpoint.
+    metricas_token: str | None = field(default=None, repr=False)
     #: Consola web (``RAILSPEC_CONSOLA_*`` y GitHub App); ver ``railspec/docs/consola.md``.
     consola: ConfigConsola = field(default_factory=ConfigConsola)
 
@@ -162,6 +164,7 @@ class Configuracion:
             chat_modelo=env.get("RAILSPEC_CHAT_MODELO") or "claude-sonnet-5-5",
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
+            metricas_token=_token_metricas(env),
             consola=ConfigConsola.desde_entorno(env),
         )
 
@@ -206,6 +209,13 @@ def validar_arranque(config: Configuracion) -> None:
             "de desarrollo, pero hay una base de datos o GitHub App configuradas: quita la variable (¿clave "
             "sobrante en el Secret?) o, solo en desarrollo, define RAILSPEC_PERMITIR_DESARROLLO=1"
         )
+
+
+def _token_metricas(env: Mapping[str, str]) -> str | None:
+    token = (env.get("RAILSPEC_METRICAS_TOKEN") or "").strip()
+    if token and len(token) < 16:
+        raise ValueError("RAILSPEC_METRICAS_TOKEN es adivinable: usa al menos 16 caracteres aleatorios")
+    return token or None
 
 
 def _cifrador(env: Mapping[str, str]) -> Cifrador | None:
