@@ -175,6 +175,17 @@ su prueba negativa.
     `modo_anterior` y `modo_nuevo`, distintos) y exige para `rehabilitacion-gate`
     el `gate` rehabilitado. Ambos piden `unidad` y un actor humano. El servidor
     todavía no los escribe; el contrato los deja listos.
+- **Proveedores compatibles (1.8).** Todo es opcional y un mensaje 1.7 sigue
+  siendo válido.
+  - `Proveedor.compatible`: un endpoint con la API de Anthropic o la de OpenAI
+    (OpenCode Zen, MiniMax...). `SuscripcionModelo` gana `servicio` (uno
+    conocido), `endpoint` (chat completions de OpenAI) y `endpoint_mensajes`
+    (mensajes de Anthropic); `ModeloSuscripcion` gana `protocolo`
+    (`anthropic-messages` u `openai-chat`, obligatorio en las compatibles) y
+    `precio_usd_mtok` (sin él el modelo cuenta 0 USD y `costo_usd_max` no lo
+    frena).
+  - `ModeloCatalogo.hosting` admite `externo`. Un modelo `externo` nunca sirve a
+    `restringido` ni a `interno`, solo a `abierto`.
 - **Embeddings.** Son opcionales en el delta y en la búsqueda. Si el proxy
   no tiene codificador local, sube el delta sin embeddings y busca sin
   `vector_b64`; los símbolos sin vector solo se encuentran por texto en la superposición
@@ -193,7 +204,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.7`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.8`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -225,7 +236,10 @@ su prueba negativa.
   `1.7` añade `Presupuesto.llamadas_max`, `Consumo.llamadas`, `PresupuestoConfig.por_tier`,
   el nivel congelado (`RepositorioUnidad.nivel_codigo`, `EstadoUnidad.nivel_efectivo`) y,
   en el registro de auditoría, el evento `cambio-modo` con `gate`, `modo_anterior` y
-  `modo_nuevo`. Sin ellos rige lo de 1.6.
+  `modo_nuevo`. Sin ellos rige lo de 1.6;
+  `1.8` añade `Proveedor.compatible`, `SuscripcionModelo.servicio`/`endpoint_mensajes`,
+  `ModeloSuscripcion.protocolo`/`precio_usd_mtok` y el `hosting` `externo` de `ModeloCatalogo`.
+  Sin ellos rige lo de 1.7.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

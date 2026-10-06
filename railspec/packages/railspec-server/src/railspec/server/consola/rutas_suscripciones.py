@@ -18,10 +18,13 @@ from railspec.contracts.comun import Effort, Proveedor, Slug
 from railspec.contracts.repositorio import (
     AutenticacionSuscripcion,
     EventoAuditoria,
+    PrecioModelo,
+    ProtocoloCompatible,
     SuscripcionModelo,
 )
 
 from ..proveedores.cifrado import VARIABLE
+from ..proveedores.servicios_compatibles import SERVICIOS
 from ..proveedores.suscripciones import (
     EntradaSuscripcion,
     ErrorSuscripcion,
@@ -82,6 +85,7 @@ async def suscripciones(org: str, request: Request) -> dict[str, Any]:
     servicio = _servicio(ctx)
     return {
         "cifrado": {"disponible": servicio.cifrado_disponible, "variable": VARIABLE},
+        "servicios_compatibles": [s.a_vista() for s in SERVICIOS.values()],
         "suscripciones": [_vista(ctx, s) for s in servicio.listar(org)],
     }
 
@@ -100,6 +104,9 @@ class SuscripcionEntrada(Entrada):
     nombre: str = Field(min_length=1, max_length=120)
     autenticacion: AutenticacionSuscripcion = AutenticacionSuscripcion.api_key
     endpoint: str | None = Field(default=None, max_length=512)
+    #: Solo compatibles (1.8): ``servicio`` conocido (endpoints fijos) o, sin él, endpoints propios.
+    servicio: str | None = Field(default=None, max_length=40)
+    endpoint_mensajes: str | None = Field(default=None, max_length=512)
     proyecto: str | None = Field(default=None, max_length=512)
     region: str | None = Field(default=None, max_length=40)
     zona_datos: str | None = Field(default=None, max_length=40)
@@ -127,6 +134,8 @@ async def guardar_suscripcion(
             nombre=entrada.nombre,
             autenticacion=entrada.autenticacion,
             endpoint=entrada.endpoint,
+            endpoint_mensajes=entrada.endpoint_mensajes,
+            servicio=entrada.servicio,
             proyecto=entrada.proyecto,
             region=entrada.region,
             zona_datos=entrada.zona_datos,
@@ -145,6 +154,8 @@ async def guardar_suscripcion(
         proveedor=s.proveedor.value,
         autenticacion=s.autenticacion.value,
         endpoint=s.endpoint,
+        endpoint_mensajes=s.endpoint_mensajes,
+        servicio=s.servicio,
         region=s.region,
         zona_datos=s.zona_datos,
         habilitada=s.habilitada,
@@ -220,8 +231,12 @@ async def seleccionar_modelos(
 
 class DeclaracionEntrada(Entrada):
     modelo: str = Field(min_length=1, max_length=120)
-    despliegue: str = Field(min_length=1, max_length=120)
-    sku: str = Field(min_length=1, max_length=60)
+    #: Foundry: nombre del despliegue y su SKU.
+    despliegue: str | None = Field(default=None, min_length=1, max_length=120)
+    sku: str | None = Field(default=None, min_length=1, max_length=60)
+    #: Compatibles (1.8): API que habla el modelo y, si se sabe, su tarifa en USD por millón de tokens.
+    protocolo: ProtocoloCompatible | None = None
+    precio_usd_mtok: PrecioModelo | None = None
     efforts: list[Effort] | None = None
     structured_outputs: bool | None = None
     contexto: int | None = Field(default=None, ge=1)
@@ -232,11 +247,40 @@ class DeclaracionEntrada(Entrada):
 async def declarar_modelo(
     org: str, id_: str, entrada: DeclaracionEntrada, request: Request
 ) -> dict[str, Any]:
-    """Declara a mano un despliegue de Foundry (o corrige uno descubierto) y lo deja disponible."""
+    """Declara a mano un despliegue de Foundry o un modelo compatible (o corrige uno) y lo deja disponible."""
 
     ctx, actor = await _escritura(request, org, None)
     servicio = _servicio(ctx)
     previo = servicio.obtener(org, id_)
+    auditoria = ctx.auditoria_entidad(actor, previo.auditoria)
+    if previo.proveedor == Proveedor.compatible:
+        if entrada.protocolo is None:
+            raise HTTPException(422, "indica el protocolo del modelo (anthropic-messages u openai-chat)")
+        s = servicio.declarar_compatible(
+            org,
+            id_,
+            entrada.version,
+            modelo=entrada.modelo,
+            protocolo=entrada.protocolo,
+            efforts=entrada.efforts,
+            structured_outputs=entrada.structured_outputs,
+            contexto=entrada.contexto,
+            precio=entrada.precio_usd_mtok,
+            auditoria=auditoria,
+        )
+        _auditar(
+            ctx,
+            actor,
+            org,
+            "declarar-modelo",
+            id_,
+            modelo=entrada.modelo,
+            protocolo=entrada.protocolo.value,
+            con_precio=entrada.precio_usd_mtok is not None,
+        )
+        return _vista(ctx, s)
+    if not entrada.despliegue or not entrada.sku:
+        raise HTTPException(422, "indica el despliegue y su SKU")
     s = servicio.declarar(
         org,
         id_,
@@ -247,7 +291,7 @@ async def declarar_modelo(
         efforts=entrada.efforts,
         structured_outputs=entrada.structured_outputs,
         contexto=entrada.contexto,
-        auditoria=ctx.auditoria_entidad(actor, previo.auditoria),
+        auditoria=auditoria,
     )
     _auditar(ctx, actor, org, "declarar-modelo", id_, despliegue=entrada.despliegue, sku=entrada.sku)
     return _vista(ctx, s)

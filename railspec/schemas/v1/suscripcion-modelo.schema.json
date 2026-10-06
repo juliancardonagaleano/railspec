@@ -290,6 +290,30 @@
           "title": "Origen",
           "type": "string"
         },
+        "precio_usd_mtok": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PrecioModelo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.8: sin tarifa, el modelo cuenta 0 USD y ``costo_usd_max`` no lo frena."
+        },
+        "protocolo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProtocoloCompatible"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.8: API que habla el modelo; obligatorio en suscripciones ``compatible``."
+        },
         "region": {
           "anyOf": [
             {
@@ -380,10 +404,48 @@
       "title": "OidcGithubActions",
       "type": "object"
     },
+    "PrecioModelo": {
+      "additionalProperties": false,
+      "description": "Desde 1.8: tarifa del modelo en USD por millón de tokens, para los topes de costo.",
+      "properties": {
+        "cache_lectura": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Cache Lectura",
+          "type": "number"
+        },
+        "entrada": {
+          "minimum": 0,
+          "title": "Entrada",
+          "type": "number"
+        },
+        "salida": {
+          "minimum": 0,
+          "title": "Salida",
+          "type": "number"
+        }
+      },
+      "required": [
+        "entrada",
+        "salida"
+      ],
+      "title": "PrecioModelo",
+      "type": "object"
+    },
+    "ProtocoloCompatible": {
+      "description": "Desde 1.8: API que habla un modelo de un proveedor ``compatible``.",
+      "enum": [
+        "anthropic-messages",
+        "openai-chat"
+      ],
+      "title": "ProtocoloCompatible",
+      "type": "string"
+    },
     "Proveedor": {
       "enum": [
         "foundry",
-        "anthropic"
+        "anthropic",
+        "compatible"
       ],
       "title": "Proveedor",
       "type": "string"
@@ -440,7 +502,23 @@
         }
       ],
       "default": null,
+      "description": "Foundry: recurso. ``compatible`` (1.8): base de la API de chat completions de OpenAI.",
       "title": "Endpoint"
+    },
+    "endpoint_mensajes": {
+      "anyOf": [
+        {
+          "maxLength": 512,
+          "pattern": "^https://",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.8, solo ``compatible``: base de la API de mensajes de Anthropic.",
+      "title": "Endpoint Mensajes"
     },
     "habilitada": {
       "default": true,
@@ -502,6 +580,20 @@
       "default": null,
       "title": "Region"
     },
+    "servicio": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Desde 1.8, solo ``compatible``: servicio conocido (``opencode-zen``, ``minimax``...).",
+      "title": "Servicio"
+    },
     "ultima_lectura": {
       "anyOf": [
         {
@@ -520,7 +612,7 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.7",
+      "default": "1.8",
       "enum": [
         "1.0",
         "1.1",
@@ -529,7 +621,8 @@
         "1.4",
         "1.5",
         "1.6",
-        "1.7"
+        "1.7",
+        "1.8"
       ],
       "title": "Version Contrato",
       "type": "string"

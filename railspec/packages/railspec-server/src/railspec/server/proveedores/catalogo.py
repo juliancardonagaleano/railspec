@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from railspec.contracts.comun import Effort, Proveedor
-from railspec.contracts.repositorio import Capacidades, ModeloCatalogo
+from railspec.contracts.repositorio import Capacidades, ModeloCatalogo, ProtocoloCompatible
 
 log = logging.getLogger("railspec.catalogo")
 
@@ -128,11 +128,13 @@ class EntradaCatalogo:
     proveedor: Proveedor
     modelo: str
     despliegue: str | None
-    hosting: str  # "azure" | "anthropic"
+    hosting: str  # "azure" | "anthropic" | "externo"
     region: str | None
     capacidades: Capacidades
     #: SKU del despliegue de Foundry (``DataZoneStandard``...), si la fuente lo da.
     sku: str | None = None
+    #: Desde 1.8: API que habla el modelo de un proveedor ``compatible``.
+    protocolo: ProtocoloCompatible | None = None
 
     def a_contrato(self, org: str, leido_en: datetime) -> ModeloCatalogo:
         return ModeloCatalogo(
