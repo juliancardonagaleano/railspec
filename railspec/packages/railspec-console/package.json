@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "humo": "node humo/humo.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "5.104.0",
