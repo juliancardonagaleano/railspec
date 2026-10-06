@@ -11,6 +11,9 @@ unidad en curso en el repositorio:
   refinar que los pide; el estado del proxy (``.railspec/``) nunca.
 - Las tools que registran una decisión humana (aprobar un checkpoint, cambiar
   de modo, integrar) piden confirmación siempre.
+- La shell pasa por los tres patrones del kit viejo (``sed -i``, una redirección ``>`` sobre un archivo
+  existente, código inline a un intérprete): si el archivo que tocan no se podría escribir con ``Edit``,
+  se rechaza igual. Cualquier otro comando lo decide el arnés (ver ``ordenes_shell``).
 
 Sin unidades en curso la guardia no opina sobre el clon principal (el worktree
 de una unidad cerrada no se edita), y lo que cae fuera del repositorio
@@ -32,12 +35,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from . import git
+from . import git, ordenes_shell
 from .git import ErrorGit
 from .rutas import coincide
 
@@ -48,6 +52,8 @@ ARCHIVO_ESTADO = Path(".railspec") / "estado-local.json"
 ARTEFACTOS = ("spec.md", "plan.md", "tasks.md")
 #: Tools del proxy que registran una decisión humana.
 TOOLS_HUMANAS = ("unit_approve", "unit_set_mode", "unit_integrate")
+#: La tool de shell de los cuatro arneses, sin distinguir mayúsculas: ``Bash`` (Claude Code, Codex), ``bash``.
+TOOL_SHELL = "bash"
 _ESCAPE = f"Si de verdad necesitas saltarte la guardia, relanza el arnés con {ENV_GUARDIA}=0."
 
 
@@ -206,6 +212,58 @@ def _describir(orden: dict[str, Any] | None) -> str:
     return f"la orden vigente es {tipo}"
 
 
+#: Lo que cada patrón de la guardia de Bash dice haber visto, para el motivo del rechazo.
+_PATRONES_BASH = {
+    1: "`sed -i` sobre un archivo",
+    2: "redirección `>` que trunca un archivo existente",
+    3: "código inline (`-c`, `-e` o heredoc) a un intérprete que nombra un archivo",
+}
+
+
+def evaluar_bash(orden: str, cwd: Path) -> Veredicto:
+    """Veredicto para una orden de shell: los tres patrones del kit viejo y nada más.
+
+    Cada patrón saca de la orden los archivos que toca, y estos se juzgan como si los escribiera
+    ``Edit``: dentro del alcance de la orden vigente pasan, fuera se rechazan. A diferencia de las
+    tools de edición, falla abierta: un error de la guardia no puede dejar sin shell al agente, y
+    ningún análisis de una orden es fiable del todo (``tee``, ``cp``, ``find -exec``, un script
+    versionado escriben sin casar con ningún patrón).
+    """
+
+    if apagada():
+        return PERMITIR
+    try:
+        encontrados = ordenes_shell.hallazgos(orden, cwd)
+        if not encontrados:
+            return PERMITIR
+        repos: dict[Path, tuple[Path, list[Unidad], list[Unidad]] | None] = {}
+        for hallazgo in encontrados:
+            ruta = Path(os.path.expanduser(hallazgo.texto))
+            absoluta = _real(ruta if ruta.is_absolute() else hallazgo.carpeta / ruta)
+            if hallazgo.carpeta not in repos:
+                principal = clon_principal(hallazgo.carpeta)
+                if principal is None:
+                    repos[hallazgo.carpeta] = None
+                else:
+                    todas = unidades(principal)
+                    repos[hallazgo.carpeta] = (principal, todas, [u for u in todas if u.activa])
+            repo = repos[hallazgo.carpeta]
+            if repo is None:
+                continue
+            veredicto = _evaluar_ruta(absoluta, *repo)
+            if veredicto.opina:
+                detalle = veredicto.motivo.removeprefix("Railspec: ").removesuffix(f" {_ESCAPE}")
+                return _rechazo(
+                    f"regla {hallazgo.regla} de la guardia de Bash ({_PATRONES_BASH[hallazgo.regla]}) sobre "
+                    f"`{hallazgo.texto}`: {detalle} Edita con la tool de edición del arnés, que sí respeta "
+                    "el alcance de la orden."
+                )
+    except Exception as exc:  # noqa: BLE001 - la guardia de Bash falla abierta, con aviso
+        aviso = f"Railspec: la guardia de Bash no pudo leer la orden ({exc}); se deja decidir al arnés."
+        print(aviso, file=sys.stderr)
+    return PERMITIR
+
+
 def evaluar_tool_humana(tool: str) -> Veredicto:
     return Veredicto(
         Decision.preguntar,
@@ -262,6 +320,9 @@ def evaluar_tool(tool: str, args: dict[str, Any] | str, cwd: Path) -> Veredicto:
     humana = _humana(tool)
     if humana is not None:
         return evaluar_tool_humana(humana)
+    if tool.lower() == TOOL_SHELL:
+        orden = args.get("command") if isinstance(args, dict) else None
+        return evaluar_bash(orden, cwd) if isinstance(orden, str) and orden.strip() else PERMITIR
     rutas = _ruta_tool(tool, args)
     if rutas is None:
         return PERMITIR

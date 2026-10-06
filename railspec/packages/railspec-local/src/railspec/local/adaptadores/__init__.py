@@ -90,24 +90,27 @@ TOOLS_AUTOMATICAS = (
 #: Tools que registran una decisión humana: el arnés pide confirmación siempre.
 TOOLS_HUMANAS = guardia.TOOLS_HUMANAS
 
-#: Tools de Claude Code que la guardia revisa: las que escriben archivos y las humanas.
+#: Tools de Claude Code que la guardia revisa: las que escriben archivos, la shell (``Bash``, por los tres
+#: patrones de ``ordenes_shell``) y las humanas.
 HOOK_CLAUDE_CODE = {
     "matcher": "|".join(
-        ["Write", "Edit", "MultiEdit", "NotebookEdit"] + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]
+        ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"]
+        + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]
     ),
     "hooks": [{"type": "command", "command": "railspec hook claude-code", "timeout": 30}],
 }
 
 
-#: Lo mismo en Codex: ``apply_patch`` (su única tool de edición) y las tools humanas con su nombre MCP.
+#: Lo mismo en Codex: ``apply_patch`` (su única tool de edición), ``Bash`` y las tools humanas con su
+#: nombre MCP.
 #: Codex no ejecuta un hook de proyecto hasta que el humano lo revisa y confía (``/hooks``).
 HOOK_CODEX = {
-    "matcher": "|".join(["apply_patch"] + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]),
+    "matcher": "|".join(["apply_patch", "Bash"] + [f"mcp__railspec__{t}" for t in TOOLS_HUMANAS]),
     "hooks": [{"type": "command", "command": "railspec hook codex", "timeout": 30}],
 }
 
-#: Lo mismo en Copilot: sus tools de edición (``create``, ``edit`` y ``apply_patch``, según el modelo)
-#: y las humanas, que Copilot nombra ``<servidor>-<tool>``. Archivo propio: ``.github/hooks/*.json``
+#: Lo mismo en Copilot: sus tools de edición (``create``, ``edit`` y ``apply_patch``, según el modelo),
+#: ``bash`` y las humanas, que Copilot nombra ``<servidor>-<tool>``. Archivo propio: ``.github/hooks/*.json``
 #: carga todos los archivos de la carpeta.
 HOOK_COPILOT = {
     "version": 1,
@@ -116,7 +119,7 @@ HOOK_COPILOT = {
             {
                 "type": "command",
                 "matcher": "|".join(
-                    ["create", "edit", "apply_patch"] + [f"railspec-{t}" for t in TOOLS_HUMANAS]
+                    ["create", "edit", "apply_patch", "bash"] + [f"railspec-{t}" for t in TOOLS_HUMANAS]
                 ),
                 "bash": "railspec hook copilot",
                 "powershell": "railspec hook copilot",
