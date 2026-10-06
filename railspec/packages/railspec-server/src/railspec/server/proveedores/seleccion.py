@@ -124,9 +124,10 @@ class Proveedores:
             raise PerfilInsatisfacible(donde + exc.detalle) from exc
         s = activa.suscripcion
         restringe = nivel != NivelCodigo.abierto
-        if s.proveedor == Proveedor.anthropic and restringe:
+        if s.proveedor in (Proveedor.anthropic, Proveedor.compatible) and restringe:
+            quien = "Anthropic directo" if s.proveedor == Proveedor.anthropic else "un proveedor compatible"
             raise PerfilInsatisfacible(
-                donde + f"«{s.nombre}» es Anthropic directo y solo sirve a repositorios abiertos"
+                donde + f"«{s.nombre}» es {quien} y solo sirve a repositorios abiertos"
             )
         nombre = req.modelo.get(s.proveedor)
         if nombre is None:

@@ -46,7 +46,8 @@
     "Proveedor": {
       "enum": [
         "foundry",
-        "anthropic"
+        "anthropic",
+        "compatible"
       ],
       "title": "Proveedor",
       "type": "string"
@@ -75,9 +76,11 @@
       "title": "Despliegue"
     },
     "hosting": {
+      "description": "Desde 1.8: ``externo`` = endpoint compatible fuera de Azure; solo sirve a ``abierto``.",
       "enum": [
         "azure",
-        "anthropic"
+        "anthropic",
+        "externo"
       ],
       "title": "Hosting",
       "type": "string"
@@ -116,7 +119,7 @@
       "title": "Region"
     },
     "version_contrato": {
-      "default": "1.7",
+      "default": "1.8",
       "enum": [
         "1.0",
         "1.1",
@@ -125,7 +128,8 @@
         "1.4",
         "1.5",
         "1.6",
-        "1.7"
+        "1.7",
+        "1.8"
       ],
       "title": "Version Contrato",
       "type": "string"

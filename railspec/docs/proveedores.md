@@ -13,6 +13,7 @@ alimentan el prompt de los gates. El código vive en
 | --- | --- | --- |
 | Azure AI Foundry | Primario, siempre que haya `RAILSPEC_FOUNDRY_ENDPOINT`. | Un solo recurso con dos APIs. Los despliegues de Claude van por `<endpoint>/anthropic` con el SDK oficial (`AsyncAnthropicFoundry`) y, sin API key, token de Entra ID con scope `https://ai.azure.com/.default`. El resto de modelos va por chat completions en `<endpoint>/openai/v1` con el SDK de OpenAI y scope `https://cognitiveservices.azure.com/.default`. Las dos APIs comparten endpoint, credencial y región, y se auditan como `foundry`. |
 | Anthropic directo | Solo con `RAILSPEC_ANTHROPIC_HABILITADO=true` y solo para repositorios de nivel `abierto`. | SDK oficial (`AsyncAnthropic`) con `RAILSPEC_ANTHROPIC_API_KEY`. Su catálogo se lee con `GET /v1/models`. Su región es `global`. |
+| Compatible (1.8) | Solo desde una suscripción de la consola y solo para repositorios `abierto`. | OpenCode Zen, MiniMax o un endpoint propio con la API de Anthropic o de OpenAI; ver [Proveedores compatibles](#proveedores-compatibles). |
 
 `ProveedorFoundry` decide la API por el id de catálogo del modelo: si empieza
 por `claude`, Messages API; si no, chat completions. Las dos piden salida
@@ -148,6 +149,69 @@ defecto del workspace. La auditoría de cada llamada incluye la suscripción.
 4. Edita cada perfil y asócialo a la suscripción; la consola lo valida.
 5. Cuando ningún perfil dependa del respaldo, quita las variables
    `RAILSPEC_FOUNDRY_*`. Hasta entonces siguen valiendo.
+
+## Proveedores compatibles
+
+Desde el contrato 1.8 una suscripción puede ser de un proveedor `compatible`: un
+endpoint que habla la API de mensajes de Anthropic (`anthropic-messages`) o la de
+chat completions de OpenAI (`openai-chat`). Sirve para OpenCode Zen, MiniMax y
+cualquier otro servicio así. El código está en `proveedores/compatible.py`
+(adaptador) y `proveedores/servicios_compatibles.py` (servicios conocidos y
+descubrimiento).
+
+**Solo `abierto`.** Ninguno corre en Azure ni en la zona de datos del workspace,
+así que su `hosting` es `externo` y `EntradaCatalogo.en_zona` lo rechaza para
+`restringido` e `interno` sin lógica aparte. Lo que declaran sus páginas
+(consultadas el 2026-10-06, antes de elegir uno léelas de nuevo):
+
+| Servicio | Datos |
+| --- | --- |
+| OpenCode Zen ([docs](https://opencode.ai/docs/zen/)) | «All our models are hosted in the US». Cero retención y sin entrenamiento, salvo OpenAI y Anthropic (30 días) y los modelos gratis o de prueba, que pueden usarse para mejorar el modelo. Añade un intermediario entre Railspec y el modelo. |
+| MiniMax ([términos](https://platform.minimax.io/protocol/terms-of-service)) | «We may use the input and generated content to provide, maintain, develop, and improve our Services»: sin garantía de no entrenamiento. |
+
+**Servicios conocidos.** Al crear la suscripción se elige `opencode-zen`,
+`minimax` o personalizado. Los conocidos fijan sus URL base (`servicio` y los
+endpoints no se escriben):
+
+| `servicio` | `endpoint` (chat) | `endpoint_mensajes` |
+| --- | --- | --- |
+| `opencode-zen` | `https://opencode.ai/zen/v1` | `https://opencode.ai/zen` |
+| `minimax` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` |
+
+Zen enruta por modelo (Claude y algunos Qwen por mensajes, el resto de los
+abiertos por chat completions) y su `GET /models` solo trae `id`, `object`,
+`created` y `owned_by`. Por eso el protocolo de cada modelo sale de una tabla del
+servicio según su documentación. Al descubrir **no se ofrecen**: los que hablan
+Responses (GPT, Grok, Muse), Gemini o Jev; los que Zen documenta como recolectores
+de datos (`*-free`, `big-pickle`, `*contributor*`); y OpenCode Go, cuya página lo
+describe como pensado para agentes de código, con vigilancia de tráfico y
+cabeceras de sesión, no para un servidor. Cualquiera de ellos se puede
+**declarar a mano** con su protocolo.
+
+Una suscripción **personalizada** lleva `endpoint` y/o `endpoint_mensajes`, y su
+host tiene que estar en `RAILSPEC_COMPATIBLES_HOSTS` (nombres separados por coma o
+espacio; `*.dominio` admite subdominios). Los hosts de los servicios conocidos
+siempre valen. Sin la variable no hay endpoints personalizados.
+
+**Salida estructurada emulada.** Ninguna de esas APIs documenta `json_schema` ni
+`output_config.format`. El adaptador pide el JSON en el prompt (el esquema
+Pydantic del nodo va tras el sistema estable), quita el razonamiento
+(`<think>…</think>`) y las cercas de código, valida contra el esquema y, si no
+encaja, repite la llamada una vez diciéndole al modelo el error. Si sigue sin
+encajar es `ErrorProveedor`: el gate escala con `error-proveedor`, nunca aprueba.
+Por eso el catálogo marca `structured_outputs` verdadero en estos modelos.
+Tampoco envía `cache_control` ni `effort`: `efforts` queda vacío y un perfil que
+use un modelo compatible no pide `effort` en sus roles.
+
+**Precio y contexto.** Un modelo sin `precio_usd_mtok` cuenta 0 USD (salvo los
+`claude-*` de `PRECIOS_USD_MTOK`), así que `costo_usd_max` no frena nada: declara
+la tarifa del modelo a mano. El contexto de un modelo que el servicio no
+declara queda en 8.192 tokens (el valor conservador de siempre); declara el real
+si un rol pide `contexto_min_tokens`. MiniMax: 1.000.000 (M3) y 204.800 (M2.x),
+según su documentación.
+
+**Descubrir.** `GET <endpoint>/models` (o `<endpoint_mensajes>/v1/models` si solo hay
+mensajes) con la clave como `Bearer`, con los mismos códigos de error que el resto.
 
 ## Catálogo de modelos
 

@@ -277,8 +277,9 @@ def validar_perfil_con_suscripcion(
             errores.append(f"{rol}: {nombre} no admite salidas estructuradas")
         if req.contexto_min_tokens and req.contexto_min_tokens > c.contexto_max_tokens:
             errores.append(f"{rol}: {nombre} tiene contexto de {c.contexto_max_tokens} tokens")
-        if s.proveedor == Proveedor.anthropic:
-            avisos.append(f"{rol}: Anthropic directo solo sirve a repositorios abiertos")
+        if s.proveedor in (Proveedor.anthropic, Proveedor.compatible):
+            quien = "Anthropic directo" if s.proveedor == Proveedor.anthropic else "Un proveedor compatible"
+            avisos.append(f"{rol}: {quien} solo sirve a repositorios abiertos")
         elif m.region in (None, "global"):
             avisos.append(
                 f"{rol}: {nombre} no sirve a restringido ni interno ({m.region or 'región sin determinar'})"

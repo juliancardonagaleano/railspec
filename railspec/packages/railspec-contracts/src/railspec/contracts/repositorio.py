@@ -194,7 +194,9 @@ class ModeloCatalogo(Mensaje):
     proveedor: Proveedor
     modelo: str = Field(min_length=1, max_length=120)
     despliegue: str | None = Field(default=None, max_length=120, description="Nombre en Foundry.")
-    hosting: Literal["azure", "anthropic"]
+    hosting: Literal["azure", "anthropic", "externo"] = Field(
+        description="Desde 1.8: ``externo`` = endpoint compatible fuera de Azure; solo sirve a ``abierto``."
+    )
     region: str | None = Field(default=None, max_length=40)
     capacidades: Capacidades
     leido_en: AwareDatetime
@@ -204,6 +206,21 @@ class AutenticacionSuscripcion(StrEnum):
     api_key = "api-key"
     #: Entra ID de la identidad del servidor (solo Foundry); la suscripción no guarda ninguna clave.
     identidad_servidor = "identidad-servidor"
+
+
+class ProtocoloCompatible(StrEnum):
+    """Desde 1.8: API que habla un modelo de un proveedor ``compatible``."""
+
+    anthropic_messages = "anthropic-messages"
+    openai_chat = "openai-chat"
+
+
+class PrecioModelo(Contrato):
+    """Desde 1.8: tarifa del modelo en USD por millón de tokens, para los topes de costo."""
+
+    entrada: float = Field(ge=0)
+    salida: float = Field(ge=0)
+    cache_lectura: float = Field(default=0.0, ge=0)
 
 
 class ModeloSuscripcion(Contrato):
@@ -225,6 +242,14 @@ class ModeloSuscripcion(Contrato):
     seleccionado: bool = False
     ausente: bool = False
     visto_en: AwareDatetime | None = None
+    protocolo: ProtocoloCompatible | None = Field(
+        default=None,
+        description="Desde 1.8: API que habla el modelo; obligatorio en suscripciones ``compatible``.",
+    )
+    precio_usd_mtok: PrecioModelo | None = Field(
+        default=None,
+        description="Desde 1.8: sin tarifa, el modelo cuenta 0 USD y ``costo_usd_max`` no lo frena.",
+    )
 
     @property
     def clave(self) -> str:
@@ -255,7 +280,23 @@ class SuscripcionModelo(EntidadConfiguracion):
     id: Slug
     nombre: str = Field(min_length=1, max_length=120)
     proveedor: Proveedor
-    endpoint: str | None = Field(default=None, pattern=r"^https://", max_length=512)
+    endpoint: str | None = Field(
+        default=None,
+        pattern=r"^https://",
+        max_length=512,
+        description="Foundry: recurso. ``compatible`` (1.8): base de la API de chat completions de OpenAI.",
+    )
+    endpoint_mensajes: str | None = Field(
+        default=None,
+        pattern=r"^https://",
+        max_length=512,
+        description="Desde 1.8, solo ``compatible``: base de la API de mensajes de Anthropic.",
+    )
+    servicio: str | None = Field(
+        default=None,
+        max_length=40,
+        description="Desde 1.8, solo ``compatible``: servicio conocido (``opencode-zen``, ``minimax``...).",
+    )
     proyecto: str | None = Field(
         default=None,
         max_length=512,
@@ -272,20 +313,43 @@ class SuscripcionModelo(EntidadConfiguracion):
 
     @model_validator(mode="after")
     def _coherente(self) -> SuscripcionModelo:
-        if self.proveedor == Proveedor.foundry:
-            if self.endpoint is None:
-                raise ValueError("una suscripción de Foundry exige endpoint")
+        if self.proveedor == Proveedor.compatible:
+            self._coherente_compatible()
         else:
-            if self.endpoint is not None or self.proyecto or self.region or self.zona_datos:
-                raise ValueError(
-                    "Anthropic usa el endpoint del proveedor: sin endpoint, proyecto, región ni zona"
-                )
-            if self.autenticacion != AutenticacionSuscripcion.api_key:
-                raise ValueError("Anthropic solo se autentica con api-key")
+            if self.endpoint_mensajes is not None or self.servicio is not None:
+                raise ValueError("endpoint_mensajes y servicio son solo de los proveedores compatibles")
+            if any(m.protocolo is not None for m in self.modelos):
+                raise ValueError("el protocolo de un modelo es solo de los proveedores compatibles")
+            if self.proveedor == Proveedor.foundry:
+                if self.endpoint is None:
+                    raise ValueError("una suscripción de Foundry exige endpoint")
+            else:
+                if self.endpoint is not None or self.proyecto or self.region or self.zona_datos:
+                    raise ValueError(
+                        "Anthropic usa el endpoint del proveedor: sin endpoint, proyecto, región ni zona"
+                    )
+                if self.autenticacion != AutenticacionSuscripcion.api_key:
+                    raise ValueError("Anthropic solo se autentica con api-key")
         if self.autenticacion == AutenticacionSuscripcion.identidad_servidor and self.clave_configurada:
             raise ValueError("la identidad del servidor no lleva clave")
         ids_unicos([m.clave for m in self.modelos], "modelos de la suscripción")
         return self
+
+    def _coherente_compatible(self) -> None:
+        if self.endpoint is None and self.endpoint_mensajes is None:
+            raise ValueError("una suscripción compatible exige endpoint o endpoint_mensajes")
+        if self.proyecto or self.region or self.zona_datos:
+            raise ValueError("una suscripción compatible no lleva proyecto, región ni zona de datos")
+        if self.autenticacion != AutenticacionSuscripcion.api_key:
+            raise ValueError("una suscripción compatible solo se autentica con api-key")
+        for m in self.modelos:
+            if m.protocolo is None:
+                raise ValueError(f"{m.clave}: un modelo compatible exige su protocolo")
+            falta = (
+                self.endpoint if m.protocolo == ProtocoloCompatible.openai_chat else self.endpoint_mensajes
+            )
+            if falta is None:
+                raise ValueError(f"{m.clave}: la suscripción no tiene endpoint para {m.protocolo.value}")
 
 
 class RequisitoRol(Contrato):
