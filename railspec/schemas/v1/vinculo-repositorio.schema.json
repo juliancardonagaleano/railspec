@@ -161,6 +161,7 @@
       "type": "string"
     },
     "HostingChat": {
+      "description": "Dato heredado: desde la decisión del 2026-10-06 ya no restringe proveedores.\n\nUsar Anthropic, modelos abiertos o proveedores compatibles es decisión consciente del usuario; el\ncampo se conserva por compatibilidad y para la auditoría, sin efecto sobre la elección de modelo.",
       "enum": [
         "azure-zona-datos",
         "cualquiera"
@@ -217,11 +218,11 @@
     },
     "PoliticaChat": {
       "additionalProperties": false,
-      "description": "``chat_contexto_codigo``: cómo usa el chat el código como contexto interno.",
+      "description": "``chat_contexto_codigo``: cómo usa el chat el código como contexto interno.\n\n``hosting`` ya no restringe proveedores: el material que viaja lo gobiernan el nivel de código, la\nhuella N y los presupuestos de fuga.",
       "properties": {
         "fragmentos_en_respuesta": {
           "default": false,
-          "description": "Solo abierto: fragmentos cortos bajo el presupuesto de fuga.",
+          "description": "Fragmentos cortos en la respuesta, bajo el presupuesto de fuga. Ya no se prohíbe en ningún nivel (decisión del 2026-10-06); por defecto solo en abierto.",
           "title": "Fragmentos En Respuesta",
           "type": "boolean"
         },
@@ -236,7 +237,7 @@
           "type": "integer"
         },
         "modelos_permitidos": {
-          "description": "Vacío = todos los del catálogo que cumplan hosting.",
+          "description": "Lista explícita del usuario; vacío = todos los del catálogo. ``hosting`` ya no filtra el catálogo (decisión del 2026-10-06).",
           "items": {
             "type": "string"
           },
@@ -340,7 +341,7 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.8",
+      "default": "1.9",
       "enum": [
         "1.0",
         "1.1",
@@ -350,7 +351,8 @@
         "1.5",
         "1.6",
         "1.7",
-        "1.8"
+        "1.8",
+        "1.9"
       ],
       "title": "Version Contrato",
       "type": "string"

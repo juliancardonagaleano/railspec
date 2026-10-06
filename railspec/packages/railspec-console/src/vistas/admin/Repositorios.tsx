@@ -69,7 +69,7 @@ function EditorPolitica({ valor, alCambiar }: { valor: PoliticaChat; alCambiar: 
         <input type="checkbox" checked={valor.permitido ?? true} onChange={(e) => alCambiar({ ...valor, permitido: e.target.checked })} />
         Chat permitido sobre este repositorio
       </label>
-      <Campo etiqueta="Hosting" htmlFor="pol-hosting">
+      <Campo etiqueta="Hosting" htmlFor="pol-hosting" ayuda="Se conserva por compatibilidad: ya no restringe el proveedor ni el modelo.">
         <Select
           id="pol-hosting"
           value={valor.hosting}
@@ -189,7 +189,11 @@ function FormularioVinculo({
           <Campo etiqueta="Rama por defecto" htmlFor="repo-rama">
             <Input id="repo-rama" maxLength={255} value={rama} onChange={(e) => setRama(e.target.value)} />
           </Campo>
-          <Campo etiqueta="Nivel de política de código" htmlFor="repo-nivel">
+          <Campo
+            etiqueta="Nivel de política de código"
+            htmlFor="repo-nivel"
+            ayuda="Decide qué material de código se comparte con el modelo (restringido: rutas, hashes e índice; interno: además fragmentos de los símbolos tocados; abierto: además el diff). No decide qué proveedor o modelo se usa."
+          >
             <Select id="repo-nivel" value={nivel} onChange={(e) => setNivel(e.target.value as NivelCodigo)} opciones={opcionesDe(NIVELES_CODIGO)} />
           </Campo>
           <Campo etiqueta="Retención de snapshots (días)" htmlFor="repo-retencion">
@@ -279,7 +283,9 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
       <CardHeader className="flex-row items-start justify-between">
         <div>
           <CardTitle>Repositorios vinculados</CardTitle>
-          <CardDescription>Nivel de política de código, retención y exclusiones de cada repositorio.</CardDescription>
+          <CardDescription>
+            Nivel de política de código (qué material se comparte con el modelo), retención y exclusiones de cada repositorio.
+          </CardDescription>
         </div>
         {puedeEditar ? (
           <Button tamano="pequeno" onClick={() => setEditandoId("nuevo")}>

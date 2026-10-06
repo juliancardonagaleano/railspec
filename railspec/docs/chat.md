@@ -34,11 +34,17 @@ arrancar.
 1. La conversación es de su autor (otra persona recibe 404) y de un workspace;
    todo acceso exige rol `lector` ahí. Nivel efectivo y política son los más
    restrictivos de sus repositorios.
-2. El modelo se elige antes de enviar nada. En `restringido` e `interno`
-   solo entra Foundry con una región fija que esté en `RAILSPEC_CHAT_ZONA_DATOS`;
-   si la variable está vacía, el chat responde 422 `perfil-insatisfacible` sin
-   llamar a ningún modelo. La misma regla rige en `abierto` si algún vínculo
-   fija `hosting: azure-zona-datos`. `modelos_permitidos` del vínculo se respeta.
+2. El modelo se elige antes de enviar nada, con el mismo criterio que el motor:
+   la suscripción del perfil por defecto del workspace o, sin ella, Foundry y
+   luego Anthropic si está configurado. **El nivel del repositorio no restringe
+   proveedor, modelo, región ni zona de datos** (decisión del 2026-10-06; el
+   chat ya no exige hosting Azure, región fija ni `RAILSPEC_CHAT_ZONA_DATOS`, y
+   ya no responde 422 `perfil-insatisfacible` por la zona): el nivel solo
+   gobierna el material que puede salir en las respuestas (huella N, fragmentos,
+   presupuestos de fuga). `modelos_permitidos` del vínculo se respeta cuando es
+   una lista explícita; `hosting` del vínculo es un dato heredado sin efecto.
+   Elegir un modelo fuera de Foundry es decisión del usuario: esos servicios
+   pueden tener otras condiciones de retención y región.
 3. Bucle de hasta 6 pasos: el modelo devuelve `PasoAgente` con hasta 4
    llamadas o con la respuesta. Las tools son las de superficie `chat` del
    registro único (`graph.query`, `unit.status`, `unit.list`,
@@ -162,18 +168,16 @@ no se marcan. El arnés trae el texto de cada referencia en local con
 
 | Variable | Por defecto | Qué hace |
 |---|---|---|
-| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma, en minúsculas: `eastus2,swedencentral`; `zona-us` o `zona-eu` para un despliegue DataZone) donde el chat puede enviar código en `restringido`/`interno`. Vacío: el chat no responde en esos niveles. |
 | `RAILSPEC_CHAT_MODELO` | `claude-sonnet-5-5` | Modelo (despliegue en Foundry) del rol `chat`. |
 | `RAILSPEC_CHAT_CLONES` | vacío | Carpeta con un clon de solo lectura por repositorio en `<owner>/<repo>`. Sin ella no hay `code.read` y el chat responde sin leer código. |
 
 En AKS no se escriben a mano: `deploy/renderizar.py` las saca en el ConfigMap
-desde `RAILSPEC_CHAT_ZONA_DATOS` y `RAILSPEC_CHAT_MODELO`, y fija
+desde `RAILSPEC_CHAT_MODELO`, y fija
 `RAILSPEC_CHAT_CLONES=/var/lib/railspec/clones` cuando se da
 `RAILSPEC_CHAT_CLONES_PVC` (el PVC que el Deployment monta de solo lectura en
-esa ruta). Sin zona de datos el renderizador avisa por stderr y rechaza una
-región con mayúsculas, porque el servidor compara la región tal cual y el chat se
-negaría en silencio. Cómo definirlas, crear el PVC y mantener los clones al día:
-[despliegue.md](despliegue.md#chat-de-contexto-zona-de-datos-modelo-y-clones).
+esa ruta). Sin PVC de clones el renderizador avisa por stderr (el chat responde
+sin leer código). Cómo definirlas, crear el PVC y mantener los clones al día:
+[despliegue.md](despliegue.md#chat-de-contexto-modelo-y-clones).
 
 Los clones los lee `git show` (la imagen del servidor trae `git`) en
 `origin/<rama por defecto del vínculo>` o, si no existe, en `<rama>`; sirve un

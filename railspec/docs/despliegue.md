@@ -58,6 +58,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
      --from-literal=RAILSPEC_PCE_API_KEY='…' \
      --from-literal=RAILSPEC_CONSOLA_SECRETO="$(openssl rand -base64 48)" \
      --from-literal=RAILSPEC_CLAVE_MAESTRA="$(openssl rand -base64 32)" \
+     --from-literal=RAILSPEC_METRICAS_TOKEN="$(openssl rand -base64 24)" \
      --from-literal=RAILSPEC_GITHUB_APP_CLIENT_ID='Iv1.…' \
      --from-literal=RAILSPEC_GITHUB_APP_CLIENT_SECRET='…'
    ```
@@ -72,6 +73,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_CONSOLA_SECRETO` | sí | Clave de las sesiones de la consola web, de al menos 32 caracteres (`openssl rand -base64 48` da 64). El ConfigMap fija una URL pública https, así que sin ella, o con una más corta, el servidor no arranca. |
    | `RAILSPEC_CLAVE_MAESTRA` | no, pero sin ella la consola no guarda suscripciones de modelos | Clave AES de 32 bytes en base64 (`openssl rand -base64 32`) que cifra las claves de las suscripciones de Foundry y Anthropic. **Guárdala aparte**: si se pierde, hay que volver a escribir las claves. Para rotarla ver [proveedores.md](proveedores.md#suscripciones-de-modelos). |
    | `RAILSPEC_CLAVE_MAESTRA_ANTERIOR` | no | Durante una rotación: la clave anterior (o varias, separadas por coma), solo para descifrar lo guardado. |
+   | `RAILSPEC_METRICAS_TOKEN` | no | Activa `GET /metrics` (texto de Prometheus) y es su Bearer: el scraper envía `Authorization: Bearer <token>`. 16 caracteres o más (`openssl rand -base64 24`); con uno más corto el servidor no arranca. Sin esta clave no existe el endpoint. Ver [Esquema del estado y métricas](#esquema-del-estado-y-métricas). |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
 
 **Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y
@@ -88,9 +90,9 @@ tokens de desarrollo si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo
 `python3 railspec/deploy/renderizar.py --variables` imprime esta tabla. El
 significado de las variables de proveedores, catálogo y contexto, y las que
 no pasan por el renderizador (`RAILSPEC_FOUNDRY_PROYECTO_API_VERSION`,
-`RAILSPEC_SECRETOS_DIR`), está en [proveedores.md](proveedores.md). Las dos que
-fijan cuándo se borra lo abandonado en el grafo (`RAILSPEC_GRAFO_*`) tampoco
-pasan por el renderizador: ver [Lo que queda a
+`RAILSPEC_SECRETOS_DIR`), está en [proveedores.md](proveedores.md). Las que fijan
+cuándo se borra lo abandonado en el grafo y cuándo se avisa que está viejo
+(`RAILSPEC_GRAFO_*`) se explican en [Lo que queda a
 medias](#lo-que-queda-a-medias).
 
 | Variable | Defecto | Uso |
@@ -106,8 +108,8 @@ medias](#lo-que-queda-a-medias).
 | `RAILSPEC_MEMORIA` | `1Gi` | Memoria solicitada y límite. |
 | `RAILSPEC_MONGO_DB` | `railspec` | Base de datos. |
 | `RAILSPEC_FOUNDRY_ENDPOINT` | vacío | Recurso de Azure AI Foundry. |
-| `RAILSPEC_FOUNDRY_REGION` | vacío | Región del recurso (`eastus2`). Sin ella, `restringido` e `interno` no tienen modelo en zona. |
-| `RAILSPEC_FOUNDRY_ZONA_DATOS` | vacío | Zona de datos del recurso (`us`, `eu`), la de los SKU DataZone. |
+| `RAILSPEC_FOUNDRY_REGION` | vacío | Región del recurso (`eastus2`), la que se audita en los despliegues Standard. No restringe qué repositorios sirve el modelo. |
+| `RAILSPEC_FOUNDRY_ZONA_DATOS` | vacío | Zona de datos del recurso (`us`, `eu`), la de los SKU DataZone (se audita; no restringe). |
 | `RAILSPEC_FOUNDRY_PROYECTO` | vacío | Endpoint del proyecto de Foundry para leer los despliegues por API. |
 | `RAILSPEC_FOUNDRY_DESPLIEGUES` | vacío | Despliegues declarados en la forma compacta `despliegue=modelo[:SKU],…`. La lista JSON no cabe en el ConfigMap: el renderizador la rechaza. |
 | `RAILSPEC_CATALOGO_TTL_S` | `3600` | Vigencia del catálogo de modelos, en segundos. |
@@ -127,30 +129,21 @@ medias](#lo-que-queda-a-medias).
 | `RAILSPEC_CONSOLA_SSE_MAX_USUARIO` | `5` | Flujos de eventos en vivo abiertos a la vez por persona y por réplica; al excederlo, 429. |
 | `RAILSPEC_CONSOLA_SSE_MAX_GLOBAL` | `200` | Ídem en total por réplica. |
 | `RAILSPEC_CONSOLA_SSE_REVALIDAR_S` | `30` | Cada cuántos segundos un flujo en vivo vuelve a comprobar el rol `lector` y se cierra si lo perdió. |
-| `RAILSPEC_CHAT_ZONA_DATOS` | vacío | Regiones de Azure (coma, **minúsculas**: `eastus2,swedencentral`) donde el chat puede enviar código a un modelo en `restringido` e `interno`. **Vacía, el chat no responde en esos niveles** (falla cerrado) y el renderizador lo avisa por stderr. Ver [Chat de contexto](#chat-de-contexto-zona-de-datos-modelo-y-clones). |
 | `RAILSPEC_CHAT_MODELO` | vacío | Despliegue de Foundry del rol `chat`. Vacío, el del servidor (`claude-sonnet-5-5`). |
-| `RAILSPEC_CHAT_CLONES_PVC` | vacío | PersistentVolumeClaim con un clon por repositorio. El Deployment lo monta de solo lectura en `/var/lib/railspec/clones` y el ConfigMap le pasa esa ruta al servidor como `RAILSPEC_CHAT_CLONES`. Vacío, el chat responde sin leer código. Ver [Chat de contexto](#chat-de-contexto-zona-de-datos-modelo-y-clones). |
+| `RAILSPEC_CHAT_CLONES_PVC` | vacío | PersistentVolumeClaim con un clon por repositorio. El Deployment lo monta de solo lectura en `/var/lib/railspec/clones` y el ConfigMap le pasa esa ruta al servidor como `RAILSPEC_CHAT_CLONES`. Vacío, el chat responde sin leer código. Ver [Chat de contexto](#chat-de-contexto-modelo-y-clones). |
 
-## Chat de contexto: zona de datos, modelo y clones
+## Chat de contexto: modelo y clones
 
-El chat ([chat.md](chat.md)) falla cerrado: sin estos valores se niega o
-responde sin código. El renderizador avisa por stderr (`renderizar: aviso: …`)
-cuando `RAILSPEC_CHAT_ZONA_DATOS` o `RAILSPEC_CHAT_CLONES_PVC` quedan vacías.
+El chat ([chat.md](chat.md)) responde sin código mientras no tenga clones. El
+renderizador avisa por stderr (`renderizar: aviso: …`) cuando
+`RAILSPEC_CHAT_CLONES_PVC` queda vacía. Desde el 2026-10-06 el chat **ya no
+exige zona de datos** (`RAILSPEC_CHAT_ZONA_DATOS` se eliminó): el nivel del
+repositorio no restringe qué proveedor o región usa, solo qué material de código
+puede salir en las respuestas.
 
-- **Zona de datos.** `RAILSPEC_CHAT_ZONA_DATOS` lista las regiones de Azure
-  donde el chat puede enviar código; para un despliegue de Foundry con SKU
-  `DataZone*` la región es `zona-us` o `zona-eu`
-  ([despliegue-datos.md](despliegue-datos.md#zona-de-datos-del-chat)). En
-  `restringido` e `interno` solo sirve un
-  despliegue de Foundry con región fija y esa región debe estar en la lista,
-  escrita en minúsculas igual que la que devuelve Azure (una mayúscula no
-  falla al arrancar: el chat se niega con 422 `perfil-insatisfacible`, y por
-  eso el renderizador la rechaza). Pon la región de tu recurso de Foundry
-  (`RAILSPEC_FOUNDRY_REGION`). En `abierto` no hace falta salvo que el vínculo
-  exija hosting en la zona de datos.
 - **Modelo.** `RAILSPEC_CHAT_MODELO` es el despliegue del rol `chat`; tiene que
-  existir en el catálogo de Foundry ([proveedores.md](proveedores.md)) y, en
-  `restringido` e `interno`, ser de un SKU DataZone o Standard.
+  existir en el catálogo de Foundry ([proveedores.md](proveedores.md)) o en la
+  suscripción del perfil por defecto del workspace.
 - **Clones.** `code.read` y la comprobación de referencias obsoletas de los
   insumos leen con `git show` el repositorio vinculado en
   `<RAILSPEC_CHAT_CLONES>/<owner>/<repo>`, en `refs/remotes/origin/<rama>` o
@@ -270,7 +263,6 @@ export RAILSPEC_DOMINIO=railspec.midominio.com
 export RAILSPEC_TLS_SECRETO=railspec-tls
 export RAILSPEC_FOUNDRY_ENDPOINT=https://….services.ai.azure.com
 export RAILSPEC_FOUNDRY_REGION=eastus2
-export RAILSPEC_CHAT_ZONA_DATOS=eastus2
 export RAILSPEC_CHAT_CLONES_PVC=railspec-clones   # opcional; ver Chat de contexto
 python3 railspec/deploy/renderizar.py > railspec.yaml
 kubectl apply --dry-run=server -f railspec.yaml
@@ -305,6 +297,33 @@ esquema del código y la guardada (`railspec_estado_esquema{origen}`), el estado
 de cada sonda (`railspec_sonda_ok{sonda}`), las peticiones por superficie y
 clase de estado y el instante de arranque. Los contadores son de cada réplica:
 Prometheus los suma.
+
+Un trabajo de Prometheus que lo consulta con el token como credencial (en
+Render, `scheme: https` y el host del servicio; en AKS, el Service interno):
+
+```yaml
+scrape_configs:
+  - job_name: railspec
+    metrics_path: /metrics
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secretos/railspec-metricas-token
+    static_configs:
+      - targets: ["railspec.onrender.com"]
+```
+
+Para rotar el token cambia `RAILSPEC_METRICAS_TOKEN`, reinicia el servicio y
+actualiza el archivo de credenciales del scraper en seguida: entre ambos pasos
+las consultas reciben 401, que `up == 0` refleja sin perder las series.
+Alertas mínimas sugeridas:
+
+| Alerta | Expresión | Para qué |
+| --- | --- | --- |
+| Servicio no responde a las sondas | `railspec_sonda_ok == 0` sostenido 5 minutos | La base o el grafo no responden |
+| Errores del servidor | `sum(rate(railspec_http_peticiones_total{estado="5xx"}[5m])) > 0` sostenido | Respuestas 5xx por superficie |
+| Esquema desalineado | `railspec_estado_esquema{origen="codigo"} != on() railspec_estado_esquema{origen="almacenado"}` | Código y estado guardado en versiones distintas |
+| Reinicios repetidos | `changes(railspec_proceso_inicio_segundos[1h]) > 2` | El proceso se reinicia en bucle |
 
 ## Reindexado del canónico
 
@@ -355,8 +374,9 @@ nada que limpiar a mano.
 | --- | --- | --- |
 | `RAILSPEC_GRAFO_SUPERPOSICION_DIAS` | `30` | Días sin snapshot nuevo tras los que se borra la superposición de una unidad no integrada (la retención por defecto de los snapshots; este plazo es del servidor, no del vínculo). Las integradas esperan a que un índice cubra su commit y no caducan por tiempo. |
 | `RAILSPEC_GRAFO_INDEXADO_HORAS` | `24` | Horas sin lotes nuevos tras las que se borra la preparación de un índice que no completó. |
+| `RAILSPEC_GRAFO_FRESCURA_HORAS` | `72` | Horas desde el último índice canónico aplicado tras las que `graph.query` marca el repositorio como `desactualizado` y lo avisa en `avisos` (y el contexto de las órdenes de spec, plan y tasks, en `grafo_avisos`). No borra nada; `0` no avisa nunca. Un canónico sin instante guardado (indexado antes de esta variable) no se marca hasta su próximo índice. |
 
-- `0` desactiva cada una y admiten fracciones (`0.5`). El servidor las lee al
+- `0` desactiva cada una (en la frescura, `0` deja de avisar) y admiten fracciones (`0.5`). El servidor las lee al
   arrancar: un valor que no es un número, negativo o desmesurado impide
   arrancar, con el nombre de la variable en el error.
 - Pasan por `renderizar.py` al ConfigMap con esos mismos defectos, así que

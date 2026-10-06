@@ -10,7 +10,7 @@ toca, corre los gates y abre los checkpoints.
 | --- | --- |
 | `estado/mongo.py` | `AlmacenMongo`: `StateStore` más lo propio del motor (órdenes, snapshots, entradas pendientes, turno por unidad, configuración). Toda consulta pasa por un filtro con organización y workspace. |
 | `estado/checkpoints.py` | `CheckpointsMongo`: `CheckpointStorage` de MAF sobre Mongo; un workflow por unidad (`railspec:{org}:{ws}:{unidad}`), con orden por contador atómico. |
-| `proveedores/` | `ProveedorModelo` con los SDK oficiales: Foundry (despliegues Claude por `/anthropic` y el resto por chat completions, clave o Entra ID) es el primario; Anthropic directo solo con `RAILSPEC_ANTHROPIC_HABILITADO` y solo para nivel `abierto`. Catálogo por API, selección por rol con política de zona de datos. Ver [proveedores.md](proveedores.md). |
+| `proveedores/` | `ProveedorModelo` con los SDK oficiales: Foundry (despliegues Claude por `/anthropic` y el resto por chat completions, clave o Entra ID) es el primario; Anthropic directo solo con `RAILSPEC_ANTHROPIC_HABILITADO`, para cualquier repositorio (decisión consciente del usuario). Catálogo por API, selección por rol sin restricción por nivel ni zona de datos. Ver [proveedores.md](proveedores.md). |
 | `contexto/` | Herramientas de contexto conectables por rol (PCE primero): implementan el proveedor de gobernanza del gate. Ver [proveedores.md](proveedores.md). |
 | `motor/artefactos.py` | Capa determinista: plantillas, secciones obligatorias, `CA-NN`, grupos del plan, comando de validación y tareas trazables. Sin tokens. |
 | `motor/gate.py` | Panel de críticos en paralelo (un lente por crítico), refutador para severidad alta y regla de convergencia. |
@@ -47,6 +47,25 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   de la superposición de la unidad (`impacto`: tocados, afectados aguas
   arriba, procesos y riesgo) y cuántos símbolos tiene enlazados cada `CA-NN`
   (ver `grafo.md`). El grafo informa, no genera hallazgos deterministas.
+- Las órdenes de redactar y refinar de spec, plan y tasks llevan en
+  `contexto.grafo` una rebanada del grafo remoto (`motor/contexto_grafo.py`):
+  el motor consulta `graph.query` (`resolve` para los nombres entre comillas
+  invertidas del pedido, `search` para las palabras con contenido del título,
+  el pedido y los criterios) sobre los repositorios de la unidad, con hasta 6
+  consultas de 8 resultados, y deja como mucho 20 nodos y 6000 caracteres:
+  símbolo, nombre, tipo, ruta y por qué entró. Nunca texto de código, que el
+  grafo no guarda. La búsqueda es por nombre de símbolo, no semántica: un
+  título en español rara vez coincide con identificadores en inglés. La orden
+  de implementar no la lleva (el arnés usa `graph_query`).
+  - Nunca falla la orden: sin grafo configurado (el despliegue de Render no
+    define FalkorDB), con un repositorio sin índice canónico, con el índice
+    desactualizado o con el grafo caído, la orden sale igual y
+    `contexto.grafo_avisos` lo dice, con `grafo_frescura` (commit e instante
+    del último índice por repositorio) cuando hubo consulta. El arnés debe leer
+    una rebanada vacía como «no sé», no «no existe».
+  - Los críticos del gate de spec, plan y tasks no reciben este contexto:
+    evalúan el artefacto con la gobernanza. Solo el gate de código suma
+    información del grafo (impacto y trazas).
 - `unit.report` ingiere el snapshot en el grafo con la política del vínculo y
   enlaza los criterios de las tareas completadas; `unit.integrate` retiene
   la superposición de la unidad en el repositorio primario hasta que un
@@ -148,18 +167,28 @@ sobre otro commit es otra pregunta. Ver [proveedores.md](proveedores.md).
 Una unidad puede tocar varios repositorios (el primero es el primario; los demás,
 transversales), cada uno con su `nivel_codigo`. **Gana el más restrictivo**
 (`restringido` > `interno` > `abierto`; un repositorio sin vínculo cuenta como
-`restringido`). Ese nivel efectivo (`Nucleo.nivel(estado)`) es el que rige todo lo
-que sale de la unidad hacia un modelo:
+`restringido`). Ese nivel efectivo (`Nucleo.nivel(estado)`) es el que rige el
+material de código que sale de la unidad hacia un modelo. **No elige proveedor,
+modelo, región ni zona de datos** (decisión del 2026-10-06): usar Anthropic,
+modelos abiertos o proveedores compatibles es decisión consciente del usuario,
+que debe saber que esos servicios pueden tener otras condiciones de retención y
+región (ver [proveedores.md](proveedores.md#política-por-nivel)).
 
-- `unit.start` valida el perfil contra el nivel efectivo del conjunto de
-  repositorios, no contra el del primero: si el catálogo no puede servirlo, responde
-  `perfil-insatisfacible` antes de crear la unidad.
-- El gate elige modelo y zona con el nivel efectivo, y cada llamada se audita con él
-  (`nivel_codigo`).
+- `unit.start` congela el nivel de cada repositorio (`RepositorioUnidad.nivel_codigo`)
+  y el efectivo (`EstadoUnidad.nivel_efectivo`, contrato 1.7): un cambio posterior
+  del vínculo en la consola no altera las unidades en curso. Una unidad anterior a
+  1.7 (sin nivel congelado) sigue leyendo el vínculo vivo. `unit.import` los
+  congela igual.
+- `unit.start` valida el perfil contra el catálogo: si no puede servirlo (modelo
+  ausente o sin la capacidad pedida), responde `perfil-insatisfacible` antes de
+  crear la unidad. El nivel efectivo solo escoge las claves por nivel del perfil
+  (`rol:nivel`); no excluye proveedores.
+- Cada llamada del gate se audita con el nivel efectivo (`nivel_codigo`), el
+  congelado de la unidad.
 - El material del gate de código solo incluye el diff si ningún repositorio de la
   unidad es `restringido`. Los símbolos y las rutas (sin texto de código) van siempre.
-- La comprobación del snapshot (`el vínculo fija nivel …`) sigue siendo por
-  repositorio: cada snapshot declara el nivel de su propio vínculo.
+- La comprobación del snapshot (`la unidad fija nivel …`) sigue siendo por
+  repositorio: cada snapshot declara el nivel congelado de su repositorio.
 
 Los roles son por workspace, no por repositorio: un `lector` ve (`graph.query`,
 `unit.list`, `unit.status`, estadísticas) todos los repositorios vinculados a su
@@ -173,7 +202,7 @@ repositorio, que el modelo de datos no tiene; el límite de visibilidad es el wo
 | `RAILSPEC_POSTGRES_URL`, `RAILSPEC_POSTGRES_ESQUEMA` | Estado y checkpoints en Postgres en lugar de Mongo (excluyente con `RAILSPEC_MONGO_URI`); ver [estado-postgres.md](estado-postgres.md). |
 | `RAILSPEC_MONGO_URI`, `RAILSPEC_MONGO_DB` | Estado y checkpoints. Sin URI, el servidor solo arranca con `RAILSPEC_PERMITIR_DESARROLLO=1` (estado en memoria, solo desarrollo) y rechaza el arranque si no. |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Recurso de Azure Foundry. Sin clave, Entra ID. El resto de variables de proveedores, catálogo y contexto está en [proveedores.md](proveedores.md). |
-| `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Anthropic directo (solo nivel `abierto`). |
+| `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Anthropic directo (para cualquier repositorio; decisión consciente del usuario). |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Gobernanza por MCP. Sin ella, todo gate escala con `sin-gobernanza`. |
 | `RAILSPEC_FALKORDB_URL` | Grafo central (`railspec-graph`, extra `grafo`). |
 | `RAILSPEC_OIDC_AUDIENCIA` | Audiencia de los tokens OIDC de GitHub Actions: un valor largo y no adivinable, el mismo que usa el workflow de reindexado. Sin valor (el defecto) la identidad de servicio queda desactivada; `railspec` se rechaza. |
@@ -215,9 +244,4 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
   registro no anuncia la tool cuyo manejador falta.
 - Presupuesto por tier, meta de llamadas y contador de aciertos de la caché
   (contrato 1.6); `unit.advance` ignora `version_vista` y `dueno` no se exige.
-- El nivel de código se lee en vivo del vínculo (`Nucleo.nivel`): bajarlo o
-  subirlo con una unidad en curso cambia el modelo y el material de sus gates
-  siguientes. Congelarlo al crear la unidad necesita un campo nuevo en el estado de
-  la unidad (contrato 1.7) y queda para entonces; hasta ese momento, quien relaja la
-  política (`org-admin`) debe hacerlo sin unidades abiertas en ese repositorio.
 - La forma de la respuesta de PCE no está verificada contra el servicio real.

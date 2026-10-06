@@ -21,7 +21,6 @@ from railspec.contracts.comun import AlcanceRepositorio, AlcanceWorkspace, Nivel
 from railspec.contracts.repositorio import (
     AsignacionRol,
     EventoAuditoria,
-    HostingChat,
     Organizacion,
     PoliticaChat,
     Rol,
@@ -111,11 +110,6 @@ def _relajaciones_vinculo(antes: dict[str, Any], despues: dict[str, Any]) -> lis
         r.append("nivel_codigo")
     if not antes["chat_permitido"] and despues["chat_permitido"]:
         r.append("chat_permitido")
-    if (
-        antes["chat_hosting"] == HostingChat.azure_zona_datos
-        and despues["chat_hosting"] != antes["chat_hosting"]
-    ):
-        r.append("chat_hosting")
     if not antes["chat_fragmentos_en_respuesta"] and despues["chat_fragmentos_en_respuesta"]:
         r.append("chat_fragmentos_en_respuesta")
     for campo in (
@@ -232,7 +226,7 @@ class WorkspaceEdicion(Entrada):
     zona_datos_azure: str | None = None
     perfil_por_defecto: Perfil = Perfil.estandar
     version: int
-    #: Obligatorio al ampliar la zona de datos (quitarla o cambiarla); queda en la auditoría.
+    #: Opcional: queda en la auditoría. La zona es informativa (ya no restringe proveedores).
     motivo: str | None = Field(default=None, max_length=2000)
 
 
@@ -279,12 +273,10 @@ async def editar_workspace(org: str, ws: str, entrada: WorkspaceEdicion, request
     previa = ctx.datos.workspace(org, ws)
     if previa is None:
         raise HTTPException(404, f"no existe el workspace {org}/{ws}")
-    # Sin zona declarada no hay restricción: fijar una endurece; quitarla o cambiarla a otra, que no se
-    # puede probar más estricta, es ampliar y exige org-admin con motivo.
+    # La zona de datos del workspace es un dato informativo: ya no restringe proveedores ni modelos,
+    # así que cambiarla no exige org-admin ni motivo (el cambio sí queda en la auditoría).
     zona_antes, zona_despues = previa.zona_datos_azure or None, entrada.zona_datos_azure or None
-    relajan = ["zona_datos_azure"] if zona_antes is not None and zona_despues != zona_antes else []
     motivo = (entrada.motivo or "").strip()
-    _exigir_para_relajar(permisos, org, relajan, motivo)
     actor = sesion.actor()
     w = Workspace(
         alcance=previa.alcance,
@@ -302,7 +294,6 @@ async def editar_workspace(org: str, ws: str, entrada: WorkspaceEdicion, request
         entidad="workspace",
         accion="editar",
         motivo=motivo or None,
-        relaja=",".join(relajan) or None,
         **_detalle_cambios(cambios),
     )
     return _json(w)

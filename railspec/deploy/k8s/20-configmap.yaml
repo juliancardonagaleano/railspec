@@ -38,6 +38,9 @@ data:
   # preparaciones de índices que no completaron); 0 = nunca. Ver railspec/docs/grafo.md.
   RAILSPEC_GRAFO_SUPERPOSICION_DIAS: "${RAILSPEC_GRAFO_SUPERPOSICION_DIAS}"
   RAILSPEC_GRAFO_INDEXADO_HORAS: "${RAILSPEC_GRAFO_INDEXADO_HORAS}"
+  # Tras cuántas horas sin índice canónico nuevo graph.query avisa que el grafo puede estar
+  # desactualizado (0 = no avisa). Ver railspec/docs/grafo.md.
+  RAILSPEC_GRAFO_FRESCURA_HORAS: "${RAILSPEC_GRAFO_FRESCURA_HORAS}"
   # Consola web: base pública de la redirección de OAuth de la GitHub App y
   # administradores de la plataforma. Client id/secret de la App y
   # RAILSPEC_CONSOLA_SECRETO (obligatoria, mínimo 32 caracteres) van en el Secret (ver
@@ -51,11 +54,9 @@ data:
   RAILSPEC_CONSOLA_SSE_MAX_USUARIO: "${RAILSPEC_CONSOLA_SSE_MAX_USUARIO}"
   RAILSPEC_CONSOLA_SSE_MAX_GLOBAL: "${RAILSPEC_CONSOLA_SSE_MAX_GLOBAL}"
   RAILSPEC_CONSOLA_SSE_REVALIDAR_S: "${RAILSPEC_CONSOLA_SSE_REVALIDAR_S}"
-  # Chat de contexto (railspec/docs/chat.md). Zona de datos vacía = el chat se niega en
-  # restringido e interno (falla cerrado): son las regiones de Azure, en minúsculas, donde puede
-  # enviar código. Modelo vacío = el del servidor (claude-sonnet-5-5). Clones: ruta del volumen
-  # que monta el Deployment cuando hay PVC; vacía, el chat responde sin leer código.
-  RAILSPEC_CHAT_ZONA_DATOS: "${RAILSPEC_CHAT_ZONA_DATOS}"
+  # Chat de contexto (railspec/docs/chat.md). Modelo vacío = el del servidor (claude-sonnet-5-5).
+  # Clones: ruta del volumen que monta el Deployment cuando hay PVC; vacía, el chat responde sin
+  # leer código.
   RAILSPEC_CHAT_MODELO: "${RAILSPEC_CHAT_MODELO}"
   RAILSPEC_CHAT_CLONES: "${RAILSPEC_CHAT_CLONES}"
   RAILSPEC_HOST: "0.0.0.0"

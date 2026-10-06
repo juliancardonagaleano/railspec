@@ -74,8 +74,9 @@ def test_flujo_completo_registrar_descubrir_elegir_y_asociar_a_un_perfil(caplog)
             cuerpo = r.json()
             assert (cuerpo["resultado"], cuerpo["modelos"]) == ("ok", 4)
             modelos = {x["clave"]: x for x in cuerpo["suscripcion"]["modelos"]}
-            assert modelos["opus-dz"]["region"] == "zona-eu" and modelos["opus-dz"]["restringible"] is True
-            assert modelos["sonnet-gl"]["restringible"] is False and modelos["raro"]["restringible"] is False
+            assert modelos["opus-dz"]["region"] == "zona-eu" and modelos["sonnet-gl"]["region"] == "global"
+            assert modelos["raro"]["region"] is None  # la región se muestra; ya no clasifica a los modelos
+            assert not any("restringible" in m for m in modelos.values())
             assert modelos["opus-dz"]["hosting"] == "azure" and not modelos["opus-dz"]["seleccionado"]
             version = cuerpo["suscripcion"]["version"]
             # Elegir los modelos disponibles
@@ -356,8 +357,8 @@ def test_el_perfil_exige_suscripcion_si_la_organizacion_tiene_alguna_y_valida_ca
             ok = propio | {"roles": {"redactor": {"modelo": {"foundry": "sonnet-gl"}, "effort": "max"}}}
             r = await c.put(ruta, json=ok, headers=CSRF)
             assert r.status_code == 200, r.text
-            # Global: no sirve a restringido ni interno; el perfil avisa sin impedirlo.
-            assert any("no sirve a restringido ni interno" in a for a in r.json()["avisos"])
+            # Global ya no da aviso: la región no restringe qué repositorios sirve el modelo.
+            assert r.json()["avisos"] == []
             # Un perfil de workspace también tiene que elegir suscripción de la organización.
             r = await c.put(ruta, params={"workspace": WS}, json=base, headers=CSRF)
             assert r.status_code == 422
@@ -481,24 +482,25 @@ def _motor_con_suscripcion(nivel=NivelCodigo.restringido, zona_workspace=None, s
     return motor, doble
 
 
-def test_unit_start_con_perfil_asociado_a_suscripcion_valida_contra_sus_modelos_y_la_zona():
+def test_unit_start_con_perfil_asociado_a_suscripcion_valida_contra_sus_modelos_sin_mirar_zona_ni_nivel():
     async def caso():
         motor, _ = _motor_con_suscripcion(zona_workspace="eu")
         salida = await motor.start(entrada_start(), JULIAN)
         assert salida.estado.unidad.unidad
-        # El mismo perfil en un workspace de otra zona no se puede servir con esta suscripción.
+        # Un workspace de otra zona ya no impide servirlo: la zona es informativa.
         motor2, _ = _motor_con_suscripcion(zona_workspace="us")
-        with pytest.raises(ErrorNegocio) as exc:
-            await motor2.start(entrada_start(), JULIAN)
-        assert exc.value.codigo == CodigoError.perfil_insatisfacible
-        assert "fuera de la zona de datos" in exc.value.detalle and "foundry-eu" in exc.value.detalle
-        # Con SKU Global: nunca sirve a restringido, aunque el workspace no declare zona.
+        await motor2.start(entrada_start(), JULIAN)
+        # Con SKU Global en un repositorio restringido tampoco: el nivel no restringe proveedores.
         motor3, _ = _motor_con_suscripcion(sku="GlobalStandard")
-        with pytest.raises(ErrorNegocio):
-            await motor3.start(entrada_start(), JULIAN)
-        # En un repositorio abierto, sí.
+        await motor3.start(entrada_start(), JULIAN)
         motor4, _ = _motor_con_suscripcion(nivel=NivelCodigo.abierto, sku="GlobalStandard")
         await motor4.start(entrada_start(), JULIAN)
+        # Lo que sí sigue validándose: que el perfil encuentre sus modelos en la suscripción.
+        motor5, _ = _motor_con_suscripcion()
+        motor5.n.proveedores.suscripciones._datos.borrar_suscripcion(ORG, "foundry-eu")
+        with pytest.raises(ErrorNegocio) as exc:
+            await motor5.start(entrada_start(), JULIAN)
+        assert exc.value.codigo == CodigoError.perfil_insatisfacible
 
     correr(caso())
 
@@ -551,32 +553,18 @@ def test_el_chat_usa_la_suscripcion_del_perfil_por_defecto_del_workspace():
     from railspec.server.chat.servicio import ConfigChat, ServicioChat
 
     async def caso():
-        motor, doble = _motor_con_suscripcion(zona_workspace="eu")
-        servicio = ServicioChat(
-            almacen=motor.n.almacen,
-            chat=None,
-            registro=None,
-            autorizador=None,
-            proveedores=motor.n.proveedores,
-            config=ConfigChat(zona_datos=frozenset()),
-        )
-        proveedor, modelo, extra = await servicio._elegir(
-            ORG, NivelCodigo.restringido, {"modelos": None, "azure": True}, WS_ALCANCE
-        )
-        assert proveedor is doble and modelo == "claude-sonnet-5-5"
-        assert extra == {"despliegue": "sonnet-eu", "region": "zona-eu"}
-        # Workspace en otra zona: el chat se niega antes de enviar nada.
-        motor2, _ = _motor_con_suscripcion(zona_workspace="us")
-        malo = ServicioChat(
-            almacen=motor2.n.almacen,
-            chat=None,
-            registro=None,
-            autorizador=None,
-            proveedores=motor2.n.proveedores,
-            config=ConfigChat(),
-        )
-        with pytest.raises(Exception) as exc:
-            await malo._elegir(ORG, NivelCodigo.restringido, {"modelos": None, "azure": True}, WS_ALCANCE)
-        assert "fuera de la zona de datos" in str(exc.value)
+        for zona in ("eu", "us", None):  # la zona del workspace ya no cambia lo que sirve al chat
+            motor, doble = _motor_con_suscripcion(zona_workspace=zona)
+            servicio = ServicioChat(
+                almacen=motor.n.almacen,
+                chat=None,
+                registro=None,
+                autorizador=None,
+                proveedores=motor.n.proveedores,
+                config=ConfigChat(),
+            )
+            proveedor, modelo, extra = await servicio._elegir(ORG, {"modelos": None}, WS_ALCANCE)
+            assert proveedor is doble and modelo == "claude-sonnet-5-5"
+            assert extra == {"despliegue": "sonnet-eu", "region": "zona-eu"}
 
     correr(caso())

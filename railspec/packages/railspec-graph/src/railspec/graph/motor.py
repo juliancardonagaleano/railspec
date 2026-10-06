@@ -70,6 +70,9 @@ class Meta:
     que ``limpiar_huerfanos`` compara para borrar lo abandonado. Sin valor, el
     primer barrido lo sella (``MotorGrafo.sellar``). Lo lleva el motor aparte
     del resto de la meta para que una réplica anterior siga leyéndola.
+
+    En el grafo canónico ``actualizado`` es el instante en que se aplicó el último
+    índice (``graph.index``): ``graph.query`` lo devuelve como frescura y nadie lo barre.
     """
 
     commit: str | None = None

@@ -19,7 +19,7 @@ import pytest
 from apoyo_motor import JULIAN, ORG
 from pydantic import ValidationError
 from railspec.contracts.almacen import ConflictoVersion
-from railspec.contracts.comun import Effort, NivelCodigo, Proveedor
+from railspec.contracts.comun import Effort, Proveedor
 from railspec.contracts.repositorio import (
     Auditoria,
     AutenticacionSuscripcion,
@@ -676,9 +676,7 @@ def test_elegir_con_suscripcion_usa_su_despliegue_su_region_y_su_adaptador():
     doble = ProveedorGuionado(lambda p: None)
     servicio, _, _ = _servicio(fabrica=lambda s, clave: doble)
     _con_modelos(servicio, opus=("claude-opus-5-5", "DataZoneStandard"))
-    e = _proveedores(servicio).elegir(
-        "redactor", REQ, NivelCodigo.restringido, org=ORG, suscripcion="foundry-eu"
-    )
+    e = _proveedores(servicio).elegir("redactor", REQ, org=ORG, suscripcion="foundry-eu")
     assert (e.modelo, e.despliegue, e.region, e.suscripcion) == (
         "claude-opus-5-5",
         "opus",
@@ -689,10 +687,7 @@ def test_elegir_con_suscripcion_usa_su_despliegue_su_region_y_su_adaptador():
     # También por el nombre del despliegue.
     por_nombre = RequisitoRol(modelo={FOUNDRY: "opus"}, structured_outputs=True)
     assert (
-        _proveedores(servicio)
-        .elegir("r", por_nombre, NivelCodigo.abierto, org=ORG, suscripcion="foundry-eu")
-        .despliegue
-        == "opus"
+        _proveedores(servicio).elegir("r", por_nombre, org=ORG, suscripcion="foundry-eu").despliegue == "opus"
     )
 
 
@@ -703,12 +698,13 @@ def test_un_modelo_que_la_suscripcion_no_tiene_elegido_no_se_usa():
     _crear(servicio)
     _descubrir(servicio)  # descubiertos pero ninguno elegido
     with pytest.raises(PerfilInsatisfacible) as exc:
-        _proveedores(servicio).elegir("redactor", REQ, NivelCodigo.abierto, org=ORG, suscripcion="foundry-eu")
+        _proveedores(servicio).elegir("redactor", REQ, org=ORG, suscripcion="foundry-eu")
     assert "no está entre los modelos elegidos" in str(exc.value) and "Foundry UE" in str(exc.value)
 
 
-@pytest.mark.parametrize("nivel", [NivelCodigo.restringido, NivelCodigo.interno])
-def test_restringido_e_interno_solo_aceptan_foundry_en_la_zona_del_workspace(nivel):
+def test_la_region_del_modelo_no_restringe_a_ningun_repositorio():
+    """Decisión del 2026-10-06: Global, Standard y DataZone sirven igual; la región solo se audita."""
+
     servicio, _, _ = _servicio(fabrica=lambda s, c: ProveedorGuionado(lambda p: None))
     _con_modelos(
         servicio,
@@ -718,34 +714,15 @@ def test_restringido_e_interno_solo_aceptan_foundry_en_la_zona_del_workspace(niv
         sin=("gpt-5", "Standard"),
     )
     p = _proveedores(servicio)
-    pide = lambda modelo, zona: p.elegir(  # noqa: E731
-        "r", RequisitoRol(modelo={FOUNDRY: modelo}), nivel, org=ORG, zona=zona, suscripcion="foundry-eu"
+    pide = lambda modelo: p.elegir(  # noqa: E731
+        "r", RequisitoRol(modelo={FOUNDRY: modelo}), org=ORG, suscripcion="foundry-eu"
     )
-    assert pide("dz", "eu").region == "zona-eu"  # DataZone en la zona del workspace
-    assert pide("st", "eu").region == "swedencentral"  # Standard: la región del recurso, cuya zona es eu
-    assert pide("st", "swedencentral").region == "swedencentral"
-    assert pide("dz", None).region == "zona-eu"  # workspace sin zona declarada: vale cualquier zona fija
-    for modelo, zona, fragmento in (
-        ("dz", "us", "fuera de la zona de datos"),
-        ("st", "us", "fuera de la zona de datos"),
-        ("gl", "eu", "fuera de la zona de datos"),  # Global nunca
-        ("gl", None, "fuera de la zona de datos"),
-    ):
-        with pytest.raises(PerfilInsatisfacible, match=fragmento):
-            pide(modelo, zona)
-    # En abierto la zona no importa, ni siquiera Global.
-    abierto = p.elegir(
-        "r",
-        RequisitoRol(modelo={FOUNDRY: "gl"}),
-        NivelCodigo.abierto,
-        org=ORG,
-        zona="us",
-        suscripcion="foundry-eu",
-    )
-    assert abierto.region == "global"
+    assert pide("dz").region == "zona-eu"
+    assert pide("st").region == "swedencentral"
+    assert pide("gl").region == "global"  # antes solo sirvió a abiertos
 
 
-def test_sin_sku_o_sin_zona_la_region_queda_sin_determinar_y_no_sirve_a_restringido():
+def test_sin_sku_o_sin_zona_la_region_queda_sin_determinar_pero_el_modelo_sirve():
     servicio, _, _ = _servicio(
         fabrica=lambda s, c: ProveedorGuionado(lambda p: None), transporte=_transporte()
     )
@@ -754,28 +731,15 @@ def test_sin_sku_o_sin_zona_la_region_queda_sin_determinar_y_no_sirve_a_restring
     _elegir(servicio, "opus-dz", "raro", "haiku-st")
     p = _proveedores(servicio)
     for modelo in ("opus-dz", "raro"):  # DataZone sin zona declarada; sin SKU
-        with pytest.raises(PerfilInsatisfacible, match="región desconocida"):
-            p.elegir(
-                "r",
-                RequisitoRol(modelo={FOUNDRY: modelo}),
-                NivelCodigo.restringido,
-                org=ORG,
-                suscripcion="foundry-eu",
-            )
-    # Standard sí: la región del recurso basta cuando el workspace no declara zona.
+        e = p.elegir("r", RequisitoRol(modelo={FOUNDRY: modelo}), org=ORG, suscripcion="foundry-eu")
+        assert e.region is None  # se audita como desconocida, sin bloquear
     assert (
-        p.elegir(
-            "r",
-            RequisitoRol(modelo={FOUNDRY: "haiku-st"}),
-            NivelCodigo.restringido,
-            org=ORG,
-            suscripcion="foundry-eu",
-        ).region
+        p.elegir("r", RequisitoRol(modelo={FOUNDRY: "haiku-st"}), org=ORG, suscripcion="foundry-eu").region
         == "swedencentral"
     )
 
 
-def test_anthropic_directo_solo_sirve_a_repositorios_abiertos(monkeypatch):
+def test_anthropic_directo_sirve_a_cualquier_repositorio(monkeypatch):
     doble = ProveedorGuionado(lambda p: None, proveedor=ANTHROPIC)
     servicio, _, _ = _servicio(fabrica=lambda s, c: doble)
     servicio.guardar(
@@ -789,10 +753,8 @@ def test_anthropic_directo_solo_sirve_a_repositorios_abiertos(monkeypatch):
         ORG, "directo", servicio.obtener(ORG, "directo").version, ["claude-opus-5-5"], AUDITORIA
     )
     p = _proveedores(servicio)
-    assert p.elegir("r", REQ, NivelCodigo.abierto, org=ORG, suscripcion="directo").proveedor is doble
-    for nivel in (NivelCodigo.restringido, NivelCodigo.interno):
-        with pytest.raises(PerfilInsatisfacible, match="solo sirve a repositorios abiertos"):
-            p.elegir("r", REQ, nivel, org=ORG, suscripcion="directo")
+    # Sin importar el nivel del repositorio (la selección ya no lo recibe) ni la región (global, sin zona).
+    assert p.elegir("r", REQ, org=ORG, suscripcion="directo").proveedor is doble
     assert s.proveedor == ANTHROPIC
 
 
@@ -817,7 +779,6 @@ def test_el_requisito_se_comprueba_contra_las_capacidades_del_modelo_elegido():
         p.elegir(
             "r",
             RequisitoRol(modelo={FOUNDRY: "gpt"}, effort=Effort.high),
-            NivelCodigo.abierto,
             org=ORG,
             suscripcion="foundry-eu",
         )
@@ -828,14 +789,14 @@ def test_suscripcion_inexistente_deshabilitada_o_sin_servicio_es_perfil_insatisf
     _con_modelos(servicio, opus=("claude-opus-5-5", "DataZoneStandard"))
     p = _proveedores(servicio)
     with pytest.raises(PerfilInsatisfacible, match="no existe"):
-        p.elegir("r", REQ, NivelCodigo.abierto, org=ORG, suscripcion="fantasma")
+        p.elegir("r", REQ, org=ORG, suscripcion="fantasma")
     s = servicio.obtener(ORG, "foundry-eu")
     servicio.guardar(ORG, "foundry-eu", FOUNDRY, _foundry(habilitada=False, clave=None), s.version, AUDITORIA)
     with pytest.raises(PerfilInsatisfacible, match="deshabilitada"):
-        p.elegir("r", REQ, NivelCodigo.abierto, org=ORG, suscripcion="foundry-eu")
+        p.elegir("r", REQ, org=ORG, suscripcion="foundry-eu")
     for sin in (Proveedores({}), p):
         with pytest.raises(PerfilInsatisfacible):
-            sin.elegir("r", REQ, NivelCodigo.abierto, org=None if sin is p else ORG, suscripcion="foundry-eu")
+            sin.elegir("r", REQ, org=None if sin is p else ORG, suscripcion="foundry-eu")
 
 
 def test_el_adaptador_se_reutiliza_hasta_que_la_suscripcion_cambia():
@@ -846,20 +807,20 @@ def test_el_adaptador_se_reutiliza_hasta_que_la_suscripcion_cambia():
     _con_modelos(servicio, opus=("claude-opus-5-5", "DataZoneStandard"))
     p = _proveedores(servicio)
     for _ in range(3):
-        p.elegir("r", REQ, NivelCodigo.abierto, org=ORG, suscripcion="foundry-eu")
+        p.elegir("r", REQ, org=ORG, suscripcion="foundry-eu")
     assert len(creados) == 1
     s = servicio.obtener(ORG, "foundry-eu")
     servicio.guardar(
         ORG, "foundry-eu", FOUNDRY, _foundry(clave="rotada"), s.version, AUDITORIA
     )  # rotar la clave
-    p.elegir("r", REQ, NivelCodigo.abierto, org=ORG, suscripcion="foundry-eu")
+    p.elegir("r", REQ, org=ORG, suscripcion="foundry-eu")
     assert len(creados) == 2
 
 
 def test_sin_suscripcion_rige_el_catalogo_del_servidor_como_antes():
     doble = ProveedorGuionado(lambda p: None)
     p = Proveedores({FOUNDRY: doble})
-    e = p.elegir("r", REQ, NivelCodigo.abierto)
+    e = p.elegir("r", REQ)
     assert e.proveedor is doble and e.suscripcion is None
 
 

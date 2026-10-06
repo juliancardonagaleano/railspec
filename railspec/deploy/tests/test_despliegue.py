@@ -127,6 +127,7 @@ def test_render_oidc_exige_repositorios_y_una_audiencia_no_adivinable():
 
 
 GRAFO = DEPLOY.parent / "packages" / "railspec-graph" / "src" / "railspec" / "graph" / "indexado.py"
+GRAFO_ALMACEN = GRAFO.with_name("almacen.py")
 
 
 def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_paquete_graph():
@@ -138,6 +139,10 @@ def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_pa
             re.search(r"^SUPERPOSICION_DIAS = ([\d.]+)$", fuente, re.M)[1]
         ),
         "RAILSPEC_GRAFO_INDEXADO_HORAS": float(re.search(r"^INDEXADO_HORAS = ([\d.]+)$", fuente, re.M)[1]),
+        # La frescura la lee AlmacenGrafo (almacen.py), no el indexador.
+        "RAILSPEC_GRAFO_FRESCURA_HORAS": float(
+            re.search(r"^FRESCURA_HORAS = ([\d.]+)$", GRAFO_ALMACEN.read_text(encoding="utf-8"), re.M)[1]
+        ),
     }
     mapa = _configmap({})
     for nombre, defecto in defectos.items():
@@ -145,9 +150,16 @@ def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_pa
         assert float(mapa[nombre]) == defecto
     # Vacía vuelve al defecto (como el servidor); "0" (nunca caduca) y las fracciones llegan tal cual.
     assert _configmap({"RAILSPEC_GRAFO_INDEXADO_HORAS": ""})["RAILSPEC_GRAFO_INDEXADO_HORAS"] == "24"
-    mapa = _configmap({"RAILSPEC_GRAFO_SUPERPOSICION_DIAS": "0", "RAILSPEC_GRAFO_INDEXADO_HORAS": "0.5"})
+    mapa = _configmap(
+        {
+            "RAILSPEC_GRAFO_SUPERPOSICION_DIAS": "0",
+            "RAILSPEC_GRAFO_INDEXADO_HORAS": "0.5",
+            "RAILSPEC_GRAFO_FRESCURA_HORAS": "0",
+        }
+    )
     assert mapa["RAILSPEC_GRAFO_SUPERPOSICION_DIAS"] == "0"
     assert mapa["RAILSPEC_GRAFO_INDEXADO_HORAS"] == "0.5"
+    assert mapa["RAILSPEC_GRAFO_FRESCURA_HORAS"] == "0"  # 0 = no avisa de frescura
 
 
 #: Valores que el servidor no acepta (impiden arrancar) o que el renderizador no admite por estrictez.
@@ -166,7 +178,10 @@ PLAZOS_RECHAZADOS = [
 ]
 
 
-@pytest.mark.parametrize("variable", ["RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "RAILSPEC_GRAFO_INDEXADO_HORAS"])
+@pytest.mark.parametrize(
+    "variable",
+    ["RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "RAILSPEC_GRAFO_INDEXADO_HORAS", "RAILSPEC_GRAFO_FRESCURA_HORAS"],
+)
 @pytest.mark.parametrize("valor", [*PLAZOS_RECHAZADOS, "99999999999999"], ids=lambda v: repr(v)[:20])
 def test_render_rechaza_plazos_del_grafo_que_impedirian_arrancar_al_servidor(variable, valor):
     with pytest.raises(renderizar.ErrorRender, match=variable):
@@ -175,20 +190,24 @@ def test_render_rechaza_plazos_del_grafo_que_impedirian_arrancar_al_servidor(var
 
 @pytest.mark.parametrize(
     ("variable", "unidad"),
-    [("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"), ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours")],
+    [
+        ("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"),
+        ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours"),
+        ("RAILSPEC_GRAFO_FRESCURA_HORAS", "hours"),
+    ],
 )
 def test_el_renderizador_no_admite_un_plazo_que_el_servidor_rechace(variable, unidad, monkeypatch):
-    """Todo lo que ``valores`` deja pasar lo acepta ``railspec.graph.indexado``. Al revés no hace falta:
+    """Todo lo que ``valores`` deja pasar lo acepta ``railspec.graph.plazos``. Al revés no hace falta:
     ``1e3`` lo acepta el servidor y el renderizador pide el decimal."""
 
-    indexado = pytest.importorskip("railspec.graph.indexado")
+    plazos = pytest.importorskip("railspec.graph.plazos")
     for valor in [*PLAZOS_RECHAZADOS, "0", "0.0", "0.5", "7", "24", "999999999", "999999999.5"]:
         try:
             renderizar.valores({**MINIMO, variable: valor})
         except renderizar.ErrorRender:
             continue
         monkeypatch.setenv(variable, valor)
-        indexado._plazo(None, variable, 1.0, unidad)  # ValueError = el servidor no arrancaría
+        plazos.plazo(None, variable, 1.0, unidad)  # ValueError = el servidor no arrancaría
 
 
 def test_deployment_apaga_el_modo_desarrollo_por_encima_del_secret():
@@ -248,8 +267,8 @@ def _despliegue(entorno: dict[str, str]) -> dict:
 
 def test_render_chat_y_consola_salen_en_el_configmap_con_los_defectos_del_servidor():
     mapa = _configmap({})
-    # Falla cerrado por defecto: sin regiones el chat se niega en restringido e interno.
-    assert mapa["RAILSPEC_CHAT_ZONA_DATOS"] == ""
+    # El chat ya no exige zona de datos (decisión del 2026-10-06): esa variable no existe.
+    assert "RAILSPEC_CHAT_ZONA_DATOS" not in mapa
     assert mapa["RAILSPEC_CHAT_MODELO"] == ""  # vacío = el del servidor
     assert mapa["RAILSPEC_CHAT_CLONES"] == ""
     assert {k: v for k, v in mapa.items() if k.startswith("RAILSPEC_CONSOLA_") and k[17:] != "URL"} == {
@@ -262,7 +281,6 @@ def test_render_chat_y_consola_salen_en_el_configmap_con_los_defectos_del_servid
     }
     mapa = _configmap(
         {
-            "RAILSPEC_CHAT_ZONA_DATOS": "eastus2, swedencentral",
             "RAILSPEC_CHAT_MODELO": "claude-opus-5-5",
             "RAILSPEC_CONSOLA_SESION_HORAS": "8",
             "RAILSPEC_CONSOLA_AUTH_LIMITE": "0",
@@ -271,7 +289,6 @@ def test_render_chat_y_consola_salen_en_el_configmap_con_los_defectos_del_servid
             "RAILSPEC_CONSOLA_SSE_REVALIDAR_S": "12.5",
         }
     )
-    assert mapa["RAILSPEC_CHAT_ZONA_DATOS"] == "eastus2, swedencentral"
     assert mapa["RAILSPEC_CHAT_MODELO"] == "claude-opus-5-5"
     assert mapa["RAILSPEC_CONSOLA_AUTH_LIMITE"] == "0"  # "0" no se pierde ante el defecto
     assert mapa["RAILSPEC_CONSOLA_SSE_REVALIDAR_S"] == "12.5"
@@ -309,9 +326,6 @@ def test_render_clones_del_chat_solo_se_montan_con_pvc_y_en_solo_lectura():
         ("RAILSPEC_CONSOLA_SSE_MAX_GLOBAL", "1.5", "SSE_MAX_GLOBAL"),
         ("RAILSPEC_CONSOLA_SSE_REVALIDAR_S", "0", "SSE_REVALIDAR_S"),
         ("RAILSPEC_CONSOLA_SSE_REVALIDAR_S", "rápido", "SSE_REVALIDAR_S"),
-        ("RAILSPEC_CHAT_ZONA_DATOS", "EastUS2", "minúsculas"),
-        ("RAILSPEC_CHAT_ZONA_DATOS", 'eastus2"\n  X: "y', "minúsculas"),
-        ("RAILSPEC_CHAT_ZONA_DATOS", "eastus2,", "minúsculas"),
         ("RAILSPEC_CHAT_MODELO", 'claude"\n  X: "y', "CHAT_MODELO"),
         ("RAILSPEC_CHAT_CLONES_PVC", "Clones", "PersistentVolumeClaim"),
         ("RAILSPEC_CHAT_CLONES_PVC", "x}, readOnly: false, {y: 1", "PersistentVolumeClaim"),
@@ -322,12 +336,10 @@ def test_render_rechaza_lo_que_el_servidor_no_acepta_o_dejaria_el_chat_mudo(vari
         renderizar.renderizar({**MINIMO, variable: valor})
 
 
-def test_avisos_cuando_el_chat_quedaria_sin_responder_o_sin_codigo():
-    assert len(renderizar.avisos(MINIMO)) == 2
-    completo = {**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": "eastus2", "RAILSPEC_CHAT_CLONES_PVC": "clones"}
-    assert renderizar.avisos(completo) == []
-    solo_zona = renderizar.avisos({**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": "eastus2"})
-    assert len(solo_zona) == 1 and "sin leer código" in solo_zona[0]
+def test_avisos_cuando_el_chat_quedaria_sin_codigo():
+    sin_clones = renderizar.avisos(MINIMO)
+    assert len(sin_clones) == 1 and "sin leer código" in sin_clones[0]
+    assert renderizar.avisos({**MINIMO, "RAILSPEC_CHAT_CLONES_PVC": "clones"}) == []
 
 
 # --- bases de datos, red, respaldos y clones (opcionales) -----------------------------
@@ -615,34 +627,14 @@ def test_render_rechaza_valores_de_datos_que_romperian_el_manifiesto(entorno, te
         renderizar.renderizar({**MINIMO, **entorno})
 
 
-def test_zona_de_datos_del_chat_acepta_la_region_de_un_despliegue_datazone():
-    """``renderizar.py`` rechazaba ``zona-us``: un despliegue DataZone no servía al chat en restringido."""
+def test_la_zona_de_datos_del_chat_ya_no_existe_y_la_del_recurso_no_da_avisos():
+    """Decisión del 2026-10-06: el chat no exige zona; la del recurso de Foundry solo etiqueta la región."""
 
-    for valor in ("zona-us", "zona-eu", "zona-us, eastus2", "eastus2,zona-eu", "swedencentral"):
-        assert _configmap({"RAILSPEC_CHAT_ZONA_DATOS": valor})["RAILSPEC_CHAT_ZONA_DATOS"] == valor
-    for valor in (
-        "zona-xx",
-        "zona-",
-        "Zona-us",
-        "zona-US",
-        "zona_us",
-        "zona-us,",
-        "zona-us zona-eu",
-        "zona-usa",
-    ):
-        with pytest.raises(renderizar.ErrorRender, match="zona-us"):
-            renderizar.renderizar({**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": valor})
-
-
-def test_aviso_si_la_zona_del_chat_no_es_la_del_recurso():
-    coincide = {"RAILSPEC_CHAT_ZONA_DATOS": "zona-us", "RAILSPEC_FOUNDRY_ZONA_DATOS": "us", **CON_PVC}
-    assert renderizar.avisos({**MINIMO, **coincide}) == []
-    otra = renderizar.avisos({**MINIMO, **coincide, "RAILSPEC_FOUNDRY_ZONA_DATOS": "eu"})
-    assert len(otra) == 1 and "zona-us" in otra[0] and "RAILSPEC_FOUNDRY_ZONA_DATOS" in otra[0]
-    sin_zona = renderizar.avisos({**MINIMO, **coincide, "RAILSPEC_FOUNDRY_ZONA_DATOS": ""})
-    assert len(sin_zona) == 1 and "vacía" in sin_zona[0]
-    # Una región de Azure ordinaria no se compara con la zona del recurso.
-    assert renderizar.avisos({**MINIMO, "RAILSPEC_CHAT_ZONA_DATOS": "eastus2", **CON_PVC}) == []
+    assert "RAILSPEC_CHAT_ZONA_DATOS" not in renderizar.VARIABLES
+    for zona in ("us", "eu", ""):
+        assert renderizar.avisos({**MINIMO, "RAILSPEC_FOUNDRY_ZONA_DATOS": zona, **CON_PVC}) == []
+    # Una variable ajena (la que se borró) simplemente no se renderiza.
+    assert "RAILSPEC_CHAT_ZONA_DATOS" not in _configmap({"RAILSPEC_CHAT_ZONA_DATOS": "eastus2"})
 
 
 def test_aviso_de_bases_internas_sin_respaldo():
@@ -705,6 +697,7 @@ CLAVES_DEL_SECRET = {
     "RAILSPEC_CONSOLA_SECRETO",
     "RAILSPEC_CLAVE_MAESTRA",
     "RAILSPEC_CLAVE_MAESTRA_ANTERIOR",
+    "RAILSPEC_METRICAS_TOKEN",
     "RAILSPEC_GITHUB_APP_CLIENT_ID",
     "RAILSPEC_GITHUB_APP_CLIENT_SECRET",
 }
@@ -940,7 +933,7 @@ def test_reindexar_declara_los_commits_cubiertos_en_cada_lote(tmp_path):
     servidor = ServidorDoble()
     assert _correr(raiz, c3, c1, servidor).aplicado
     assert [(c["version_contrato"], c["commits_cubiertos"]) for c in servidor.cuerpos] == [
-        ("1.8", [c3, c2])
+        ("1.9", [c3, c2])
     ] * 2
 
 
@@ -962,7 +955,7 @@ def test_un_servidor_14_que_rechaza_la_lista_recibe_el_indice_sin_ella(tmp_path,
     servidor = ServidorDoble([(422, rechazo)])
     assert _correr(raiz, c3, c1, servidor).aplicado
     primero, *resto = servidor.cuerpos
-    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.8"
+    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.9"
     assert resto and all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in resto)
     assert "sin cobertura" in capsys.readouterr().out
 

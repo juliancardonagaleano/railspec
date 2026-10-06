@@ -35,23 +35,23 @@ def test_configuracion_desde_entorno():
         Configuracion.desde_entorno({"RAILSPEC_TOKENS_DESARROLLO": "a=julian"})
 
 
-def test_anthropic_solo_para_nivel_abierto():
-    from railspec.contracts.comun import NivelCodigo
+def test_anthropic_directo_sirve_a_cualquier_repositorio_sin_suscripcion():
     from railspec.server.motor.perfiles import perfil_por_defecto, requisito
     from railspec.server.proveedores import PerfilInsatisfacible
 
     solo_anthropic = Proveedores(
-        {Proveedor.anthropic: ProveedorGuionado(lambda p: None, Proveedor.anthropic)}
+        {Proveedor.anthropic: ProveedorGuionado(lambda p: None, Proveedor.anthropic, region="global")}
     )
     from apoyo_motor import WS_ALCANCE
 
     req = requisito(perfil_por_defecto(WS_ALCANCE, "estandar"), "critico-profundo")
-    with pytest.raises(PerfilInsatisfacible):
-        solo_anthropic.elegir("critico-profundo", req, NivelCodigo.restringido)
-    assert (
-        solo_anthropic.elegir("critico-profundo", req, NivelCodigo.abierto).proveedor.proveedor
-        == Proveedor.anthropic
-    )
+    # Sin nivel ni zona: lo sirven por igual los repositorios restringidos, internos y abiertos.
+    e = solo_anthropic.elegir("critico-profundo", req)
+    assert e.proveedor.proveedor == Proveedor.anthropic and e.region == "global"
+    assert solo_anthropic.validar([("critico-profundo", req)]) == []
+    # Foundry va primero; sin él ni Anthropic el motivo nombra a los dos.
+    with pytest.raises(PerfilInsatisfacible, match="foundry no configurado"):
+        Proveedores({}).elegir("critico-profundo", req)
 
 
 def test_checkpoints_mongo_ida_y_vuelta():

@@ -37,6 +37,10 @@ devuelva `cerrada`:
 - Usa `orden.contexto` (gobernanza, rebanada del grafo, insumos, hallazgos previos). Las
   referencias apuntan a símbolos y archivos: léelos del worktree. Para más contexto usa
   `graph_query`; devuelve referencias, nunca código.
+- La rebanada del grafo (`contexto.grafo`) solo viene en las órdenes de spec, plan y tasks, y
+  busca por nombre de símbolo, no por significado. Lee `contexto.grafo_avisos` y los `avisos` de
+  `graph_query`: si dicen que no hay grafo, que el repositorio no está indexado o que el índice
+  está desactualizado, una rebanada vacía significa «no sé», no «no existe»: busca en el worktree.
 
 ## Reportar
 

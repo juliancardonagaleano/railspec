@@ -24,6 +24,6 @@
   "nombre": "Certificados",
   "perfil_por_defecto": "estandar",
   "version": 3,
-  "version_contrato": "1.8",
+  "version_contrato": "1.9",
   "zona_datos_azure": "us"
 }

@@ -4,7 +4,8 @@ Lee las mismas variables de entorno que el servidor (ver
 ``railspec/docs/proveedores.md``) y, sin Mongo ni unidades:
 
 1. lee el catálogo de cada proveedor configurado y lo imprime;
-2. valida el perfil ``estandar`` contra él en cada nivel pedido;
+2. valida el perfil ``estandar`` contra él, con las claves de cada nivel pedido
+   (el nivel no restringe proveedores);
 3. hace una llamada estructurada mínima por nivel con el modelo que elija la
    selección (``--sin-llamada`` la omite) e imprime uso, región y despliegue;
 4. si hay ``RAILSPEC_PCE_URL``, consulta la gobernanza una vez.
@@ -42,7 +43,7 @@ class Eco(BaseModel):
     eco: str
 
 
-async def humo(org: str, niveles: list[NivelCodigo], llamar: bool, zona: str | None) -> int:
+async def humo(org: str, niveles: list[NivelCodigo], llamar: bool) -> int:
     config = Configuracion.desde_entorno()
     almacen = almacen_en_memoria()
     proveedores = _proveedores(config, almacen)
@@ -61,14 +62,14 @@ async def humo(org: str, niveles: list[NivelCodigo], llamar: bool, zona: str | N
                 )
             fallos += 1 if error and not proveedores.catalogo.leido(p) else 0
     else:
-        print("sin catálogo: la zona sale de RAILSPEC_FOUNDRY_REGION")
+        print("sin catálogo: la región auditada sale de RAILSPEC_FOUNDRY_REGION")
 
     ws = AlcanceWorkspace(org=org, workspace="humo")
     perfil = perfil_por_defecto(ws, Perfil.estandar)
     for nivel in niveles:
         print(f"\nnivel {nivel.value}:")
         pares = requisitos_del_gate(perfil, nivel, tope_gate(perfil, Riesgo.alto).adversarial)
-        motivos = proveedores.validar(pares, nivel, org=org, zona=zona)
+        motivos = proveedores.validar(pares, org=org)
         if motivos:
             fallos += 1
             for m in motivos:
@@ -79,7 +80,7 @@ async def humo(org: str, niveles: list[NivelCodigo], llamar: bool, zona: str | N
             continue
         req = requisito(perfil, "critico-estructural", GateFase.tasks, nivel)
         try:
-            eleccion = proveedores.elegir("critico-estructural", req, nivel, org=org, zona=zona)
+            eleccion = proveedores.elegir("critico-estructural", req, org=org)
             r = await eleccion.proveedor.completar(
                 PeticionModelo(
                     rol="humo",
@@ -130,13 +131,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=[n.value for n in NivelCodigo],
         help="nivel a validar y probar; repetible (por defecto restringido y abierto)",
     )
-    p.add_argument("--zona", default=None, help="zona del workspace (Workspace.zona_datos_azure), p. ej. us")
     p.add_argument(
         "--sin-llamada", action="store_true", help="no llama al modelo: solo catálogo y validación"
     )
     a = p.parse_args(argv)
     niveles = [NivelCodigo(n) for n in (a.nivel or ["restringido", "abierto"])]
-    return asyncio.run(humo(a.org, niveles, not a.sin_llamada, a.zona))
+    return asyncio.run(humo(a.org, niveles, not a.sin_llamada))
 
 
 if __name__ == "__main__":  # pragma: no cover

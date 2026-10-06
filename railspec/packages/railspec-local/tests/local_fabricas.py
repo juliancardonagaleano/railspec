@@ -54,6 +54,7 @@ from railspec.contracts.orden import (
     Tarea,
 )
 from railspec.contracts.portabilidad import ArtefactosPaquete, OrigenPaquete, PaqueteUnidad
+from railspec.contracts.referencias import FrescuraGrafo
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.snapshot import DeltaIndice, Embedding, MotorIndice, Simbolo, TipoSimbolo, id_simbolo
 from railspec.contracts.tools import (
@@ -160,6 +161,8 @@ class ServidorDoble:
         self.resoluciones: list[UnitApproveEntrada] = []
         self.integraciones: list[UnitIntegrateEntrada] = []
         self.consultas_grafo: list[GraphQueryEntrada] = []
+        #: Lo que responde ``graph.query``; ``None`` = un canónico sin indexar.
+        self.salida_grafo: GraphQuerySalida | None = None
         self.eventos_subidos: list[EventoSync] = []
         self.eventos_remotos: list[EventoSync] = []
         self.perder_respuesta_push = False
@@ -437,7 +440,12 @@ class ServidorDoble:
 
     def _graph_query(self, args: dict[str, Any]) -> GraphQuerySalida:
         self.consultas_grafo.append(GraphQueryEntrada.model_validate(args))
-        return GraphQuerySalida(resultados=[], commits={})
+        if self.salida_grafo is not None:
+            return self.salida_grafo
+        # Por defecto, como un servidor sin índice canónico de este repositorio (el aviso es suyo).
+        return GraphQuerySalida(
+            resultados=[], commits={}, frescura={"certificados-api": FrescuraGrafo(indexado=False)}
+        )
 
     def abrir_checkpoint(self) -> Checkpoint:
         self.checkpoint = Checkpoint(

@@ -31,6 +31,16 @@ railspec/
 `railspec-contracts` y, de forma opcional (extra `grafo`), de `railspec-graph`.
 Entre server y local nunca se importan.
 
+## Nivel de código y proveedores de modelo
+
+El nivel de código de cada repositorio (`restringido`, `interno`, `abierto`) solo
+decide **qué material de código viaja al modelo** (nada, fragmentos o diff) y queda
+como dato de auditoría; ya no decide qué proveedor, modelo, región o zona de datos se
+usa. Foundry es el primario, pero usar Anthropic directo, modelos abiertos o
+proveedores compatibles es decisión consciente del usuario, y esos servicios pueden
+tener otras condiciones de retención y región. Detalle en
+[proveedores](docs/proveedores.md#política-por-nivel).
+
 ## Desarrollo
 
 ```

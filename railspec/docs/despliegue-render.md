@@ -1,6 +1,6 @@
 # Despliegue en Render desde GitHub
 
-Servidor y consola web de Railspec en **un solo servicio web de Render**, con el estado en **Supabase Postgres** ([estado-postgres.md](estado-postgres.md)) y los modelos en Azure AI Foundry. Sin FalkorDB: el grafo es opcional y sin él solo el gate de código pierde el análisis de impacto. Es el camino de menor costo para probar; el despliegue de producción sigue siendo [AKS](despliegue.md).
+Servidor y consola web de Railspec en **un solo servicio web de Render**, con el estado en **Supabase Postgres** ([estado-postgres.md](estado-postgres.md)) y los modelos en Azure AI Foundry. Sin FalkorDB: el grafo es opcional y sin él el gate de código pierde el análisis de impacto y las órdenes de spec, plan y tasks salen sin rebanada de grafo (con el aviso en `contexto.grafo_avisos`; ver [deuda-tecnica.md](deuda-tecnica.md)). Es el camino de menor costo para probar; el despliegue de producción sigue siendo [AKS](despliegue.md).
 
 ```
 push a master ─▶ Render construye el Dockerfile del repositorio y arranca el servicio
@@ -44,9 +44,9 @@ Las claves y cadenas de conexión las pones tú en el panel de Render. No las pe
 | `RAILSPEC_CONSOLA_ADMINS` | `83125327` (el github_id de Julian) | Blueprint |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | De la GitHub App | Tú, en el panel |
 | `RAILSPEC_CLAVE_MAESTRA` | `openssl rand -base64 32`; cifra las claves de las suscripciones de la consola | Tú, en el panel |
+| `RAILSPEC_METRICAS_TOKEN` | Opcional: Bearer de `GET /metrics`, 16 caracteres o más (`openssl rand -base64 24`); sin él no hay endpoint | Tú, en el panel |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Del recurso de Foundry; opcionales desde 1.6 (respaldo de los perfiles sin suscripción) | Tú, en el panel |
 | `RAILSPEC_FOUNDRY_REGION`, `RAILSPEC_FOUNDRY_ZONA_DATOS`, `RAILSPEC_FOUNDRY_DESPLIEGUES` | Región, zona de datos y despliegues declarados ([proveedores.md](proveedores.md)) | Tú, en el panel |
-| `RAILSPEC_CHAT_ZONA_DATOS` | Regiones de Azure donde el chat puede enviar código; vacío = el chat se niega en `restringido` e `interno` | Tú, en el panel |
 
 La URL pública de la consola sale de `RENDER_EXTERNAL_URL`, que fija Render; define `RAILSPEC_CONSOLA_URL` solo si usas un dominio propio. Render ignora los `sync: false` al actualizar un Blueprint ya creado: los cambios de esos valores se hacen en el panel.
 
@@ -89,7 +89,7 @@ Con el digest del argumento se **vuelve a una versión anterior**: el workflow i
 - **Construcción en Render:** el Dockerfile instala `git` con apt, compila la consola con Node y usa `RUN --mount=type=bind` (BuildKit). Si el plan gratuito no alcanza para construir, usa la variante GHCR.
 - **Servicio gratuito:** se duerme tras 15 minutos sin tráfico, tiene 512 MB de RAM y 0,1 CPU, y no tiene disco; el primer comando tras un rato tarda. Las sesiones MCP viven en memoria y se pierden al dormirse. Los clones del chat (`RAILSPEC_CHAT_CLONES`) no caben sin disco: el chat responde sin leer código.
 - **Supabase gratuito:** 500 MB, sin respaldos, y el proyecto se pausa tras una semana sin actividad. Conviene un `pg_dump` periódico.
-- **Datos fuera de Azure:** el estado queda en Supabase y Render, no en la zona de datos de Foundry. Para repositorios propietarios es una decisión de política ([chat.md](chat.md)).
+- **Datos fuera de Azure:** el estado queda en Supabase y Render, no en la zona de datos de Foundry. Para repositorios propietarios es una decisión de política: el nivel de código del repositorio ya no restringe proveedores, solo el material que viaja ([chat.md](chat.md), [proveedores.md](proveedores.md#política-por-nivel)).
 - **`FORWARDED_ALLOW_IPS=*`:** uvicorn confía en `X-Forwarded-*` de cualquier origen, así que un cliente puede falsear su IP y esquivar el límite de `/consola/api/auth/*`. Es el mismo compromiso que en [AKS](despliegue.md); cambiarlo por la lista de IPs del proxy de Render queda pendiente.
 
 ## Sin verificar

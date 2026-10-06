@@ -248,8 +248,8 @@ class EstadoUnidad(Mensaje):
         default=None,
         description=(
             "Desde 1.7: el más restrictivo de los niveles congelados de los repositorios de la unidad; "
-            "rige su política de datos (modelos, gate multi-repo, lectores). None solo si ningún "
-            "repositorio trae nivel (unidad anterior a 1.7)."
+            "rige qué material de código viaja al modelo (gate multi-repo, lectores) y no elige proveedor. "
+            "None solo si ningún repositorio trae nivel (unidad anterior a 1.7)."
         ),
     )
     fase: Fase

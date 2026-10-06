@@ -231,6 +231,39 @@ Riesgo aguas arriba, por símbolos afectados (a) y procesos tocados (p):
 p ≥ 2; si no, `bajo`. Todos los resultados de una misma consulta llevan el
 mismo riesgo.
 
+### Frescura y avisos (aditivo, contrato 1.9)
+
+`graph.query` dice qué tan fiable es lo que devuelve, porque hasta ahora un
+repositorio sin índice respondía vacío igual que uno sin coincidencias, y un
+canónico de hace un mes igual que uno de hoy. La salida añade, con valor por
+defecto (un cliente anterior no los usa):
+
+- `frescura`: por cada repositorio consultado, también los que no tienen
+  índice y por eso no están en `commits`: `indexado` (falso si el canónico
+  nunca recibió un índice), `commit` y `indexado_en` del canónico (no los de
+  la superposición de la unidad, que sí lleva `commits`) y `desactualizado`.
+- `avisos`: frases legibles. Hoy dos casos: «sin índice canónico» (con la
+  aclaración de que un vacío no prueba que el código no exista; si la consulta
+  trae `unidad` con superposición, dice que solo se ve esa) y «el índice
+  canónico se aplicó hace N h, más que el plazo».
+
+`indexado_en` sale de `Meta.actualizado` del canónico, que `graph.index` (y
+`aplicar_delta` sin unidad) fija al aplicar el índice; el barrido de lo
+abandonado no toca el canónico. Un canónico indexado antes de que se guardara
+no tiene instante: no se marca `desactualizado` hasta su siguiente índice.
+
+El plazo es `RAILSPEC_GRAFO_FRESCURA_HORAS` (72 por defecto; admite
+fracciones; `0` no avisa nunca). Lo lee `AlmacenGrafo` al construirse
+(`frescura_horas=` lo sustituye) y un valor inválido impide arrancar, como las
+otras dos variables `RAILSPEC_GRAFO_*`. Es un aviso por tiempo, no por
+contenido: el servidor no tiene git y no sabe si la rama por defecto avanzó. Esa
+comparación la hace el proxy local, que añade su aviso a los del servidor
+([proxy-local.md](proxy-local.md#consultas-al-grafo-y-sus-avisos)).
+
+La rebanada de grafo que el motor pone en el contexto de las órdenes de spec,
+plan y tasks usa esta misma consulta (ver [motor.md](motor.md#recorrido)) y
+repite `frescura` y `avisos` como `grafo_frescura` y `grafo_avisos`.
+
 ## Indexado del canónico (`graph.index`)
 
 Un job de GitHub Actions corre codebase-memory-mcp en cada push a la rama
@@ -247,6 +280,8 @@ delta por lotes. `IndexadorCanonico.recibir(entrada, vinculo)`:
   canónico, recalcula la analítica y borra la preparación;
 - reenviar un lote o un commit ya aplicado es idempotente;
 - vuelve a aplicar las exclusiones del vínculo;
+- sella en el canónico el instante del índice aplicado (`Meta.actualizado`),
+  del que sale la frescura de `graph.query`;
 - tras avanzar el canónico retira las superposiciones de unidades integradas
   que ese commit cubre, según los `commits_cubiertos` que declara CI (ver
   arriba);

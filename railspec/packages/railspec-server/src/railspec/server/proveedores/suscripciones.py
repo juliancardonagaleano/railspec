@@ -19,8 +19,8 @@ Reglas que no se negocian:
   obliga a escribir la clave otra vez, para que no se pueda redirigir una clave que quien edita no ve.
 * La región de cada modelo se deriva de la suscripción y del SKU del despliegue: ``Global*`` → ``global``,
   ``DataZone*`` → ``zona-<zona de la suscripción>``, el resto → la región de la suscripción. Sin SKU
-  conocido (o sin zona), la región queda sin determinar y el modelo no sirve a ``restringido`` ni a
-  ``interno``. Anthropic directo solo sirve a ``abierto``.
+  conocido (o sin zona), la región queda sin determinar. La región se audita; no restringe qué repositorios
+  puede servir el modelo (el nivel de código solo gobierna qué material viaja).
 * El endpoint de Foundry tiene que ser https y de un dominio de Azure conocido (o de
   ``RAILSPEC_FOUNDRY_HOSTS``): una suscripción no es una salida hacia cualquier host.
 """
@@ -121,10 +121,6 @@ class SuscripcionActiva:
     suscripcion: SuscripcionModelo
     entradas: list[EntradaCatalogo]
 
-    @property
-    def zona_recurso(self) -> str | None:
-        return self.suscripcion.zona_datos
-
 
 def politica_foundry(entorno: Mapping[str, str] | None = None) -> PoliticaDestinos:
     # Import perezoso: ``contexto`` arrastra el motor, que importa este paquete.
@@ -206,7 +202,7 @@ def normalizar_proyecto(proyecto: str | None, endpoint: str) -> str | None:
 
 
 def region_modelo(proveedor: Proveedor, region: str | None, zona: str | None, sku: str | None) -> str | None:
-    """Región de un modelo según su suscripción: ``None`` si no se sabe (y no sirve a restringido)."""
+    """Región de un modelo según su suscripción: ``None`` si no se sabe (dato de auditoría)."""
 
     if proveedor != Proveedor.foundry or not sku:
         return None
@@ -214,7 +210,7 @@ def region_modelo(proveedor: Proveedor, region: str | None, zona: str | None, sk
 
 
 def hosting_de(s: SuscripcionModelo) -> str:
-    """``azure`` (Foundry), ``anthropic`` o ``externo`` (compatible): solo Azure sirve a restringido."""
+    """``azure`` (Foundry), ``anthropic`` o ``externo`` (compatible): dato informativo del catálogo."""
 
     return {Proveedor.foundry: "azure", Proveedor.anthropic: "anthropic"}.get(s.proveedor, "externo")
 

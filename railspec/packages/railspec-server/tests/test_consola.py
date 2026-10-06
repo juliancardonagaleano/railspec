@@ -407,15 +407,6 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
             async with m.cliente("tk-julian") as admin:  # administra la plataforma: actúa como org-admin
                 r = await admin.put(f"{base}/{REPO}", json=abierto | {"motivo": "repo público"}, headers=CSRF)
             assert r.status_code == 200 and r.json()["chat_contexto_codigo"]["hosting"] == "cualquiera"
-            # Política incoherente con el nivel: la rechaza el contrato.
-            politica = r.json()["chat_contexto_codigo"]
-            r = await c.put(
-                f"{base}/{REPO}",
-                json=cuerpo
-                | {"version": 2, "nivel_codigo": "interno", "motivo": "x", "chat_contexto_codigo": politica},
-                headers=CSRF,
-            )
-            assert r.status_code == 422
             assert (await c.delete(f"{base}/{REPO}", headers=CSRF)).status_code == 422
             assert (
                 await c.delete(f"{base}/{REPO}", params={"motivo": "migrado"}, headers=CSRF)
@@ -435,7 +426,7 @@ def test_vinculo_nivel_motivo_y_desvinculo_auditado():
             assert registros[0]["detalle"]["estado"] == "completo"
             # El evento lleva de/a/motivo y el diff del resto de la política (la del nivel nuevo por defecto).
             relaja = (
-                "nivel_codigo,chat_hosting,chat_fragmentos_en_respuesta,chat_huella_tokens_n,"
+                "nivel_codigo,chat_fragmentos_en_respuesta,chat_huella_tokens_n,"
                 "chat_presupuesto_fuga_conversacion,chat_presupuesto_fuga_usuario_dia"
             )
             assert registros[2]["detalle"] == {

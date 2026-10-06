@@ -106,7 +106,8 @@ SERVICIOS: dict[str, ServicioCompatible] = {
             "OpenCode Zen",
             _ENDPOINT_ZEN,
             "https://opencode.ai/zen",
-            "Pasarela alojada en EE. UU.; OpenAI y Anthropic retienen 30 días. Solo repositorios abiertos.",
+            "Pasarela alojada en EE. UU.; OpenAI y Anthropic retienen 30 días. "
+            "Tiene otras condiciones de retención y región que Foundry: úsalo a conciencia.",
             _protocolo_zen,
             _capacidades_zen,
             _recolector_zen,
@@ -116,7 +117,8 @@ SERVICIOS: dict[str, ServicioCompatible] = {
             "MiniMax",
             "https://api.minimax.io/v1",
             "https://api.minimax.io/anthropic",
-            "Sus términos permiten usar entradas y salidas para mejorar el servicio. Solo abiertos.",
+            "Sus términos permiten usar entradas y salidas para mejorar el servicio. "
+            "Tiene otras condiciones de retención y región que Foundry: úsalo a conciencia.",
             _protocolo_minimax,
             _capacidades_minimax,
         ),

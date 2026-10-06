@@ -1,7 +1,6 @@
 """Modelos de Foundry que no son Claude, por chat completions (API v1 de Azure OpenAI).
 
-Para despliegues en zona de datos que sirven a ``restringido`` e ``interno``
-cuando el despliegue de Claude es Global. Salida estructurada con
+Para despliegues de Foundry que no son Claude. Salida estructurada con
 ``response_format`` (``chat.completions.parse`` arma el ``json_schema`` desde
 el modelo Pydantic) y ``reasoning_effort`` solo si el perfil lo pide; el
 catálogo ya comprobó que el modelo lo admite.

@@ -21,7 +21,10 @@ railspec login --client-id Iv23li...               # inicia sesión con GitHub (
 `railspec instalar` escribe `.railspec/config.json` (versionable, sin
 secretos: org, workspace, slug del repositorio, nivel de código, arnés) y el
 adaptador de cada arnés. `--nivel` fija el nivel del vínculo; si falta rige
-`restringido`. `railspec instalar --verificar` informa deriva sin escribir.
+`restringido`. El nivel solo decide qué material de código viaja en el snapshot
+(ver "Nivel" más abajo); no elige proveedor ni modelo del servidor: usar Anthropic,
+modelos abiertos o proveedores compatibles es decisión del usuario, con otras
+condiciones de retención y región que Foundry. `railspec instalar --verificar` informa deriva sin escribir.
 El token nunca va al repositorio: lo guarda `railspec login` fuera de él, o llega
 por `RAILSPEC_TOKEN`. No sirve un token `rsc1` de la consola (vale
 solo en `/v1` y el chat, no en `/mcp`). El servidor identifica a la persona con
@@ -648,7 +651,7 @@ viaja: el servidor lo deriva del token.
 | `unit_set_mode` | `unit.set_mode` | Solo a petición del humano (1.2) |
 | `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
 | `unit_status`, `unit_list` | homónimas | `unit_status` actualiza el espejo local; `unit_list` solo añade la ruta del worktree de las unidades que tienes en local |
-| `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1); si no hay con qué calcularlo, la respuesta trae `avisos` (ver [Indexador local](#indexador-local)) |
+| `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1); `avisos` si no hay con qué calcularlo (ver [Indexador local](#indexador-local)), si el repositorio no está indexado o si el canónico va por detrás de tu rama (ver [Consultas al grafo](#consultas-al-grafo-y-sus-avisos)) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` (también `railspec insumo pull <id> [--unidad <unidad>]`) |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |
 
@@ -768,6 +771,34 @@ servidor solo puede buscar por texto (salvo que tenga su propio codificador) y e
 resultado puede no ser por similitud. Antes pasaba sin avisar; ahora la
 respuesta lleva en `avisos` la causa y la sugerencia de buscar por nombre
 (`resolve`) o con texto literal.
+
+### Consultas al grafo y sus avisos
+
+`graph_query` devuelve la respuesta del servidor tal cual (`resultados`,
+`commits`, `truncado`, y desde el contrato 1.9 `frescura`) y, solo si hay algo
+que decir, `avisos`: una lista que junta, en este orden, los del servidor
+(repositorio sin índice canónico, índice pasado del plazo
+`RAILSPEC_GRAFO_FRESCURA_HORAS`), los de la propia consulta (búsqueda
+semántica sin vector) y los que solo se ven en local. Sin avisos la clave no
+sale.
+
+El servidor no tiene git, así que no sabe si el canónico va por detrás de tu
+rama. El proxy lo comprueba con git, sin red y sin tocar nada, comparando el
+commit del canónico de este repositorio (`frescura[<repositorio>].commit`) con
+una referencia local:
+
+| Consulta | Referencia local |
+|---|---|
+| con `unidad` | La base de la unidad (`base_commit` de su worktree). |
+| sin `unidad` | La punta de la rama por defecto del remoto tal como la dejó el último `git fetch` (`refs/remotes/origin/HEAD`, `main` o `master`); sin remoto, el `HEAD` del clon. |
+
+Avisa cuando el canónico no la contiene: va N commits por detrás (el grafo no
+tiene los símbolos de esos cambios), es de otra historia, o es un commit que
+este clon no tiene (¿falta `git fetch`?). Avisa también si el servidor no
+devolvió grafo de este repositorio (sin vincular o sin indexar). Si git falla
+(sin estado local de la unidad, por ejemplo) la consulta sigue y el aviso dice
+que no pudo comparar. Al no hacer red, un clon sin `fetch` reciente no ve que
+la rama por defecto avanzó; el aviso de tiempo del servidor cubre ese hueco.
 
 ## Sincronización y cola sin conexión
 

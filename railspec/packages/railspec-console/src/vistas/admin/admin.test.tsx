@@ -516,6 +516,18 @@ describe("repositorios vinculados", () => {
     });
   });
 
+  it("explica que el nivel decide el material de código compartido y no el proveedor ni la zona", async () => {
+    const user = userEvent.setup();
+    servidor("org-admin", "org-admin", {});
+    montarWs();
+
+    await user.click(await screen.findByRole("button", { name: "Vincular repositorio" }));
+    const dialogo = await screen.findByRole("dialog", { name: "Vincular repositorio" });
+    expect(within(dialogo).getByText(/qué material de código se comparte con el modelo/)).toBeInTheDocument();
+    expect(within(dialogo).getByText(/No decide qué proveedor o modelo se usa/)).toBeInTheDocument();
+    expect(within(dialogo).queryByText(/solo sirve a/)).toBeNull();
+  });
+
   it("no envía una URL que no sea https (validación del formulario) y muestra el 422 del servidor", async () => {
     const user = userEvent.setup();
     const s = servidor("org-admin", "org-admin", {

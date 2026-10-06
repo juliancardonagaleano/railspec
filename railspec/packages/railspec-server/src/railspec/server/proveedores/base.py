@@ -106,7 +106,7 @@ class RespuestaModelo(Generic[T]):
 class ProveedorModelo(Protocol):
     proveedor: Proveedor
     #: Región o zona de datos donde corre la inferencia por defecto (auditoría, R4).
-    #: ``global`` = sin garantía de zona; nunca sirve a ``restringido`` ni ``interno``.
+    #: ``global`` = sin garantía de zona (dato informativo: el nivel de código no restringe proveedores).
     region: str | None
 
     async def completar(self, peticion: PeticionModelo[T]) -> RespuestaModelo[T]: ...

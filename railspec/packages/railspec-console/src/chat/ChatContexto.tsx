@@ -555,7 +555,7 @@ function ChatConversacion({
         <div className="rs-chat-estado">
           <span
             className={`rs-chat-nivel rs-chat-nivel-${conversacion.nivel_efectivo}`}
-            title="Nivel efectivo de confidencialidad de la conversación"
+            title="Nivel de código efectivo de la conversación: qué material de código puede salir en las respuestas (no elige el modelo)"
           >
             Nivel: {ETIQUETA_NIVEL[conversacion.nivel_efectivo] ?? conversacion.nivel_efectivo}
           </span>

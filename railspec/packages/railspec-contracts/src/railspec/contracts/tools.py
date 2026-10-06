@@ -48,7 +48,7 @@ from .eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, Snap
 from .insumo import Insumo
 from .orden import OrdenDeTrabajo
 from .portabilidad import PaqueteUnidad
-from .referencias import RefArchivo, RefCriterio, RefNodoGrafo, RefSimbolo
+from .referencias import FrescuraGrafo, RefArchivo, RefCriterio, RefNodoGrafo, RefSimbolo
 from .reporte import ReporteOrden
 from .repositorio import CLAVES_TELEMETRIA, Rol
 from .snapshot import (
@@ -541,6 +541,22 @@ class GraphQuerySalida(Mensaje):
     resultados: list[ResultadoGrafo]
     commits: dict[Slug, Commit] = Field(description="Commit del grafo consultado por repositorio.")
     truncado: bool = False
+    frescura: dict[Slug, FrescuraGrafo] = Field(
+        default_factory=dict,
+        description=(
+            "Desde 1.9: por cada repositorio consultado (también los que nunca se indexaron y por eso "
+            "no están en `commits`), el commit del canónico, el instante de su último índice y si "
+            "superó el plazo de frescura del servidor."
+        ),
+    )
+    avisos: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list,
+        description=(
+            "Desde 1.9: avisos legibles sobre la fiabilidad del resultado (repositorio sin índice "
+            "canónico, índice desactualizado). Un resultado vacío con avisos no prueba que el "
+            "símbolo no exista."
+        ),
+    )
 
 
 # --- graph.index (solo CI) -----------------------------------------------------------

@@ -30,9 +30,7 @@ Reglas:
 from __future__ import annotations
 
 import logging
-import math
-import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from railspec.contracts.comun import AlcanceRepositorio
 from railspec.contracts.repositorio import VinculoRepositorio
@@ -42,6 +40,7 @@ from .acceso import AccesoGrafo, Espacio
 from .almacen import AlmacenGrafo, _arista, _props, decodificar
 from .ingesta import filtrar_delta
 from .motor import AristaMotor, Meta
+from .plazos import plazo as _plazo
 
 log = logging.getLogger(__name__)
 
@@ -59,25 +58,6 @@ class IndiceRechazado(ValueError):
 
 class IndiceDesfasado(IndiceRechazado):
     """``commit_anterior`` no es el commit del canónico: falta un push intermedio o llegó tarde."""
-
-
-def _plazo(valor: float | None, variable: str, defecto: float, unidad: str) -> timedelta | None:
-    """``valor`` explícito, si no la variable de entorno, si no el defecto; ``0`` = sin caducidad."""
-
-    if valor is None:
-        crudo = (os.environ.get(variable) or "").strip()
-        try:
-            valor = float(crudo) if crudo else defecto
-        except ValueError:
-            raise ValueError(f"{variable} debe ser un número de {unidad}, no {crudo!r}") from None
-    if not math.isfinite(valor) or valor < 0:
-        raise ValueError(f"{variable} debe ser un número de {unidad} mayor o igual que 0, no {valor!r}")
-    if valor == 0:
-        return None
-    try:
-        return timedelta(**{unidad: valor})
-    except OverflowError:
-        raise ValueError(f"{variable} es demasiado grande: {valor!r} {unidad}") from None
 
 
 class IndexadorCanonico:
@@ -153,7 +133,8 @@ class IndexadorCanonico:
         canon.upsert_simbolos(simbolos)
         canon.agregar_aristas(prep.todas_aristas())
         canon.fijar_embeddings(prep.leer_embeddings([s["id"] for s in simbolos]))
-        canon.fijar_meta(Meta(commit=entrada.commit))
+        # ``actualizado`` es el instante del índice: ``graph.query`` lo devuelve como frescura.
+        canon.fijar_meta(Meta(commit=entrada.commit, actualizado=self._grafo.ahora()))
         self._grafo.recalcular_analitica(entrada.alcance)
         self._retirar(entrada, completo=entrada.commit_anterior is None)
 

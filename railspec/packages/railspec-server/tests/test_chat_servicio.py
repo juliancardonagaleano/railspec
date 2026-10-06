@@ -94,9 +94,9 @@ class Guion:
         return self.pasos.pop(0)
 
 
-def montar(*pasos, nivel=NivelCodigo.restringido, zona=frozenset({"eastus2"}), politica=None, fuente=None):
-    proveedor = ProveedorGuionado(Guion(*pasos), region="eastus2")
-    config = Configuracion(tokens_desarrollo=TOKENS, chat_zona_datos=zona, permitir_desarrollo=True)
+def montar(*pasos, nivel=NivelCodigo.restringido, region="eastus2", politica=None, fuente=None):
+    proveedor = ProveedorGuionado(Guion(*pasos), region=region)
+    config = Configuracion(tokens_desarrollo=TOKENS, permitir_desarrollo=True)
     fuente = fuente or FuenteEnMemoria({(REPO, BASE): {RUTA: CODIGO, ".env": "CLAVE=x"}}, {REPO: BASE})
     motor, app = ensamblar(
         config,
@@ -295,17 +295,21 @@ def test_bloqueos_repetidos_limitan_la_conversacion():
     correr(caso)
 
 
-# --- Política: zona de datos, permisos y autoría ------------------------------------------------------
+# --- Política: material, permisos y autoría ----------------------------------------------------------
 
 
-def test_restringido_sin_zona_de_datos_no_envia_nada_al_modelo():
-    _, proveedor, app = montar(paso_responder(PROSA), zona=frozenset())
+@pytest.mark.parametrize("region", [None, "global", "swedencentral"])
+@pytest.mark.parametrize("nivel", list(NivelCodigo))
+def test_el_chat_responde_en_cualquier_nivel_sin_zona_de_datos_ni_region_fija(nivel, region):
+    """Decisión del 2026-10-06: el nivel del repositorio no restringe región, zona ni hosting del chat."""
+
+    _, proveedor, app = montar(paso_responder(PROSA), nivel=nivel, region=region)
 
     async def caso():
         async with cliente(app) as c:
-            estado, cuerpo = await preguntar(c, await nueva(c))
-            assert estado == 422 and cuerpo["codigo"] == "perfil-insatisfacible"
-            assert proveedor.peticiones == []
+            estado, _ = await preguntar(c, await nueva(c))
+            assert estado == 200
+            assert len(proveedor.peticiones) == 1
 
     correr(caso)
 
@@ -537,9 +541,9 @@ def test_proveedores_con_catalogo_se_refrescan_por_organizacion():
         async def refrescar(self, org):
             llamadas.append(("refrescar", org))
 
-        def elegir(self, rol, requisito, nivel, *, org=None, zona=None):
+        def elegir(self, rol, requisito, *, org=None, suscripcion=None):
             llamadas.append(("elegir", org))
-            return super().elegir(rol, requisito, nivel)
+            return super().elegir(rol, requisito)
 
     proveedor = ProveedorGuionado(Guion(), region="eastus2")
     servicio = ServicioChat(
@@ -548,10 +552,56 @@ def test_proveedores_con_catalogo_se_refrescan_por_organizacion():
         registro=None,
         autorizador=None,
         proveedores=ConCatalogo({Proveedor.foundry: proveedor}),
-        config=ConfigChat(zona_datos=frozenset({"eastus2"})),
+        config=ConfigChat(),
     )
-    elegido, modelo, _ = asyncio.run(
-        servicio._elegir(ORG, NivelCodigo.restringido, {"modelos": None, "azure": True})
-    )
+    elegido, modelo, _ = asyncio.run(servicio._elegir(ORG, {"modelos": None}))
     assert elegido is proveedor and modelo == "claude-sonnet-5-5"
     assert llamadas == [("refrescar", ORG), ("elegir", ORG)]
+
+
+# --- politica_efectiva con repositorios de niveles distintos --------------------------------------------
+
+
+def _con_politica(nivel, **cambios):
+    v = vinculo(nivel)
+    return v.model_copy(update={"chat_contexto_codigo": v.chat_contexto_codigo.model_copy(update=cambios)})
+
+
+def test_politica_efectiva_gana_el_nivel_mas_restrictivo_y_el_tope_mas_bajo():
+    from railspec.server.chat.servicio import politica_efectiva
+
+    nivel, gate, restricciones = politica_efectiva(
+        [vinculo(NivelCodigo.abierto), vinculo(NivelCodigo.interno), vinculo(NivelCodigo.abierto)]
+    )
+    assert nivel == NivelCodigo.interno
+    por_defecto = vinculo(NivelCodigo.interno).chat_contexto_codigo
+    assert gate.n_tokens == por_defecto.huella_tokens_n < 24
+    assert gate.tope_conversacion == por_defecto.presupuesto_fuga_conversacion
+    assert gate.tope_usuario_dia == por_defecto.presupuesto_fuga_usuario_dia
+    # Un solo repositorio sin fragmentos basta para que la conversación no los lleve.
+    assert gate.fragmentos_permitidos is False
+    assert restricciones == {"modelos": None}
+
+    nivel, gate, _ = politica_efectiva([vinculo(NivelCodigo.abierto), vinculo(NivelCodigo.abierto)])
+    assert nivel == NivelCodigo.abierto and gate.fragmentos_permitidos is True and gate.n_tokens == 24
+
+
+def test_politica_efectiva_no_usa_el_hosting_ni_restringe_proveedores():
+    from railspec.contracts.repositorio import HostingChat
+    from railspec.server.chat.servicio import politica_efectiva
+
+    azure = _con_politica(NivelCodigo.restringido, hosting=HostingChat.azure_zona_datos)
+    cualquiera = _con_politica(NivelCodigo.restringido, hosting=HostingChat.cualquiera)
+    for vinculos in ([azure], [cualquiera], [azure, cualquiera]):
+        assert politica_efectiva(vinculos)[2] == {"modelos": None}  # sin bandera ``azure``
+
+
+def test_politica_efectiva_intersecta_solo_las_listas_explicitas_de_modelos():
+    from railspec.server.chat.servicio import politica_efectiva
+
+    a = _con_politica(NivelCodigo.abierto, modelos_permitidos=["m1", "m2"])
+    b = _con_politica(NivelCodigo.interno, modelos_permitidos=["m2", "m3"])
+    libre = vinculo(NivelCodigo.restringido)  # lista vacía = sin restricción de modelos
+    assert politica_efectiva([a, b])[2] == {"modelos": {"m2"}}
+    assert politica_efectiva([a, libre])[2] == {"modelos": {"m1", "m2"}}
+    assert politica_efectiva([libre])[2] == {"modelos": None}

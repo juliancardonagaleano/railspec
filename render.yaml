@@ -64,7 +64,7 @@ services:
       # guárdala fuera de Render: sin ella las claves guardadas no se pueden descifrar.
       - key: RAILSPEC_CLAVE_MAESTRA
         sync: false
-      # Regiones de Azure donde el chat puede enviar código (restringido e interno). Vacío = el chat se
-      # niega en esos niveles.
-      - key: RAILSPEC_CHAT_ZONA_DATOS
+      # Bearer de GET /metrics (16 caracteres o más, p. ej. `openssl rand -base64 24`). Sin él no hay
+      # endpoint de métricas. Ver docs/despliegue.md#esquema-del-estado-y-métricas.
+      - key: RAILSPEC_METRICAS_TOKEN
         sync: false
