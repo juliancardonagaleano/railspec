@@ -699,7 +699,11 @@ class Gate(Nodo):
         return "\n\n".join(partes)
 
     def material_codigo(self, datos: DatosUnidad, nivel: NivelCodigo, estado) -> tuple[str, list[Hallazgo]]:
-        """Resumen del cambio para los críticos; en ``restringido`` no hay texto de código."""
+        """Resumen del cambio para los críticos; en ``restringido`` no hay texto de código.
+
+        ``nivel`` es el efectivo de la unidad: con varios repositorios, un diff solo se incluye si
+        ninguno de ellos es ``restringido``.
+        """
 
         snapshots: list[Snapshot] = [
             s
@@ -719,7 +723,9 @@ class Gate(Nodo):
                     f"{x.tipo.value} {x.nombre} ({x.ruta}:{x.linea_inicio})"
                     for x in s.delta_indice.simbolos_upsert
                 ]
-            if s.diff and nivel != NivelCodigo.restringido:
+            # ``nivel`` es el efectivo de la unidad; el del snapshot también cuenta, por si el vínculo
+            # se relajó entre el reporte y el gate.
+            if s.diff and nivel != NivelCodigo.restringido and s.nivel_codigo != NivelCodigo.restringido:
                 diffs.append(s.diff[:60_000])
         n = datos.siguiente_hallazgo
         deterministas: list[Hallazgo] = []

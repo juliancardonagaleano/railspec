@@ -283,7 +283,9 @@ class Motor:
             if self.n.insumos is None or not self.n.insumos.existe(e.alcance, insumo):
                 raise ErrorNegocio(CodigoError.no_encontrado, f"insumo {insumo} no existe en este workspace")
         perfil = self.n.perfil_inicial(e.alcance, e.perfil)
-        motivos = await self.n.validar_perfil(e.alcance, perfil, e.repositorios[0].repositorio, triaje(e))
+        motivos = await self.n.validar_perfil(
+            e.alcance, perfil, [r.repositorio for r in e.repositorios], triaje(e)
+        )
         if motivos:
             raise ErrorNegocio(
                 CodigoError.perfil_insatisfacible,
