@@ -205,7 +205,7 @@ humana pregunta siempre:
 
 | | Claude Code | OpenCode |
 |---|---|---|
-| Sin preguntar | `permissions.allow`: `mcp__railspec__<tool>` para `unit_start`, `unit_advance`, `unit_report`, `unit_checkpoint`, `unit_status`, `unit_list`, `graph_query`, `insumo_pull`, `railspec_sync` | por defecto (OpenCode permite las tools MCP) |
+| Sin preguntar | `permissions.allow`: `mcp__railspec__<tool>` para `unit_start`, `unit_advance`, `unit_report`, `unit_checkpoint`, `unit_status`, `unit_list`, `graph_query`, `code_search`, `code_index`, `insumo_pull`, `railspec_sync` | por defecto (OpenCode permite las tools MCP) |
 | Pregunta siempre | `permissions.ask` (gana a `allow`): `unit_approve`, `unit_set_mode`, `unit_integrate` | `permission.railspec_<tool>: "ask"` para esas tres |
 
 En Claude Code, la parte por máquina va a `.claude/settings.local.json`, que
@@ -638,7 +638,7 @@ cada arnés no se probaron.
 Las que envuelven una tool del contrato usan su alias `nombre_mcp` (contrato
 1.3: el punto pasa a guion bajo, porque varios arneses no lo admiten); el
 proxy también llama al servidor por ese alias. `unit_checkpoint`,
-`insumo_pull` y `railspec_sync` solo existen en el proxy. El actor nunca
+`insumo_pull`, `railspec_sync`, `code_search` y `code_index` solo existen en el proxy. El actor nunca
 viaja: el servidor lo deriva del token.
 
 | Tool local | Tool del contrato | Qué añade el proxy |
@@ -652,6 +652,8 @@ viaja: el servidor lo deriva del token.
 | `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
 | `unit_status`, `unit_list` | homónimas | `unit_status` actualiza el espejo local; `unit_list` solo añade la ruta del worktree de las unidades que tienes en local |
 | `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1); `avisos` si no hay con qué calcularlo (ver [Indexador local](#indexador-local)), si el repositorio no está indexado o si el canónico va por detrás de tu rama (ver [Consultas al grafo](#consultas-al-grafo-y-sus-avisos)) |
+| `code_search` | — (solo local) | BM25 sobre nombre, ruta y cuerpo de los símbolos del clon o de la unidad, sin red ni modelo ([Búsqueda de texto local](#búsqueda-de-texto-local)) |
+| `code_index` | — (solo local) | Construye ese índice con el indexador local (también `railspec indice [--unidad <unidad>]`) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` (también `railspec insumo pull <id> [--unidad <unidad>]`) |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |
 
@@ -771,6 +773,38 @@ servidor solo puede buscar por texto (salvo que tenga su propio codificador) y e
 resultado puede no ser por similitud. Antes pasaba sin avisar; ahora la
 respuesta lleva en `avisos` la causa y la sugerencia de buscar por nombre
 (`resolve`) o con texto literal.
+
+## Búsqueda de texto local
+
+`graph_query` responde por nombre y el indexador no guarda texto: «dónde se calcula el vencimiento del
+certificado» no se contesta si esas palabras no están en un nombre. `code_search` (también
+`railspec buscar <texto>`) busca en el **cuerpo** de los símbolos, además de su nombre y su ruta, con una
+base SQLite con FTS5 y ordenación BM25 (el nombre pesa 10, las partes del identificador 6, la ruta 2 y el
+cuerpo 1). Es el complemento local de `codebase-memory-mcp`: sale de sus mismos símbolos y ids, no usa modelo
+ni vectores y no hace ninguna llamada de red.
+
+- **Dónde vive:** `.railspec/busqueda.sqlite` del clon o del worktree de la unidad; `git` no lo versiona (va a
+  `info/exclude`) y nunca viaja al servidor ni a ningún modelo de Railspec. Lo lee el arnés como leería el archivo.
+- **Construirlo:** `code_index` o `railspec indice [--unidad U]`, una vez por clon o unidad. Recorre los archivos
+  del árbol (versionados y sin seguimiento, sin lo que ignora `.gitignore`) con el mismo indexador y las mismas
+  exclusiones de secretos que el snapshot (`.railspec/ignore` incluido). Se construye en un archivo nuevo que
+  sustituye al anterior: una construcción a medias nunca queda visible.
+- **Mantenerlo:** cada `unit_report` que construye un snapshot aplica su delta al índice de esa unidad. Un símbolo
+  cuyo hash no cambió solo actualiza sus líneas. Si no hay índice completo, el reporte no lo crea (uno parcial haría
+  creer que un símbolo no existe) y un fallo del índice nunca bloquea el reporte.
+- **Qué busca:** palabras; `emitirCertificado` se encuentra por `emitir`, por `certificado` y entero, y
+  `calcular_vencimiento` por cualquiera de sus partes. No distingue mayúsculas ni tildes. Los términos se combinan
+  con OR (los símbolos que casan más términos salen antes) y los operadores de FTS5 se neutralizan. Solo cubre lo que
+  el indexador reconoce como símbolo, y de cada cuerpo guarda hasta 8 000 caracteres.
+- **Qué devuelve:** por símbolo, `id`, `nombre`, `tipo`, `ruta`, `linea_inicio`, `linea_fin`, `puntaje` y un
+  `fragmento` con los términos marcados entre «» y los secretos redactados; el código completo se lee del archivo.
+  Filtros: `tipos` y `ruta` (prefijo). `indice` da símbolos, commit y fechas, y `avisos` dice si no hay índice o si va por
+  detrás de la rama (lo editado desde entonces puede faltar).
+- **Unidad:** sin `unidad` busca en la única unidad local si hay una y, si no, en la raíz del clon.
+- **Sin FTS5:** si el SQLite de tu Python no lo trae, el error lo dice y el resto del proxy sigue igual.
+
+La búsqueda semántica con vectores locales (`Indexador.embedding_consulta`) es un paso posterior y entrará en este
+mismo índice sin cambiar la forma de la respuesta.
 
 ### Consultas al grafo y sus avisos
 
@@ -948,6 +982,10 @@ mismo PR. Construir en local: `empaquetado/README.md`.
 
 ## Pendiente
 
+- **Búsqueda de texto local sin verificar con el indexador real.** `code_index` y el mantenimiento por snapshot se
+  probaron con un indexador doble que emite un símbolo por `def`; no se corrieron contra `codebase-memory-mcp`
+  (la enumeración de todo el árbol en una sola llamada, como hace el reindexado de CI, y el tiempo en un
+  repositorio grande) ni dentro del binario autocontenido, cuyo SQLite podría no traer FTS5 (el error lo diría).
 - **Renovación probada solo con dobles.** La renovación (`POST /v1/auth/renovar`)
   se probó con GitHub simulado y contra un servidor MCP local, no contra GitHub
   real: la forma de la respuesta de `grant_type=refresh_token` sigue la

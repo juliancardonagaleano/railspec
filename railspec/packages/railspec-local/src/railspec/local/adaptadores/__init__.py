@@ -84,6 +84,8 @@ TOOLS_AUTOMATICAS = (
     "unit_status",
     "unit_list",
     "graph_query",
+    "code_search",
+    "code_index",
     "insumo_pull",
     "railspec_sync",
 )

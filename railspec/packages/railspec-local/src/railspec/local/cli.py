@@ -455,6 +455,21 @@ def _cmd_insumo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_indice(args: argparse.Namespace) -> int:
+    proxy = crear_proxy(_raiz(args.repo))
+    _imprimir(asyncio.run(proxy.indexar_codigo(args.unidad)))
+    return 0
+
+
+def _cmd_buscar(args: argparse.Namespace) -> int:
+    proxy = crear_proxy(_raiz(args.repo))
+    resultado = asyncio.run(
+        proxy.buscar_codigo(" ".join(args.texto), args.limite, args.tipo or None, args.ruta, args.unidad)
+    )
+    _imprimir(resultado)
+    return 0 if resultado["resultados"] else 1
+
+
 def _cmd_exportar(args: argparse.Namespace) -> int:
     from . import portabilidad
 
@@ -613,6 +628,20 @@ def parser() -> argparse.ArgumentParser:
     pull.add_argument("id")
     pull.add_argument("--unidad")
     pull.set_defaults(fn=_cmd_insumo)
+
+    idx = sub.add_parser(
+        "indice", help="Construye el índice de texto local que usa `railspec buscar` y code_search."
+    )
+    idx.add_argument("--unidad")
+    idx.set_defaults(fn=_cmd_indice)
+
+    bus = sub.add_parser("buscar", help="Busca texto en el código del clon (índice local, sin red).")
+    bus.add_argument("texto", nargs="+")
+    bus.add_argument("--limite", type=int, default=20)
+    bus.add_argument("--tipo", action="append", help="Tipo de símbolo; repetible.")
+    bus.add_argument("--ruta", help="Prefijo de ruta.")
+    bus.add_argument("--unidad")
+    bus.set_defaults(fn=_cmd_buscar)
 
     exp = sub.add_parser("exportar", help="Escribe una unidad como paquete railspec.unidad/v1 en disco.")
     exp.add_argument("--unidad", required=True)

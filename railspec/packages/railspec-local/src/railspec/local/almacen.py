@@ -43,6 +43,7 @@ EXCLUIR_DE_GIT = [
     "/.railspec/insumos/",
     "/.railspec/.cerrojo",
     "/.railspec/ultimo-empuje",
+    "/.railspec/busqueda.sqlite*",
 ]
 
 

@@ -43,6 +43,19 @@ def texto(repo: Path, *args: str) -> str:
     return git(repo, *args).decode("utf-8").strip()
 
 
+def archivos(repo: Path) -> list[str]:
+    """Rutas del árbol de trabajo: versionadas y sin seguimiento, sin lo que ``.gitignore`` descarta."""
+
+    salida = git(repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    return sorted({r for r in salida.decode("utf-8", "replace").split("\0") if r})
+
+
+def arbol_vacio(repo: Path) -> str:
+    """El árbol vacío de este repositorio: la base de un índice completo."""
+
+    return texto(repo, "hash-object", "-t", "tree", "/dev/null")
+
+
 def raiz_repositorio(desde: Path) -> Path:
     return Path(texto(desde, "rev-parse", "--show-toplevel"))
 

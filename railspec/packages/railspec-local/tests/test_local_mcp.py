@@ -36,6 +36,8 @@ def test_tools_expuestas_y_bucle_por_mcp(tmp_path):
                 "unit_status",
                 "unit_list",
                 "graph_query",
+                "code_search",
+                "code_index",
                 "insumo_pull",
                 "railspec_sync",
             }
@@ -136,7 +138,7 @@ def test_tools_del_contrato_usan_su_alias_mcp():
         async with Client(crear_servidor(lambda: None)) as cliente:
             return {t.name for t in (await cliente.list_tools()).tools}
 
-    propias = {"unit_checkpoint", "insumo_pull", "railspec_sync"}
+    propias = {"unit_checkpoint", "code_search", "code_index", "insumo_pull", "railspec_sync"}
     for nombre in asyncio.run(nombres()) - propias:
         tool = resolver_tool(nombre)
         assert tool is not None and tool.nombre_mcp == nombre
