@@ -39,6 +39,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import math
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
@@ -62,6 +63,8 @@ from .acceso import AccesoGrafo, Espacio
 from .analitica import RELACIONES_DEPENDENCIA, calcular_clusters, calcular_procesos, nivel_riesgo
 from .motor import AristaMotor, Cluster, Meta, Proceso, Traza
 from .plazos import RETENIDAS_DIAS, VAR_RETENIDAS_DIAS, plazo
+
+log = logging.getLogger(__name__)
 
 #: Variable que fija tras cuántas horas sin índice nuevo un canónico se avisa como desactualizado
 #: (``0`` = nunca avisa); se lee al construir ``AlmacenGrafo``, y una inválida impide arrancar.
@@ -396,6 +399,42 @@ class AlmacenGrafo:
             desde = _utc(meta.retenido_en)
             vence = desde + self._retenidas if desde is not None and self._retenidas is not None else None
             salida.append(Retenida(unidad, meta.integrado, desde, vence))
+        return salida
+
+    def barrer_retenidas(self) -> list[tuple[AlcanceRepositorio, list[str]]]:
+        """Retira las retenidas vencidas de todos los repositorios, sin esperar a que llegue un índice.
+
+        ``limpiar_huerfanos`` solo corre al aplicar un ``graph.index``: un repositorio que deja de
+        recibirlos conservaría sus retenidas para siempre. Esto recorre los repositorios que tienen
+        superposiciones (``AccesoGrafo.repositorios_con_superposiciones``) y aplica el mismo plazo
+        (``RAILSPEC_GRAFO_RETENIDAS_DIAS``, el de ``retenidas``); sin plazo (``0``) no hace nada. Solo
+        toca retenidas, no las superposiciones en curso ni las preparaciones: esas siguen su propio
+        plazo al llegar un índice. Un repositorio que falla no impide barrer los demás. Devuelve, por
+        repositorio, las unidades retiradas (los que no retiraron nada no salen)."""
+
+        if self._retenidas is None:
+            return []
+        salida = []
+        for alcance in self._acceso.repositorios_con_superposiciones():
+            try:
+                borrado = self.limpiar_huerfanos(alcance, None, None, self._retenidas)
+            except Exception:
+                log.exception(
+                    "no se pudieron barrer las retenidas de %s/%s/%s",
+                    alcance.org,
+                    alcance.workspace,
+                    alcance.repositorio,
+                )
+                continue
+            if borrado.retenidas:
+                log.info(
+                    "grafo de %s/%s/%s: retenidas que ningún índice cubrió retiradas por el barrido %s",
+                    alcance.org,
+                    alcance.workspace,
+                    alcance.repositorio,
+                    borrado.retenidas,
+                )
+                salida.append((alcance, borrado.retenidas))
         return salida
 
     def retirar_superposiciones(

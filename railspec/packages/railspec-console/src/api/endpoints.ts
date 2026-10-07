@@ -29,6 +29,7 @@ import type {
   Proveedor,
   ProveedorContexto,
   RepositorioGrafo,
+  RetenidaGrafo,
   ResultadoDescubrimiento,
   ResultadoSincronizacion,
   ResumenWorkspace,
@@ -93,6 +94,7 @@ export const unidades = {
 export const grafo = {
   repositorios: (org: string, ws: string) => pedir<RepositorioGrafo[]>(`${rutaWs(org, ws)}/grafo/repositorios`),
   consultar: (entrada: GraphQueryEntrada) => invocarTool<GraphQuerySalida>("graph.query", entrada),
+  retenidas: (org: string, ws: string) => pedir<RetenidaGrafo[]>(`${rutaWs(org, ws)}/grafo/retenidas`),
 };
 
 export const telemetria = {
@@ -216,6 +218,7 @@ export const claves = {
   unidad: (org: string, ws: string, u: string) => ["unidad", org, ws, u] as const,
   tablero: (org: string, ws: string) => ["tablero", org, ws] as const,
   grafo: (org: string, ws: string) => ["grafo", org, ws] as const,
+  retenidas: (org: string, ws: string) => ["grafo", org, ws, "retenidas"] as const,
   telemetria: (org: string, ws: string) => ["telemetria", org, ws] as const,
   auditoria: (org: string, ws: string) => ["auditoria", org, ws] as const,
   organizaciones: ["organizaciones"] as const,

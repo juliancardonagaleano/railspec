@@ -364,3 +364,96 @@ def test_el_instante_de_retencion_sobrevive_a_la_persistencia_de_la_meta(p):
     meta = p.acceso.espacio(p.alcance, UNIDAD).meta()
 
     assert (meta.integrado, meta.retenido_en, meta.unidad) == (COMMIT_4, T0, UNIDAD)
+
+
+# --- barrido sin esperar un índice ----------------------------------------------------------------
+
+
+def _propias(p, resultado):
+    """El barrido recorre todo el motor: en uno real compartido solo interesan los de esta prueba."""
+
+    return [(a.workspace, a.repositorio, unidades) for a, unidades in resultado if a.org == p.org]
+
+
+def test_el_barrido_retira_las_vencidas_de_un_repositorio_que_no_recibe_indices(p):
+    p.retener(UNIDAD, COMMIT_4)  # nunca llega un graph.index a este repositorio
+    p.reloj.avanzar(PLAZO - timedelta(hours=1))
+    assert _propias(p, p.grafo.barrer_retenidas()) == [] and p.unidades() == [UNIDAD]
+
+    p.reloj.avanzar(timedelta(hours=1))
+    assert _propias(p, p.grafo.barrer_retenidas()) == [("certificados", "api", [UNIDAD])]
+    assert p.unidades() == []
+    assert _propias(p, p.grafo.barrer_retenidas()) == []  # idempotente
+
+
+def test_el_barrido_recorre_todos_los_repositorios_y_solo_toca_retenidas(p):
+    otro = alcances(p.org, "otro-ws", "web")[0]
+    p.indexar(COMMIT_1)
+    p.retener(UNIDAD, COMMIT_4)
+    p.reportar(OTRA_UNIDAD)  # en curso: no es retenida
+    s = simbolo("web", "src/x.py", "funcion", "x")
+    p.grafo.aplicar_delta(otro, COMMIT_1, delta(simbolos=[s]), UNIDAD)
+    p.grafo.retener_superposicion(otro, UNIDAD, COMMIT_5)
+    p.reloj.avanzar(PLAZO)
+
+    hecho = _propias(p, p.grafo.barrer_retenidas())
+
+    assert sorted(hecho) == [("certificados", "api", [UNIDAD]), ("otro-ws", "web", [UNIDAD])]
+    assert p.unidades() == [OTRA_UNIDAD]  # la unidad en curso y el canónico siguen
+    assert p.acceso.espacio(p.alcance).meta().commit == COMMIT_1
+
+
+def test_el_barrido_sella_la_retenida_anterior_a_esta_version_y_la_juzga_en_el_siguiente(p):
+    p.retener()
+    sup = p.acceso.espacio(p.alcance, UNIDAD)
+    meta = sup.meta()
+    meta.retenido_en = None  # retenida antes de que se guardara cuándo
+    sup.fijar_meta(meta)
+    p.reloj.avanzar(10 * DIA)
+    assert _propias(p, p.grafo.barrer_retenidas()) == []  # la sella ahora
+
+    p.reloj.avanzar(PLAZO - DIA)
+    assert _propias(p, p.grafo.barrer_retenidas()) == []
+    p.reloj.avanzar(DIA)
+    assert _propias(p, p.grafo.barrer_retenidas()) == [("certificados", "api", [UNIDAD])]
+
+
+def test_el_barrido_sin_plazo_no_hace_nada(p):
+    p.retener()
+    sin_plazo = AlmacenGrafo(p.acceso, reloj=p.reloj, retenidas_dias=0)
+    p.reloj.avanzar(3650 * DIA)
+
+    assert sin_plazo.barrer_retenidas() == [] and p.unidades() == [UNIDAD]
+
+
+def test_un_repositorio_que_falla_no_impide_barrer_los_demas(p, caplog, monkeypatch):
+    otro = alcances(p.org, "otro-ws", "web")[0]
+    p.retener()
+    x = simbolo("web", "src/x.py", "funcion", "x")
+    p.grafo.aplicar_delta(otro, COMMIT_1, delta(simbolos=[x]), UNIDAD)
+    p.grafo.retener_superposicion(otro, UNIDAD, COMMIT_5)
+    p.reloj.avanzar(PLAZO)
+    real = p.grafo.limpiar_huerfanos
+
+    def falla_en_uno(alcance, *a, **k):
+        if alcance.workspace == "certificados":
+            raise RuntimeError("motor caído")
+        return real(alcance, *a, **k)
+
+    monkeypatch.setattr(p.grafo, "limpiar_huerfanos", falla_en_uno)
+    with caplog.at_level(logging.ERROR, logger="railspec.graph.almacen"):
+        hecho = _propias(p, p.grafo.barrer_retenidas())
+
+    assert hecho == [("otro-ws", "web", [UNIDAD])]
+    assert any("certificados" in r.getMessage() for r in caplog.records)
+
+
+def test_repositorios_con_superposiciones_deduce_el_alcance_del_nombre_del_grafo(p):
+    p.indexar(COMMIT_1)
+    p.retener()
+    otro = alcances(p.org, "otro-ws", "web")[0]
+    p.grafo.aplicar_delta(otro, COMMIT_1, delta(simbolos=[]), None)
+
+    propios = [a for a in p.acceso.repositorios_con_superposiciones() if a.org == p.org]
+
+    assert propios == [p.alcance]  # el canónico de ``otro`` solo no cuenta: no tiene superposición

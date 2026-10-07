@@ -120,7 +120,7 @@ propósito y lo detectan; un índice sin resumen deja `None`.
 **Resuelta cuando.** Un índice real subido por el job de CI queda `contenido_verificado: true` en
 una consulta, y una adulteración a propósito en un despliegue de prueba se avisa.
 
-## Superposición retenida: salida automática hecha; falta el barrido sin índices
+## Superposición retenida: barrido y pantalla hechos; falta probar contra FalkorDB real
 
 **Qué hay hoy (2026-10-07).** El canónico recuerda los commits que cubrieron sus últimos índices
 (hasta 1000, el completo reemplaza la lista), así que integrar una unidad en un commit que ya
@@ -131,10 +131,12 @@ del plazo y `GET /consola/api/orgs/{org}/workspaces/{ws}/grafo/retenidas` las li
 
 **Qué falta.**
 
-- El barrido de caducadas corre al llegar un `graph.index`, como los otros: un repositorio que deja
-  de recibir índices no barre sus retenidas (el aviso sí sale en cada consulta con `unidad`).
-- La lista de retenidas existe como API, no como pantalla de la consola.
-- Sin probar contra FalkorDB real (ver arriba).
+- Sin probar contra FalkorDB real (ver arriba): el barrido por su cuenta usa `listar` por prefijo del
+  motor, probado en memoria y, si hay `RAILSPEC_PRUEBAS_POSTGRES`, en Postgres.
+- El barrido corre cada hora en cada réplica con grafo y no se puede ajustar por variable: el plazo es
+  de días y una hora sobra. Si algún día hace falta, es una variable más en el renderizador.
 
-**Resuelta cuando.** Una retenida de un repositorio sin índices nuevos se retira sin intervención
-(barrido propio o un disparador) y la consola las muestra.
+**Hecho (2026-10-07).** `AlmacenGrafo.barrer_retenidas()` retira las vencidas de todos los repositorios
+sin esperar un índice y el servidor la llama cada hora desde una tarea de fondo
+(`server/api/fondo.py`); la consola las muestra en «Retenidas del grafo»
+(`/{org}/{ws}/grafo/retenidas`), con las vencidas primero.

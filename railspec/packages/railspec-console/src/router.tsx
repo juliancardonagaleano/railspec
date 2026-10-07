@@ -140,6 +140,12 @@ const grafo = createRoute({
   component: lazyRouteComponent(() => import("./vistas/grafo/NavegadorGrafo"), "NavegadorGrafo"),
 });
 
+const grafoRetenidas = createRoute({
+  getParentRoute: () => ws,
+  path: "grafo/retenidas",
+  component: lazyRouteComponent(() => import("./vistas/grafo/Retenidas"), "Retenidas"),
+});
+
 const auditoria = createRoute({
   getParentRoute: () => ws,
   path: "auditoria",
@@ -179,7 +185,7 @@ const arbol = raiz.addChildren([
       orgInicio,
       orgAdministracion,
       orgConfiguracion,
-      ws.addChildren([tablero, unidad, grafo, auditoria, estadisticas, chat, wsAdministracion, wsConfiguracion]),
+      ws.addChildren([tablero, unidad, grafo, grafoRetenidas, auditoria, estadisticas, chat, wsAdministracion, wsConfiguracion]),
     ]),
   ]),
 ]);

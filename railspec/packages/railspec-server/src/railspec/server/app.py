@@ -21,6 +21,9 @@ from .proveedores import Proveedores
 
 log = logging.getLogger("railspec.server")
 
+#: Cada cuánto se barren las superposiciones retenidas vencidas (el plazo es de días: una hora sobra).
+BARRIDO_RETENIDAS_S = 3600.0
+
 
 def ensamblar(
     config: Configuracion,
@@ -158,7 +161,13 @@ def ensamblar(
         config=ConfigChat(modelos={Proveedor.foundry: config.chat_modelo}),
     )
     sondas = _sondas(config, almacen, motor_grafo)
-    app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
+    fondo = []
+    if grafo is not None:
+        from .api.fondo import TareaFondo
+
+        # Las retenidas caducan aunque a su repositorio no le llegue un índice (ver ``barrer_retenidas``).
+        fondo.append(TareaFondo("grafo-retenidas", BARRIDO_RETENIDAS_S, grafo.barrer_retenidas))
+    app = aplicacion(registro, identidad, host=config.host, sondas=sondas, fondo=fondo)
     app.include_router(router_chat(servicio_chat, identidad))
     app.include_router(router_renovacion(RenovadorGithub(config.consola.github_app, cliente_github)))
     catalogo = getattr(proveedores, "catalogo", None)

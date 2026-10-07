@@ -458,6 +458,18 @@ export interface RepositorioGrafo {
   commit: string | null;
 }
 
+/** `GET …/grafo/retenidas`: la superposición de una unidad ya integrada que espera a que un índice cubra su commit. */
+export interface RetenidaGrafo {
+  repositorio: string;
+  unidad: string;
+  /** Commit en el que se integró la unidad. */
+  integrado: string;
+  /** Cuándo se retuvo; `null` si se retuvo antes de que se guardara (el primer barrido lo sella). */
+  desde: string | null;
+  /** Cuándo la retira el servidor; `null` sin plazo (`RAILSPEC_GRAFO_RETENIDAS_DIAS=0`) o sin `desde`. */
+  vence: string | null;
+}
+
 // ---------------------------------------------------------------- telemetría
 
 export const CLAVES_TELEMETRIA = [
