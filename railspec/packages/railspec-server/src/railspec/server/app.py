@@ -86,6 +86,10 @@ def ensamblar(
         from railspec.graph.motor_falkordb import MotorFalkor
 
         motor_grafo = MotorFalkor.desde_url(config.falkordb_url)
+    elif motor_grafo is None and config.grafo_postgres and config.postgres_url:
+        from railspec.graph.motor_postgres import MotorPostgres
+
+        motor_grafo = MotorPostgres.desde_url(config.postgres_url, config.postgres_esquema)
     acceso = grafo = None
     if motor_grafo is not None:
         from railspec.graph import AccesoGrafo, AlmacenGrafo
@@ -211,7 +215,7 @@ def _sondas(config: Configuracion, almacen: Any, motor_grafo: Any | None) -> dic
     elif not config.modo_memoria:
         sondas["mongo"] = lambda: almacen.db.command("ping")
     if motor_grafo is not None and hasattr(motor_grafo, "ping"):
-        sondas["falkordb"] = motor_grafo.ping
+        sondas[getattr(motor_grafo, "nombre_sonda", "falkordb")] = motor_grafo.ping
     return sondas
 
 

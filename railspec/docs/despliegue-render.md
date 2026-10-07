@@ -1,6 +1,6 @@
 # Despliegue en Render desde GitHub
 
-Servidor y consola web de Railspec en **un solo servicio web de Render**, con el estado en **Supabase Postgres** ([estado-postgres.md](estado-postgres.md)) y los modelos en Azure AI Foundry. Sin FalkorDB: el grafo es opcional y sin él el gate de código pierde el análisis de impacto y las órdenes de spec, plan y tasks salen sin rebanada de grafo (con el aviso en `contexto.grafo_avisos`; ver [deuda-tecnica.md](deuda-tecnica.md)). Es el camino de menor costo para probar; el despliegue de producción sigue siendo [AKS](despliegue.md).
+Servidor y consola web de Railspec en **un solo servicio web de Render**, con el estado en **Supabase Postgres** ([estado-postgres.md](estado-postgres.md)) y los modelos en Azure AI Foundry. El grafo de código vive en la misma base de Supabase (`RAILSPEC_GRAFO_POSTGRES`, ver [grafo.md](grafo.md#motor-en-postgres)): no hace falta FalkorDB ni un segundo servicio. Es el camino de menor costo para probar; el despliegue de producción sigue siendo [AKS](despliegue.md).
 
 ```
 push a master ─▶ Render construye el Dockerfile del repositorio y arranca el servicio
@@ -40,6 +40,8 @@ Las claves y cadenas de conexión las pones tú en el panel de Render. No las pe
 | `FORWARDED_ALLOW_IPS` | `*` | Blueprint |
 | `RAILSPEC_POSTGRES_URL` | Cadena del *session pooler* de Supabase | Tú, en el panel |
 | `RAILSPEC_POSTGRES_ESQUEMA` | `railspec` (no `public`: Supabase lo expone por su API REST) | Blueprint |
+| `RAILSPEC_GRAFO_POSTGRES` | `true`: el grafo de código en la misma base, en tablas `grafo_*` del mismo esquema | Blueprint |
+| `RAILSPEC_OIDC_AUDIENCIA`, `RAILSPEC_OIDC_REPOSITORIOS` | Opcionales, juntas: la audiencia larga y no adivinable (`openssl rand -hex 24`) y los `owner/repo` que pueden llamar `graph.index` ([despliegue.md](despliegue.md)); vacías, el grafo existe pero nadie lo alimenta | Tú, en el panel |
 | `RAILSPEC_CONSOLA_SECRETO` | Aleatorio de 256 bits que genera Render | Render |
 | `RAILSPEC_CONSOLA_ADMINS` | `83125327` (el github_id de Julian) | Blueprint |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | De la GitHub App | Tú, en el panel |
@@ -84,7 +86,7 @@ Con el digest del argumento se **vuelve a una versión anterior**: el workflow i
 ## Qué hace y qué no hace el despliegue
 
 - **Migración:** no hay paso aparte. Al arrancar, el servidor crea el esquema, la tabla y los índices únicos si faltan, bajo un bloqueo que evita carreras entre arranques simultáneos.
-- **Reindexado del grafo:** no aplica. Sin FalkorDB no hay grafo; `railspec-reindexar` solo corre si defines `RAILSPEC_URL`, y no lo hagas hasta tener grafo.
+- **Grafo:** el servidor crea las tablas `grafo_*` al arrancar, igual que la del estado. Empieza vacío: lo llena `railspec-reindexar` (`.github/workflows/railspec-reindexar.yml`) cuando defines en GitHub `RAILSPEC_URL`, `RAILSPEC_WORKSPACE`, `RAILSPEC_REPOSITORIO` y `RAILSPEC_OIDC_AUDIENCIA` (la misma que en Render) y GitHub Actions corre. Sin grafo poblado el gate de código no ve impacto y la rebanada de grafo de spec, plan y tasks sale con el aviso de grafo vacío. Un grafo de unos 12 000 símbolos y 31 000 aristas ocupa unos 30 MB con sus índices, dentro de los 500 MB de Supabase gratuito. El grafo usa su propio pool (hasta 5 conexiones) además del del estado: el *session pooler* del plan gratuito admite pocas conexiones simultáneas, así que no escales réplicas sin mirarlo.
 - **Salud no prueba la versión:** mira *Events* en el panel de Render para confirmar que el despliegue nuevo terminó (con la variante GHCR, el script espera a `/healthz`, pero la imagen anterior también responde mientras Render la reemplaza).
 - **Construcción en Render:** el Dockerfile instala `git` con apt, compila la consola con Node y usa `RUN --mount=type=bind` (BuildKit). Si el plan gratuito no alcanza para construir, usa la variante GHCR.
 - **Servicio gratuito:** se duerme tras 15 minutos sin tráfico, tiene 512 MB de RAM y 0,1 CPU, y no tiene disco; el primer comando tras un rato tarda. Las sesiones MCP viven en memoria y se pierden al dormirse. Los clones del chat (`RAILSPEC_CHAT_CLONES`) no caben sin disco: el chat responde sin leer código.

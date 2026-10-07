@@ -115,7 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # La suite entera de railspec-server con ``almacen_en_memoria()`` sustituido por Postgres
-    # (RAILSPEC_PRUEBAS_POSTGRES, ver tests/conftest.py) y las pruebas de la capa de documentos. Usa el
+    # (RAILSPEC_PRUEBAS_POSTGRES, ver tests/conftest.py), las pruebas de la capa de documentos y la suite de
+    # railspec-graph con MotorPostgres como motor (railspec-graph/tests/conftest.py). Usa el
     # PostgreSQL que trae el runner; sin él, esas pruebas se saltarían, así que se comprueba que no se salten.
     steps:
       - uses: actions/checkout@v4
@@ -130,7 +131,7 @@ jobs:
       - name: Instalar
         run: >-
           python -m pip install
-          -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-graph[falkordb]"
+          -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-graph[falkordb,postgres,test]"
           -e "railspec/packages/railspec-server[motor,grafo,test-motor]"
       - name: Configurar git para las pruebas que crean repositorios
         run: |
@@ -142,7 +143,7 @@ jobs:
           RAILSPEC_PRUEBAS_POSTGRES: postgresql://postgres:railspec@localhost:5432/railspec_test
         run: |
           set -o pipefail
-          python -m pytest -c railspec/pyproject.toml --rootdir railspec -rs railspec/packages/railspec-server | tee "$RUNNER_TEMP/pg.txt"
+          python -m pytest -c railspec/pyproject.toml --rootdir railspec -rs railspec/packages/railspec-graph railspec/packages/railspec-server | tee "$RUNNER_TEMP/pg.txt"
           if grep -q "sin RAILSPEC_PRUEBAS_POSTGRES" "$RUNNER_TEMP/pg.txt"; then
             echo "::error::las pruebas de Postgres se saltaron"
             exit 1

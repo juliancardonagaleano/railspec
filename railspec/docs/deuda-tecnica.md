@@ -67,26 +67,32 @@ contexto, pide `semantica` cuando haya vector.
 el proxy devuelve resultados por similitud sin avisos, y una prueba contra un repositorio real lo
 verifica.
 
-## FalkorDB sin definir en el despliegue de Render
+## Grafo de Render en Postgres: falta verlo contra Supabase real
 
-**Qué hay hoy.** El despliegue de Render (`render.yaml`, `deploy/render/render-ghcr.yaml`,
-[despliegue-render.md](despliegue-render.md)) no define `RAILSPEC_FALKORDB_URL`: sin ella el
-servidor arranca sin grafo. Por eso `graph.query` y `graph.index` no existen allí, el gate de
-código pierde el impacto y las trazas `CA-NN`, y las órdenes de spec, plan y tasks salen sin
-rebanada de grafo y con el aviso de que no hay grafo configurado. Tampoco corre ni tiene
-sentido el workflow de reindexado. Solo el despliegue de AKS lleva FalkorDB.
+**Qué hay hoy (2026-10-07).** Julian descartó levantar FalkorDB para el despliegue de Render (un servicio
+privado con disco de pago para un grafo de pocos MB) y eligió un motor sobre la base que ya hay. El blueprint
+define `RAILSPEC_GRAFO_POSTGRES=true`: `MotorPostgres` guarda el grafo en tablas `grafo_*` del esquema del estado
+([grafo.md](grafo.md#motor-en-postgres)), así que `graph.query` y `graph.index` existen en Render, el gate de código
+vuelve a ver impacto y trazas `CA-NN`, y spec, plan y tasks reciben su rebanada de grafo. Las pruebas del grafo
+(134) y una prueba del servidor de punta a punta pasan contra un Postgres 16 local; con un grafo sintético del
+tamaño de este repositorio el impacto hace 6 consultas de aristas, no 446.
 
-**Decisión pendiente (cuesta dinero, no se hace sin pedirlo).** FalkorDB es un módulo de Redis: no
-corre en el Key Value gestionado de Render, sino como servicio privado con imagen propia y disco
-persistente de pago, y el plan gratuito de Render no ofrece discos.
+**Qué falta.**
 
-**Qué falta.** Decidir si Render tendrá grafo. Si sí: un FalkorDB alcanzable desde ese servicio
-(gestionado o propio), su URL como variable secreta en el blueprint, `RAILSPEC_OIDC_*` para el
-reindexado desde CI y documentarlo. Si no: dejarlo escrito como límite del despliegue de prueba
-y que quien despliega en Render lo sepa antes de probar.
+- Probarlo contra Supabase real (*session pooler*, IPv4, RLS, latencia de red). Todo se midió en un Postgres local:
+  con cada consulta de aristas a 30 ms de ida y vuelta, el impacto de una unidad grande aún cuesta unos segundos
+  (6 consultas por nivel y vista, más las de símbolos).
+- El grafo empieza vacío en Render y solo lo alimenta `railspec-reindexar`, que necesita `RAILSPEC_URL`,
+  `RAILSPEC_OIDC_AUDIENCIA` y `RAILSPEC_OIDC_REPOSITORIOS` en el servicio, y GitHub Actions funcionando (el
+  bloqueo de facturación sigue ahí). Sin eso el grafo de Render queda vacío y el servidor avisa de ello.
+- Vectores remotos: `knn` compara en Python; con embeddings por símbolo (≈ 3 KB cada uno) no cabría el plan
+  gratuito. Depende de la decisión de embeddings locales (arriba).
+- El grafo y el estado son dos pools sobre el mismo *session pooler*: no escalar réplicas sin revisar el límite de
+  conexiones de Supabase.
+- FalkorDB sigue siendo el motor de AKS. No hay migración entre motores; un cambio de motor reindexa desde CI.
 
-**Resuelta cuando.** El blueprint de Render define el grafo y una unidad de prueba recibe una
-rebanada de grafo en su orden de spec, o la decisión de no tenerlo queda documentada.
+**Resuelta cuando.** Una unidad de prueba contra Supabase real recibe una rebanada de grafo en su orden de spec y
+su gate de código ve impacto, con el reindexado de CI funcionando.
 
 ## Reconciliación del grafo canónico: falta verla funcionar contra un repositorio real
 
