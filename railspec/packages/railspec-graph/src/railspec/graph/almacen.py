@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import base64
 import math
-from collections import deque
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -244,18 +243,25 @@ def recorrer(
     lado = "entrada" if direccion == "upstream" else "salida"
     alcanzados: dict[str, Alcanzado] = {}
     vistos = set(inicios)
-    frontera = deque((i, 0) for i in sorted(inicios))
-    while frontera:
-        actual, d = frontera.popleft()
-        if d >= profundidad:
-            continue
+    nivel = sorted(inicios)
+    # Un nivel por vuelta y una consulta por vista y nivel (no una por símbolo): con un motor remoto el
+    # viaje de red domina. El orden de descubrimiento es el mismo que si se recorriera nodo a nodo.
+    for d in range(profundidad):
+        if not nivel:
+            break
+        por_nodo: dict[str, list] = {i: [] for i in nivel}
         for v in vistas:
-            for a in v.aristas([actual], relaciones, lado):
+            for a in v.aristas(nivel, relaciones, lado):
+                por_nodo[a.destino if lado == "entrada" else a.origen].append(a)
+        siguiente: list[str] = []
+        for actual in nivel:
+            for a in por_nodo[actual]:
                 sig = a.origen if lado == "entrada" else a.destino
                 if sig not in vistos:
                     vistos.add(sig)
                     alcanzados[sig] = Alcanzado(d + 1, a.relacion)
-                    frontera.append((sig, d + 1))
+                    siguiente.append(sig)
+        nivel = siguiente
     return alcanzados
 
 

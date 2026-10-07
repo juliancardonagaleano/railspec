@@ -2,7 +2,7 @@
 
 `railspec/packages/railspec-graph` implementa el repositorio central de
 conocimiento de código: `GraphStore` y `VectorStore` de `railspec-contracts`
-sobre FalkorDB, la capa que codebase-memory-mcp no trae (clusters, procesos,
+sobre FalkorDB o Postgres, la capa que codebase-memory-mcp no trae (clusters, procesos,
 impacto con riesgo, referencias entre repositorios) y el RAG sobre el grafo.
 Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 `graph.query`.
@@ -13,6 +13,7 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 |---|---|
 | `motor` | Protocolo `MotorGrafo`: primitivas de un motor físico. Cambiar de motor es implementar solo esto. |
 | `motor_falkordb` | `MotorFalkor`: un grafo físico de FalkorDB por nombre, vectores en el propio nodo (índice vectorial coseno, 768). |
+| `motor_postgres` | `MotorPostgres`: el grafo en tablas `grafo_*` de la base del estado, sin servicio aparte ([abajo](#motor-en-postgres)). |
 | `memoria` | `MotorMemoria`: doble de pruebas con la misma semántica. |
 | `acceso` | Único módulo de acceso a datos: construye los nombres de grafo e impone el filtro de workspace. |
 | `almacen` | `AlmacenGrafo` (`GraphStore`) y `AlmacenVectores` (`VectorStore`), con superposiciones por unidad y su limpieza (`limpiar_huerfanos`). |
@@ -20,6 +21,40 @@ Depende solo de `railspec-contracts`; `railspec-server` lo cablea detrás de
 | `rag` | `RecuperadorContexto`: k-NN por repositorio visible y expansión por el grafo; devuelve referencias. |
 | `ingesta` | `ingerir_snapshot`: aplica el delta de un snapshot con la política del vínculo y enlaza los `CA-NN` de las tareas completadas. |
 | `indexado` | `IndexadorCanonico`: `graph.index`, el canónico por lotes desde CI (contrato 1.1), y el barrido de lo abandonado. |
+
+## Motor en Postgres
+
+`MotorPostgres` guarda el grafo en la misma base que el estado del servidor (`RAILSPEC_POSTGRES_URL`), sin FalkorDB ni
+licencia aparte. Se activa con `RAILSPEC_GRAFO_POSTGRES=true`; exige `RAILSPEC_POSTGRES_URL` y excluye a
+`RAILSPEC_FALKORDB_URL` (el servidor no arranca con las dos). No migra datos: un grafo nuevo empieza vacío y lo
+llena el siguiente índice de CI.
+
+Por qué existe: lo que el servidor le pide al grafo son primitivas simples (insertar y borrar símbolos y aristas,
+vecinos a un salto, búsqueda por nombre) y el grafo de un repositorio de tamaño real cabe en decenas de MB; el impacto,
+los clusters y los procesos ya se calculan en Python por encima de `MotorGrafo`. Un motor de grafos aparte pesaba más que
+lo que hacía.
+
+Tablas, todas en el esquema del estado y colgando de `grafo_grafos` con `ON DELETE CASCADE` (borrar un grafo es un `DELETE`):
+
+| Tabla | Contenido |
+|---|---|
+| `grafo_grafos` | Una fila por grafo físico: su `Meta` en `json` y la columna `actualizado` (que `sellar` fija sin pisar el resto). |
+| `grafo_simbolos` | `id, nombre, tipo, ruta, linea_inicio, linea_fin, sha256` y `embedding real[]` opcional. Nunca texto de código. |
+| `grafo_aristas` | `origen, destino, relacion`, sin clave foránea: un extremo puede ser una referencia a otro repositorio. |
+| `grafo_clusters`, `grafo_procesos`, `grafo_trazas` | La analítica y las trazas `CA-NN`. |
+
+- El servidor crea las tablas al arrancar, bajo un bloqueo asesor, con RLS activa (Supabase expone por REST lo que no la tiene).
+- Cada operación es una transacción propia y el pool no usa sentencias preparadas: sirve con el *pooler* de Supabase en modo sesión y en modo transacción. Los lotes grandes viajan como arreglos (`unnest`), un viaje por llamada.
+- `knn` compara en Python los embeddings del grafo (coseno, fuerza bruta). El servidor hoy guarda pocos o ninguno; si hiciera falta búsqueda vectorial remota, el paso siguiente es pgvector sin cambiar el protocolo.
+- `/healthz` y `railspec_sonda_ok` lo llaman `grafo` (no `falkordb`).
+- El recorrido del impacto y de `callers`/`callees` pide las aristas por nivel (una consulta por vista y nivel, no por símbolo), para cualquier motor remoto.
+
+Medido en un Postgres 16 local con un grafo sintético del tamaño del índice de este repositorio (11 936 símbolos, 31 165
+aristas): índice completo de un golpe ≈ 10 s (la mayor parte es la analítica en Python, ≈ 7 s con el motor en memoria); el
+impacto de una unidad de 50 símbolos (302 afectados) pasó de 446 consultas de aristas a 6, y tarda unos 80 ms sin latencia
+de red. No se midió contra Supabase real (ver [deuda-tecnica.md](deuda-tecnica.md)).
+
+Las pruebas del grafo corren contra él con `RAILSPEC_PRUEBAS_POSTGRES=<url>` (la misma variable que la suite del servidor).
 
 ## Espacios de nombres
 

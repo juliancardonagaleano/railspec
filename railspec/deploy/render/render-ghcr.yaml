@@ -3,7 +3,7 @@
 # indica esta ruta en lugar de render.yaml. Necesita Actions funcionando o Docker para publicar la imagen.
 # Blueprint de Render para railspec-server (servidor + consola web en un solo servicio).
 # Guía: railspec/docs/despliegue-render.md. Estado en Supabase Postgres (RAILSPEC_POSTGRES_URL);
-# sin FalkorDB (el grafo es opcional). La imagen la construye y publica en GHCR
+# el grafo en la misma base (RAILSPEC_GRAFO_POSTGRES). La imagen la construye y publica en GHCR
 # .github/workflows/railspec-imagen.yml; el despliegue lo dispara el job «render» de ese workflow con
 # el Deploy Hook del servicio, o a mano con railspec/deploy/render/desplegar.sh.
 #
@@ -39,6 +39,16 @@ services:
         sync: false
       - key: RAILSPEC_POSTGRES_ESQUEMA
         value: railspec
+      # El grafo de código vive en esa misma base (tablas grafo_*), sin FalkorDB: habilita graph.query,
+      # graph.index, el impacto del gate y la rebanada de grafo de spec, plan y tasks.
+      - key: RAILSPEC_GRAFO_POSTGRES
+        value: "true"
+      # --- reindexado del grafo desde CI (graph.index con OIDC de GitHub Actions) ---
+      # Los dos vacíos desactivan graph.index; con uno solo definido el servidor no arranca.
+      - key: RAILSPEC_OIDC_AUDIENCIA
+        sync: false
+      - key: RAILSPEC_OIDC_REPOSITORIOS
+        sync: false
       # --- consola web ---
       # La URL pública sale de RENDER_EXTERNAL_URL (la fija Render); define RAILSPEC_CONSOLA_URL en el panel
       # solo si usas un dominio propio.

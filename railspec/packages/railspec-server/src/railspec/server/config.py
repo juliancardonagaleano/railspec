@@ -70,6 +70,9 @@ class Configuracion:
     pce_url: str | None = None
     #: Grafo central (railspec-graph). Sin él, el gate de código no ve impacto de grafo.
     falkordb_url: str | None = None
+    #: Grafo central en la misma base Postgres del estado (``RAILSPEC_GRAFO_POSTGRES``), sin FalkorDB. Exige
+    #: ``postgres_url`` y excluye ``falkordb_url``: el grafo vive en un solo motor.
+    grafo_postgres: bool = False
     pce_api_key: str | None = None
     #: Caché de consultas a proveedores de contexto (PCE), en segundos; 0 la desactiva.
     contexto_cache_s: float = 900.0
@@ -143,6 +146,7 @@ class Configuracion:
             cifrador=_cifrador(env),
             pce_url=env.get("RAILSPEC_PCE_URL") or None,
             falkordb_url=env.get("RAILSPEC_FALKORDB_URL") or None,
+            grafo_postgres=_bandera(env.get("RAILSPEC_GRAFO_POSTGRES")),
             pce_api_key=env.get("RAILSPEC_PCE_API_KEY") or None,
             contexto_cache_s=float(env.get("RAILSPEC_CONTEXTO_CACHE_S") or 900),
             catalogo_ttl_s=float(env.get("RAILSPEC_CATALOGO_TTL_S") or 3600),
@@ -179,6 +183,15 @@ def validar_arranque(config: Configuracion) -> None:
     if config.mongo_uri and config.postgres_url:
         raise ErrorConfiguracion(
             "RAILSPEC_MONGO_URI y RAILSPEC_POSTGRES_URL a la vez: el estado vive en una sola base, quita una"
+        )
+    if config.grafo_postgres and config.falkordb_url:
+        raise ErrorConfiguracion(
+            "RAILSPEC_GRAFO_POSTGRES y RAILSPEC_FALKORDB_URL a la vez: el grafo vive en un solo motor, "
+            "quita uno"
+        )
+    if config.grafo_postgres and not config.postgres_url:
+        raise ErrorConfiguracion(
+            "RAILSPEC_GRAFO_POSTGRES guarda el grafo en la base del estado y no hay RAILSPEC_POSTGRES_URL"
         )
     if config.permitir_desarrollo:
         motivos = []

@@ -66,7 +66,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | Clave | Obligatoria | Uso |
    | --- | --- | --- |
    | `RAILSPEC_MONGO_URI` | sí | Estado y checkpoints. Sin ella el contenedor no arranca (ni con la imagen, que no trae el Mongo simulado, ni en memoria sin `RAILSPEC_PERMITIR_DESARROLLO=1`). |
-   | `RAILSPEC_FALKORDB_URL` | no | Grafo central; sin él no hay `graph.query` ni impacto en el gate de código. |
+   | `RAILSPEC_FALKORDB_URL` | no | Grafo central; sin él (y sin `RAILSPEC_GRAFO_POSTGRES`, que lo guarda en la base del estado cuando esta es Postgres: [grafo.md](grafo.md#motor-en-postgres)) no hay `graph.query` ni impacto en el gate de código. |
    | `RAILSPEC_FOUNDRY_API_KEY` | no | Clave de Foundry. Sin ella, Entra ID (Workload Identity si se da `RAILSPEC_AZURE_CLIENT_ID`). |
    | `RAILSPEC_PCE_API_KEY` | no | Gobernanza por defecto (`RAILSPEC_PCE_URL`). Las credenciales de otras herramientas de contexto van por `credencial_ref` ([proveedores.md](proveedores.md#herramientas-de-contexto)). |
    | `RAILSPEC_ANTHROPIC_API_KEY` | si `RAILSPEC_ANTHROPIC_HABILITADO=true` | Anthropic directo, solo nivel `abierto`. |

@@ -2,8 +2,8 @@
 
 Capas, de abajo arriba:
 
-- ``motor``: primitivas de un motor físico (``MotorFalkor`` hoy; ``MotorMemoria``
-  como doble; LadybugDB entraría como otro ``MotorGrafo``).
+- ``motor``: primitivas de un motor físico (``MotorFalkor`` y ``MotorPostgres``;
+  ``MotorMemoria`` como doble; LadybugDB entraría como otro ``MotorGrafo``).
 - ``acceso``: único módulo que construye nombres de grafo e impone el filtro
   de workspace.
 - ``almacen``: ``AlmacenGrafo`` (``GraphStore``) y ``AlmacenVectores``

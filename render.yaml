@@ -1,8 +1,8 @@
 # Blueprint de Render para railspec-server (servidor + consola web en un solo servicio).
 # Guía: railspec/docs/despliegue-render.md. Render construye la imagen del Dockerfile del repositorio en cada
 # push a master que toque el servidor, la consola o el Dockerfile: no hace falta GHCR, token de registro,
-# Deploy Hook ni GitHub Actions. Estado en Supabase Postgres (RAILSPEC_POSTGRES_URL); sin FalkorDB (el grafo
-# es opcional). La variante con imagen publicada en GHCR está en railspec/deploy/render/render-ghcr.yaml.
+# Deploy Hook ni GitHub Actions. Estado en Supabase Postgres (RAILSPEC_POSTGRES_URL); el grafo en la misma base
+# (RAILSPEC_GRAFO_POSTGRES). La variante con imagen publicada en GHCR está en railspec/deploy/render/render-ghcr.yaml.
 #
 # Los valores con `sync: false` se piden al crear el Blueprint en el panel de Render (nunca van en este
 # archivo). Render ignora los `sync: false` al actualizar un Blueprint ya creado: cámbialos en el panel.
@@ -37,6 +37,16 @@ services:
         sync: false
       - key: RAILSPEC_POSTGRES_ESQUEMA
         value: railspec
+      # El grafo de código vive en esa misma base (tablas grafo_*), sin FalkorDB: habilita graph.query,
+      # graph.index, el impacto del gate y la rebanada de grafo de spec, plan y tasks.
+      - key: RAILSPEC_GRAFO_POSTGRES
+        value: "true"
+      # --- reindexado del grafo desde CI (graph.index con OIDC de GitHub Actions) ---
+      # Los dos vacíos desactivan graph.index; con uno solo definido el servidor no arranca.
+      - key: RAILSPEC_OIDC_AUDIENCIA
+        sync: false
+      - key: RAILSPEC_OIDC_REPOSITORIOS
+        sync: false
       # --- consola web ---
       # La URL pública sale de RENDER_EXTERNAL_URL (la fija Render); define RAILSPEC_CONSOLA_URL en el panel
       # solo si usas un dominio propio.

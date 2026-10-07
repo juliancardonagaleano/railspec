@@ -188,3 +188,43 @@ def test_verbo_trace_por_criterio_y_por_simbolo(grafo, org, api):
     grafo.descartar_superposicion(repo, UNIDAD, COMMIT_2)
     tras = grafo.consultar(_q(org, {"verbo": "trace", "criterio": "CA-01"}, unidad=UNIDAD), [repo])
     assert [r.ref.nombre for r in tras.resultados] == ["pdf.render"]
+
+
+def test_el_recorrido_pide_las_aristas_por_nivel_y_no_por_simbolo(motor, org, api):
+    """Con un motor remoto cada ``aristas`` es un viaje de red: el BFS no puede hacer uno por nodo."""
+
+    from railspec.graph.almacen import recorrer
+
+    g = AlmacenGrafo(AccesoGrafo(motor))
+    (repo,) = alcances(org, "certificados", "api")
+    g.aplicar_delta(repo, COMMIT_1, api.delta(), None)
+    vistas = g.vistas(_q(org, {"verbo": "search", "texto": "pdf"}), [repo])
+
+    pedidos: list[list[str]] = []
+    original = type(vistas[0]).aristas
+
+    def contar(self, ids, relaciones, direccion):
+        pedidos.append(list(ids))
+        return original(self, ids, relaciones, direccion)
+
+    type(vistas[0]).aristas = contar
+    try:
+        alcanzados = recorrer(vistas, [api.fuente.id], ["llama"], "upstream", 3)
+    finally:
+        type(vistas[0]).aristas = original
+
+    assert {i: a.distancia for i, a in alcanzados.items()} == {
+        api.render.id: 1,
+        api.emitir.id: 2,
+        api.main.id: 3,
+        api.prueba.id: 3,
+    }
+    assert pedidos == [[api.fuente.id], [api.render.id], [api.emitir.id]]
+    # Varios inicios: una sola consulta para todo el nivel.
+    pedidos.clear()
+    type(vistas[0]).aristas = contar
+    try:
+        recorrer(vistas, [api.fuente.id, api.render.id], ["llama"], "upstream", 1)
+    finally:
+        type(vistas[0]).aristas = original
+    assert len(pedidos) == 1 and sorted(pedidos[0]) == sorted([api.fuente.id, api.render.id])

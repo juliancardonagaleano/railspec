@@ -724,6 +724,7 @@ FUERA_DEL_CONFIGMAP = {
     "RAILSPEC_COMPATIBLES_HOSTS": "hosts extra de endpoints compatibles personalizados (proveedores.md)",
     "RAILSPEC_POSTGRES_URL": "estado en Postgres en vez de Mongo; AKS usa Mongo (estado-postgres.md)",
     "RAILSPEC_POSTGRES_ESQUEMA": "esquema de ese Postgres (estado-postgres.md)",
+    "RAILSPEC_GRAFO_POSTGRES": "grafo en esa misma base en vez de FalkorDB; AKS usa FalkorDB (grafo.md)",
 }
 
 

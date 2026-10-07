@@ -7,7 +7,7 @@ El servidor guarda su estado (unidades, eventos, órdenes, reportes, snapshots, 
 | `RAILSPEC_POSTGRES_URL` | URL de conexión (`postgresql://usuario:clave@host:5432/base`). Activa Postgres. Excluyente con `RAILSPEC_MONGO_URI`: con las dos el servidor no arranca. |
 | `RAILSPEC_POSTGRES_ESQUEMA` | Esquema donde vive la tabla. Por defecto `railspec`. |
 
-Sin ninguna de las dos el servidor solo arranca con `RAILSPEC_PERMITIR_DESARROLLO=1` (estado en memoria, solo desarrollo), igual que antes. El FalkorDB del grafo es aparte (`RAILSPEC_FALKORDB_URL`) y sigue siendo opcional.
+Sin ninguna de las dos el servidor solo arranca con `RAILSPEC_PERMITIR_DESARROLLO=1` (estado en memoria, solo desarrollo), igual que antes. El grafo de código es aparte y opcional: o FalkorDB (`RAILSPEC_FALKORDB_URL`) o esta misma base con `RAILSPEC_GRAFO_POSTGRES=true` (tablas `grafo_*` en el mismo esquema; ver [grafo.md](grafo.md#motor-en-postgres)). Se excluyen entre sí.
 
 ## Cómo está hecho
 
