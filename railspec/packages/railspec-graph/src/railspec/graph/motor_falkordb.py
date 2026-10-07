@@ -2,8 +2,10 @@
 
 Esquema por grafo:
 
-- ``(:Meta {json, actualizado})``: commit, unidad y lápidas de la superposición en el json;
-  la última actividad (ISO 8601, UTC) aparte.
+- ``(:Meta {json, actualizado, ext})``: commit, unidad y lápidas de la superposición en el json;
+  la última actividad (ISO 8601, UTC) y lo que se añadió en 1.10 (commits cubiertos, resultado de la
+  reconciliación, resumen de CI, instante de retención; ver ``Meta``) aparte, cada cual en su
+  propiedad, para que una réplica anterior siga leyendo el json.
 - ``(:Simbolo {id, nombre, tipo, ruta, linea_inicio, linea_fin, sha256, stub, embedding})``;
   un stub solo lleva ``id`` y ``stub = true``.
 - ``(:Simbolo)-[:REL {tipo}]->(:Simbolo)``.
@@ -86,15 +88,25 @@ class MotorFalkor:
         return sorted(n for n in self._db.list_graphs() if n.startswith(prefijo))
 
     def leer_meta(self, grafo: str) -> Meta:
-        filas = self._leer(grafo, "MATCH (m:Meta) RETURN m.json, m.actualizado")
+        filas = self._leer(grafo, "MATCH (m:Meta) RETURN m.json, m.actualizado, m.ext")
         if not filas:
             return Meta()
-        crudo, actualizado = filas[0]
+        crudo, actualizado, extra = filas[0]
         # Sin json: ``sellar`` llegó antes que la primera ``escribir_meta`` del grafo.
         d = json.loads(crudo) if crudo else {}
         d["aristas_borradas"] = [tuple(a) for a in d.get("aristas_borradas", [])]
         if actualizado:
             d["actualizado"] = datetime.fromisoformat(actualizado)
+        if extra:
+            e = json.loads(extra)
+            # Una réplica anterior que reescribe el json (p. ej. al aplicar un índice) no toca ``ext``:
+            # si el commit ya no es el suyo, lo que dice describe otro índice y no vale.
+            if e.pop("commit", None) == d.get("commit"):
+                if "resumen" in e:
+                    e["resumen"] = [tuple(r) for r in e["resumen"]]
+                if "retenido_en" in e:
+                    e["retenido_en"] = datetime.fromisoformat(e["retenido_en"])
+                d.update(e)
         return Meta(**d)
 
     def sellar(self, grafo: str, instante: datetime) -> None:
@@ -125,9 +137,33 @@ class MotorFalkor:
         actualizado = meta.actualizado.isoformat() if meta.actualizado else None
         self._escribir(
             grafo,
-            "MERGE (m:Meta) SET m.json = $j, m.actualizado = $a",
-            {"j": json.dumps(datos), "a": actualizado},
+            "MERGE (m:Meta) SET m.json = $j, m.actualizado = $a, m.ext = $e",
+            {"j": json.dumps(datos), "a": actualizado, "e": self._extra(meta)},
         )
+
+    @staticmethod
+    def _extra(meta: Meta) -> str | None:
+        """Lo que la meta añadió en 1.10, como json para ``m.ext``; ``None`` si nada se aparta del defecto.
+
+        Lleva el commit de la meta a la que pertenece: ``leer_meta`` lo ignora si ya no coincide."""
+
+        e: dict[str, Any] = {}
+        if meta.cubiertos:
+            e["cubiertos"] = list(meta.cubiertos)
+        if meta.contenido_verificado is not None:
+            e["contenido_verificado"] = meta.contenido_verificado
+        if meta.divergencias_total:
+            e["divergencias_total"] = meta.divergencias_total
+        if meta.rutas_divergentes:
+            e["rutas_divergentes"] = list(meta.rutas_divergentes)
+        if meta.resumen is not None:
+            e["resumen"] = [list(r) for r in meta.resumen]
+        if meta.retenido_en is not None:
+            e["retenido_en"] = meta.retenido_en.isoformat()
+        if not e:
+            return None
+        e["commit"] = meta.commit
+        return json.dumps(e)
 
     # --- símbolos y aristas ------------------------------------------------
     def upsert_simbolos(self, grafo: str, simbolos: list[dict]) -> None:

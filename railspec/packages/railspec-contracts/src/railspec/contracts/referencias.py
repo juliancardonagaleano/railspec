@@ -73,6 +73,25 @@ class FrescuraGrafo(Contrato):
             "comparación con el repositorio: ver ``avisos`` y el proxy local."
         ),
     )
+    contenido_verificado: bool | None = Field(
+        default=None,
+        description=(
+            "Desde 1.10: resultado de comparar el contenido del canónico con el resumen que CI calculó "
+            "sobre el árbol del commit al subir el último índice (``GraphIndexEntrada.resumen``). "
+            "True = coincide; False = hay rutas que difieren (ver ``rutas_divergentes``); None = el "
+            "índice no trajo resumen (cliente anterior a 1.10) y el contenido no se comparó."
+        ),
+    )
+    divergencias_total: int = Field(
+        default=0,
+        ge=0,
+        description="Desde 1.10: cuántas rutas difieren entre el canónico y el resumen de CI.",
+    )
+    rutas_divergentes: list[RutaRelativa] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Desde 1.10: las primeras rutas que difieren, en orden alfabético (a lo sumo 20).",
+    )
 
 
 class RefNodoGrafo(Contrato):

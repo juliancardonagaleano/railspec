@@ -4,6 +4,9 @@
 # como actor de servicio. El servidor nunca indexa ni calcula embeddings.
 # Desde el contrato 1.5 declara en commits_cubiertos los commits de la rama que cada índice
 # incorpora, para que el servidor retire solo las superposiciones de unidades ya cubiertas.
+# Desde el contrato 1.10 manda en el último lote el resumen del contenido del commit, que el
+# servidor compara con el canónico; cada lunes además corre un índice completo programado, que
+# reemplaza lo acumulado por deltas y corrige cualquier divergencia sin trabajo manual.
 #
 # Variables del repositorio (Settings > Secrets and variables > Actions > Variables):
 #   RAILSPEC_URL           URL base del servidor, sin /mcp (si falta, el job no corre)
@@ -17,6 +20,10 @@ name: railspec-reindexar
 on:
   push:
     branches: [master]
+  # Índice completo semanal (lunes, 05:17 UTC; fuera de la hora en punto, que GitHub satura). Los
+  # programados solo corren en la rama por defecto, y el job los filtra más abajo.
+  schedule:
+    - cron: "17 5 * * 1"
   workflow_dispatch:
     inputs:
       completo:
@@ -38,7 +45,15 @@ concurrency:
 
 jobs:
   reindexar:
-    if: vars.RAILSPEC_URL != '' && github.ref == 'refs/heads/master'
+    # El programado exige además no ser un fork y tener las variables de OIDC: sin ellas fallaría
+    # cada semana en silencio en lugar de no correr. El push conserva la condición de siempre.
+    if: >-
+      vars.RAILSPEC_URL != '' && github.ref == 'refs/heads/master' &&
+      (github.event_name != 'schedule' || (
+        github.event.repository.fork == false &&
+        vars.RAILSPEC_OIDC_AUDIENCIA != '' &&
+        vars.RAILSPEC_ORGANIZACION != '' &&
+        vars.RAILSPEC_WORKSPACE != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -62,7 +77,8 @@ jobs:
       - name: Reindexar
         env:
           ANTERIOR: ${{ github.event_name == 'push' && github.event.before || '' }}
-          COMPLETO: ${{ inputs.completo }}
+          # El programado siempre es completo; el manual, si se pide.
+          COMPLETO: ${{ github.event_name == 'schedule' || inputs.completo }}
           RETIRAR_TODAS: ${{ inputs.retirar_todas }}
           REPOSITORIO: ${{ vars.RAILSPEC_REPOSITORIO || github.event.repository.name }}
         run: |

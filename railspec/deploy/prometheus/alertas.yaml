@@ -1,0 +1,58 @@
+# Alertas de Prometheus para el servidor de Railspec (ver docs/despliegue.md § Esquema del estado y métricas).
+# Se escribieron contra el formato que publica `GET /metrics` (`server/metricas.py`); una prueba
+# (`deploy/tests/test_metricas.py`) verifica que cada métrica que usan exista y que el archivo tenga la forma que
+# `promtool check rules` espera. Probarlas disparándolas a propósito sigue siendo trabajo del operador
+# (ver docs/deuda-tecnica.md).
+#
+# Uso: `rule_files: [/etc/prometheus/alertas-railspec.yaml]` en prometheus.yml, y el trabajo `railspec` de
+# scrape del documento (`job="railspec"`; si lo llamas distinto, cambia la etiqueta de `RailspecSinMetricas`).
+groups:
+  - name: railspec
+    rules:
+      - alert: RailspecSinMetricas
+        expr: up{job="railspec"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus no logra leer /metrics de Railspec"
+          description: >-
+            El scrape falla desde hace 10 minutos: el servicio está caído, el token de métricas cambió
+            (401) o la red no llega. Con el token rotado, actualiza el archivo de credenciales del scraper.
+
+      - alert: RailspecSondaCaida
+        expr: railspec_sonda_ok == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "La sonda {{ $labels.sonda }} de Railspec no responde"
+          description: "La base de estado o el grafo no responden dentro del tope; ver /healthz."
+
+      - alert: RailspecErroresDelServidor
+        expr: sum by (grupo) (rate(railspec_http_peticiones_total{estado="5xx"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Respuestas 5xx sostenidas en la superficie {{ $labels.grupo }}"
+          description: "El servidor responde 5xx desde hace 10 minutos; revisa sus registros."
+
+      - alert: RailspecEsquemaDesalineado
+        expr: >-
+          railspec_estado_esquema{origen="codigo"} != on() railspec_estado_esquema{origen="almacenado"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "El código y el estado guardado de Railspec están en versiones de esquema distintas"
+          description: >-
+            Tras un despliegue la migración no corrió o se hizo un retroceso; ver estado/esquema.py.
+
+      - alert: RailspecReiniciosRepetidos
+        expr: changes(railspec_proceso_inicio_segundos[1h]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "El proceso de Railspec se reinició más de dos veces en una hora"
+          description: "Un reinicio en bucle suele ser memoria, una sonda que mata el pod o un arranque que falla."

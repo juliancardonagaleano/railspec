@@ -8,10 +8,10 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
 | `deploy/servidor/requirements.lock` | Lock con hashes de las dependencias de terceros. Se regenera con `deploy/servidor/bloquear.sh` al cambiar `requirements.in` o los `pyproject`. |
 | `deploy/k8s/*.yaml` | Namespace, ServiceAccount, ConfigMap, Deployment, Service, Ingress y PodDisruptionBudget, con `${VARIABLES}`; y, opcionales por bandera (Mongo y FalkorDB en el clúster, NetworkPolicy, respaldos, clones del chat), los de [despliegue-datos.md](despliegue-datos.md). |
 | `deploy/renderizar.py` | Sustituye las variables desde el entorno y falla si falta una obligatoria. Solo biblioteca estándar. |
-| `deploy/ci/reindexar.py` | Cliente de `graph.index` que usa el workflow de reindexado. |
+| `deploy/ci/reindexar.py` | Cliente de `graph.index` que usa el workflow de reindexado: el índice por lotes, los commits que cubre y el resumen de su contenido. |
 | `railspec-ci.yml` | Lint, pruebas de cada paquete por separado y validación de manifiestos con kubeconform. |
 | `railspec-imagen.yml` | Construye la imagen en cada PR (con prueba de humo) y la publica en `master` y en tags `railspec-server-v*`. |
-| `railspec-reindexar.yml` | En cada push a `master`, sube el índice del canónico a `graph.index` con OIDC. |
+| `railspec-reindexar.yml` | En cada push a `master`, y con un índice completo cada lunes, sube el índice del canónico a `graph.index` con OIDC. |
 
 ## Lo que se prepara una vez
 
@@ -316,6 +316,21 @@ scrape_configs:
 Para rotar el token cambia `RAILSPEC_METRICAS_TOKEN`, reinicia el servicio y
 actualiza el archivo de credenciales del scraper en seguida: entre ambos pasos
 las consultas reciben 401, que `up == 0` refleja sin perder las series.
+Las mismas alertas, en formato de reglas de Prometheus, están en
+`deploy/prometheus/alertas.yaml` (`rule_files` del servidor Prometheus; añaden
+`RailspecSinMetricas`, que dispara si el scrape deja de funcionar). Para
+comprobar a mano que un servidor desplegado las alimentaría, sin Prometheus:
+
+```bash
+RAILSPEC_METRICAS_TOKEN=... python3 railspec/deploy/prometheus/verificar_metricas.py https://railspec.onrender.com
+```
+
+Sale con 0 si `/metrics` responde 200 con las familias esperadas y todas las
+sondas en 1; con 1 y la causa (401 token distinto, 404 sin token definido,
+sonda caída, esquema desalineado) si no. Las alertas del archivo solo se
+verificaron contra el formato que publica el servidor, no contra un
+Prometheus real.
+
 Alertas mínimas sugeridas:
 
 | Alerta | Expresión | Para qué |
@@ -337,12 +352,52 @@ misma del servidor) es la audiencia del token.
   no hay commit anterior utilizable (rama nueva, force-push) o si el servidor
   responde 409 `base-commit-distinto` (el canónico no está en esa base). Un
   lanzamiento manual con `completo` fuerza el completo.
+- **Índice completo semanal.** Un disparo `schedule` (lunes 05:17 UTC) corre el
+  modo `completo` sin intervención: reemplaza lo que los deltas acumularon y
+  corrige cualquier divergencia que se les hubiera escapado, sin trabajo manual.
+  Declara `commits_cubiertos` como cualquier índice (no es `retirar_todas`: las
+  superposiciones varadas siguen pidiendo ese lanzamiento manual). El job
+  programado no corre en un fork ni si faltan `RAILSPEC_ORGANIZACION`,
+  `RAILSPEC_WORKSPACE` o `RAILSPEC_OIDC_AUDIENCIA` (sin ellas fallaría cada semana
+  en lugar de no correr); el push conserva su condición de siempre. Comparte el
+  grupo de concurrencia con los demás reindexados, así que no se pisa con un push.
+  GitHub desactiva los programados de un repositorio público sin actividad en 60 días: un
+  `workflow_dispatch` o un push lo reactiva.
+- **Resumen del contenido (contrato 1.10).** Con el índice, el job calcula el
+  resumen del commit (por archivo, cuántos símbolos tiene y una huella de sus
+  `id` y `sha256`; el algoritmo es `railspec.contracts.resumen`, el mismo que usa
+  el servidor) y lo manda en el último lote (`lote == lotes`), con
+  `version_contrato` `1.10`. El servidor lo compara con el canónico tras aplicar
+  el índice y avisa la divergencia en `graph.query`. Detalles:
+  - Cubre el **árbol completo** del commit, no el delta. En un índice completo
+    sale del propio delta; en uno incremental el job le pide al indexador el índice
+    completo del árbol (una pasada más de `codebase-memory-mcp` en el runner,
+    con las mismas exclusiones de secretos y el mismo parser) y toma solo los
+    símbolos. Manda todo lo que el indexador ve: las exclusiones del vínculo las
+    aplica el servidor en ambos lados.
+  - **Tope.** `MAX_ARCHIVOS_RESUMEN` (20 000 archivos con símbolos). Si el commit
+    tiene más, el job no manda un resumen recortado (cada archivo que faltara sería
+    una divergencia falsa): lo omite, habla 1.9 y lo dice en la salida (`se sube sin
+    verificación de contenido`). Tampoco se manda si el cálculo falla; el índice
+    sube igual, porque verificar nunca debe impedir que el canónico avance.
+  - `--sin-resumen` en `reindexar.py` lo apaga a propósito (1.9, sin la pasada
+    completa en los deltas) y es independiente de `--sin-cobertura`, que habla 1.4
+    y por eso tampoco manda resumen.
+  - **Servidor 1.9.** Uno que rechaza `resumen` o la versión `1.10` con 422
+    recibe el índice sin él, con `version_contrato` `1.9` y sus
+    `commits_cubiertos`, y el job avisa `sin verificación de contenido`. Un
+    servidor 1.4 retrocede en dos pasos (primero el resumen, luego la lista). Un
+    422 sobre el contenido del resumen (`resumen.archivos...`) no se reintenta:
+    sería un error del cliente. Despliega primero el servidor.
 - Desde el contrato 1.5 cada índice declara en `commits_cubiertos` los
   commits que incorpora (`git rev-list --first-parent`, hasta 1000) y el
   servidor retira solo las superposiciones de unidades integradas en ellos.
   Si una superposición quedó retenida sin que ningún índice la cubra, un
   lanzamiento manual con `retirar_todas` sube un índice completo sin cobertura
-  y retira todas las retenidas. Despliega primero el servidor: uno 1.4 rechaza
+  y retira todas las retenidas (desde que existe `RAILSPEC_GRAFO_RETENIDAS_DIAS`
+  una retenida varada también se retira sola al vencer su plazo, y el servidor
+  recuerda los commits que cubrieron los últimos índices para retirar al instante
+  la de una unidad integrada en uno de ellos). Despliega primero el servidor: uno 1.4 rechaza
   la lista con 422 y `reindexar.py` sube entonces el índice sin ella (regla de
   1.4, con lo que el índice completo vuelve a retirar todas las retenidas).
 - Otros errores detienen el job sin reintentar: 401 token inválido, 403
@@ -372,7 +427,8 @@ nada que limpiar a mano.
 
 | Variable | Defecto | Uso |
 | --- | --- | --- |
-| `RAILSPEC_GRAFO_SUPERPOSICION_DIAS` | `30` | Días sin snapshot nuevo tras los que se borra la superposición de una unidad no integrada (la retención por defecto de los snapshots; este plazo es del servidor, no del vínculo). Las integradas esperan a que un índice cubra su commit y no caducan por tiempo. |
+| `RAILSPEC_GRAFO_SUPERPOSICION_DIAS` | `30` | Días sin snapshot nuevo tras los que se borra la superposición de una unidad no integrada (la retención por defecto de los snapshots; este plazo es del servidor, no del vínculo). Las integradas esperan a que un índice cubra su commit y caducan por `RAILSPEC_GRAFO_RETENIDAS_DIAS`. |
+| `RAILSPEC_GRAFO_RETENIDAS_DIAS` | `30` | Días desde que se integra una unidad tras los que se retira su superposición retenida si ningún índice cubrió su commit. `graph.query` con `unidad` avisa desde la mitad del plazo; `GET /consola/api/orgs/{org}/workspaces/{ws}/grafo/retenidas` las lista. `0` no caduca nunca. El barrido corre al llegar un `graph.index`. |
 | `RAILSPEC_GRAFO_INDEXADO_HORAS` | `24` | Horas sin lotes nuevos tras las que se borra la preparación de un índice que no completó. |
 | `RAILSPEC_GRAFO_FRESCURA_HORAS` | `72` | Horas desde el último índice canónico aplicado tras las que `graph.query` marca el repositorio como `desactualizado` y lo avisa en `avisos` (y el contexto de las órdenes de spec, plan y tasks, en `grafo_avisos`). No borra nada; `0` no avisa nunca. Un canónico sin instante guardado (indexado antes de esta variable) no se marca hasta su próximo índice. |
 
@@ -394,6 +450,11 @@ nada que limpiar a mano.
 
 ## Pendiente fuera de este directorio
 
+- **Coste del resumen en los deltas.** Calcularlo en un push incremental suma una
+  pasada de índice completo al job (ver arriba); no está medida contra el límite de
+  60 minutos. `--sin-resumen` la quita si un repositorio grande se pasa, a costa de
+  la verificación; el índice completo semanal la paga una vez por semana, sobre
+  el propio delta.
 - **Tiempo de un índice completo.** El job usa el mismo indexador que el
   proxy (`railspec.local.indexador_cbm`): una sola sesión MCP por stdio con
   `codebase-memory-mcp` por delta, con el arranque (unos 6 s) pagado una vez y

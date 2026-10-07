@@ -38,6 +38,9 @@ data:
   # preparaciones de índices que no completaron); 0 = nunca. Ver railspec/docs/grafo.md.
   RAILSPEC_GRAFO_SUPERPOSICION_DIAS: "${RAILSPEC_GRAFO_SUPERPOSICION_DIAS}"
   RAILSPEC_GRAFO_INDEXADO_HORAS: "${RAILSPEC_GRAFO_INDEXADO_HORAS}"
+  # Tras cuántos días se retira la superposición retenida de una unidad integrada cuyo commit ningún
+  # índice cubrió (0 = nunca); graph.query avisa desde la mitad del plazo. Ver railspec/docs/grafo.md.
+  RAILSPEC_GRAFO_RETENIDAS_DIAS: "${RAILSPEC_GRAFO_RETENIDAS_DIAS}"
   # Tras cuántas horas sin índice canónico nuevo graph.query avisa que el grafo puede estar
   # desactualizado (0 = no avisa). Ver railspec/docs/grafo.md.
   RAILSPEC_GRAFO_FRESCURA_HORAS: "${RAILSPEC_GRAFO_FRESCURA_HORAS}"

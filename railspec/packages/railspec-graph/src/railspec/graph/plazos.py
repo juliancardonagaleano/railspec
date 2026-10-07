@@ -6,6 +6,12 @@ import math
 import os
 from datetime import timedelta
 
+#: Variable que fija tras cuántos días se retira una superposición retenida que ningún índice cubrió
+#: (``0`` = nunca caduca). La leen ``IndexadorCanonico`` (para borrarlas) y ``AlmacenGrafo`` (para avisar
+#: de las que van por la mitad); una variable inválida impide arrancar.
+VAR_RETENIDAS_DIAS = "RAILSPEC_GRAFO_RETENIDAS_DIAS"
+RETENIDAS_DIAS = 30.0
+
 
 def plazo(valor: float | None, variable: str, defecto: float, unidad: str) -> timedelta | None:
     """``valor`` explícito, si no la variable de entorno, si no el defecto; ``0`` = sin plazo."""

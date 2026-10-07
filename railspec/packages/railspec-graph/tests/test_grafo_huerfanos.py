@@ -128,12 +128,14 @@ def test_un_snapshot_nuevo_renueva_la_actividad(p):
     assert p.barrer().superposiciones == [UNIDAD]
 
 
-def test_la_retenida_no_caduca_por_tiempo_sino_por_cobertura(p):
+def test_la_retenida_no_cae_por_el_plazo_de_las_abandonadas_sino_por_cobertura(p):
+    """Su plazo es otro, contado desde que se retuvo (ver ``test_grafo_retenidas``)."""
+
     p.reportar()
     assert p.grafo.retener_superposicion(p.alcance, UNIDAD, COMMIT_2) is True
     p.reloj.avanzar(365 * DIA)
 
-    assert not p.barrer()
+    assert not p.barrer()  # sin plazo de retenidas
     assert p.unidades() == [UNIDAD]
     # Sale cuando un índice cubre su commit, y no antes.
     assert p.grafo.retirar_superposiciones(p.alcance, COMMIT_2, False, None) == [UNIDAD]

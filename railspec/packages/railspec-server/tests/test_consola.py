@@ -1051,3 +1051,57 @@ def test_configuracion_desde_entorno():
     with pytest.raises(ValueError, match="numéricos"):
         ConfigConsola.desde_entorno({"RAILSPEC_CONSOLA_ADMINS": "julian"})
     assert ConfigConsola.desde_entorno({}) == ConfigConsola()
+
+
+def test_grafo_retenidas_lista_las_superposiciones_que_esperan_un_indice():
+    from railspec.contracts.comun import AlcanceRepositorio
+    from railspec.contracts.snapshot import DeltaIndice, MotorIndice
+    from railspec.graph import AccesoGrafo, AlmacenGrafo, MotorMemoria
+
+    repo = AlcanceRepositorio(org=ORG, workspace=WS, repositorio=REPO)
+    acceso = AccesoGrafo(MotorMemoria())
+    grafo = AlmacenGrafo(acceso, retenidas_dias=30)
+    delta = DeltaIndice(motor=MotorIndice(version="0.11.0"))
+    grafo.aplicar_delta(repo, "a" * 40, delta, "0001-integrada")
+    grafo.aplicar_delta(repo, "a" * 40, delta, "0002-en-curso")
+    assert grafo.retener_superposicion(repo, "0001-integrada", "b" * 40)
+    ruta = f"/consola/api/orgs/{ORG}/workspaces/{WS}/grafo/retenidas"
+
+    async def caso():
+        m = Montaje(nivel=NivelCodigo.interno, grafo=grafo, acceso_grafo=acceso)
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        async with m.cliente("tk-ana") as c:
+            r = await c.get(ruta)
+            assert r.status_code == 200
+            (fila,) = r.json()  # la unidad en curso no está
+            assert (fila["repositorio"], fila["unidad"], fila["integrado"]) == (
+                REPO,
+                "0001-integrada",
+                "b" * 40,
+            )
+            assert fila["desde"] is not None and fila["vence"] is not None and fila["vence"] > fila["desde"]
+            # Sin sesión no hay lista.
+        async with m.cliente() as anonimo:
+            assert (await anonimo.get(ruta)).status_code in (401, 403)
+        # Sin grafo configurado: vacío, no error.
+        m = Montaje(nivel=NivelCodigo.interno)
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        async with m.cliente("tk-ana") as c:
+            assert (await c.get(ruta)).json() == []
+
+    correr(caso())
+
+
+def test_grafo_retenidas_con_el_grafo_caido_responde_503_y_no_un_vacio_que_engañe():
+    class GrafoCaido:
+        def retenidas(self, alcance):
+            raise ConnectionError("FalkorDB caído")
+
+    async def caso():
+        m = Montaje(nivel=NivelCodigo.interno, grafo=GrafoCaido())
+        asignar(m.almacen, Rol.lector, ANA_ID)
+        async with m.cliente("tk-ana") as c:
+            r = await c.get(f"/consola/api/orgs/{ORG}/workspaces/{WS}/grafo/retenidas")
+            assert r.status_code == 503 and "ConnectionError" in r.text
+
+    correr(caso())

@@ -343,11 +343,31 @@
           "description": "Commit del canónico; None si nunca se indexó.",
           "title": "Commit"
         },
+        "contenido_verificado": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.10: resultado de comparar el contenido del canónico con el resumen que CI calculó sobre el árbol del commit al subir el último índice (``GraphIndexEntrada.resumen``). True = coincide; False = hay rutas que difieren (ver ``rutas_divergentes``); None = el índice no trajo resumen (cliente anterior a 1.10) y el contenido no se comparó.",
+          "title": "Contenido Verificado"
+        },
         "desactualizado": {
           "default": false,
           "description": "True si ``indexado_en`` es más antiguo que el plazo del servidor (``RAILSPEC_GRAFO_FRESCURA_HORAS``; 0 = no avisa). Es un aviso de tiempo, no una comparación con el repositorio: ver ``avisos`` y el proxy local.",
           "title": "Desactualizado",
           "type": "boolean"
+        },
+        "divergencias_total": {
+          "default": 0,
+          "description": "Desde 1.10: cuántas rutas difieren entre el canónico y el resumen de CI.",
+          "minimum": 0,
+          "title": "Divergencias Total",
+          "type": "integer"
         },
         "indexado": {
           "description": "False si el repositorio nunca recibió un índice canónico: sus consultas no devuelven nada de él (vacío no significa que el símbolo no exista).",
@@ -367,6 +387,18 @@
           "default": null,
           "description": "Instante en que se aplicó el último índice canónico. None si nunca se indexó o si el índice es anterior a que el servidor guardara este instante.",
           "title": "Indexado En"
+        },
+        "rutas_divergentes": {
+          "description": "Desde 1.10: las primeras rutas que difieren, en orden alfabético (a lo sumo 20).",
+          "items": {
+            "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+            "maxLength": 1024,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Rutas Divergentes",
+          "type": "array"
         }
       },
       "required": [
@@ -747,7 +779,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.9",
+          "default": "1.10",
           "enum": [
             "1.0",
             "1.1",
@@ -758,7 +790,8 @@
             "1.6",
             "1.7",
             "1.8",
-            "1.9"
+            "1.9",
+            "1.10"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -897,7 +930,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.9",
+          "default": "1.10",
           "enum": [
             "1.0",
             "1.1",
@@ -908,7 +941,8 @@
             "1.6",
             "1.7",
             "1.8",
-            "1.9"
+            "1.9",
+            "1.10"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1051,7 +1085,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.9",
+          "default": "1.10",
           "enum": [
             "1.0",
             "1.1",
@@ -1062,7 +1096,8 @@
             "1.6",
             "1.7",
             "1.8",
-            "1.9"
+            "1.9",
+            "1.10"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1182,7 +1217,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.9",
+          "default": "1.10",
           "enum": [
             "1.0",
             "1.1",
@@ -1193,7 +1228,8 @@
             "1.6",
             "1.7",
             "1.8",
-            "1.9"
+            "1.9",
+            "1.10"
           ],
           "title": "Version Contrato",
           "type": "string"

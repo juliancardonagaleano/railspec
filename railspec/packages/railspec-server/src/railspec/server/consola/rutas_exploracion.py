@@ -387,6 +387,39 @@ def _repos_grafo(ctx: ContextoConsola, org: str, ws: str) -> list[dict[str, Any]
     return salida
 
 
+@router.get("/orgs/{org}/workspaces/{ws}/grafo/retenidas")
+async def retenidas_grafo(org: str, ws: str, request: Request) -> list[dict[str, Any]]:
+    """Superposiciones retenidas de los repositorios del workspace: unidades ya integradas cuya
+    superposición espera a que un índice cubra su commit. Solo lee; sirve para ver cuáles quedaron
+    varadas (``desde`` y ``vence``) antes de que el plazo de ``RAILSPEC_GRAFO_RETENIDAS_DIAS`` las
+    retire. Unidad, commit e instantes: nunca código."""
+
+    ctx = await _lector(request, org, ws)
+    try:
+        return await asyncio.to_thread(_retenidas_grafo, ctx, org, ws)
+    except Exception as exc:  # grafo caído: a diferencia del listado de repositorios, aquí un vacío engañaría
+        raise HTTPException(503, f"el grafo no respondió ({type(exc).__name__})") from exc
+
+
+def _retenidas_grafo(ctx: ContextoConsola, org: str, ws: str) -> list[dict[str, Any]]:
+    listar = getattr(ctx.grafo, "retenidas", None)
+    if listar is None:  # sin grafo configurado (Render, hoy)
+        return []
+    salida = []
+    for v in ctx.datos.vinculos(org, ws):
+        for r in listar(AlcanceRepositorio(**v.alcance.model_dump())):
+            salida.append(
+                {
+                    "repositorio": v.alcance.repositorio,
+                    "unidad": r.unidad,
+                    "integrado": r.integrado,
+                    "desde": r.desde.isoformat() if r.desde else None,
+                    "vence": r.vence.isoformat() if r.vence else None,
+                }
+            )
+    return salida
+
+
 # --- estadísticas y auditoría ---------------------------------------------------------------------
 
 
