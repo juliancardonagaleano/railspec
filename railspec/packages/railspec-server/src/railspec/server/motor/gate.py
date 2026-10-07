@@ -204,8 +204,6 @@ class EntradaGate:
     nivel: NivelCodigo
     hallazgos_previos: list[Hallazgo] = field(default_factory=list)
     org: str | None = None
-    #: ``Workspace.zona_datos_azure``: zona exigida a ``restringido``/``interno``.
-    zona: str | None = None
     #: ``repositorio@commit`` del código evaluado: entra en la clave de la caché de nodos.
     commits: tuple[str, ...] = ()
     guardia: Guardia | None = None
@@ -386,9 +384,7 @@ async def evaluar_panel(
     ) -> tuple[list[Lente], RespuestaModelo[SalidaCritico], Llamada]:
         rol = grupo[0].rol
         req = requisito(entrada.perfil, rol, entrada.fase, entrada.nivel)
-        eleccion = proveedores.elegir(
-            rol, req, entrada.nivel, org=entrada.org, zona=entrada.zona, **_suscripcion(entrada)
-        )
+        eleccion = proveedores.elegir(rol, req, org=entrada.org, **_suscripcion(entrada))
         sistema = _sistema(entrada.fase, grupo, entrada.gobernanza)
         nodo = f"gate-{entrada.fase.value}:" + "+".join(lente.id for lente in grupo)
         sha = _sha(sistema + "\n" + contenido)
@@ -479,9 +475,7 @@ async def _refutar(
     h: Hallazgo, entrada: EntradaGate, proveedores: Proveedores, fallidas: list[LlamadaFallida]
 ) -> tuple[SalidaRefutador, Llamada]:
     req = requisito(entrada.perfil, "refutador", entrada.fase, entrada.nivel)
-    eleccion = proveedores.elegir(
-        "refutador", req, entrada.nivel, org=entrada.org, zona=entrada.zona, **_suscripcion(entrada)
-    )
+    eleccion = proveedores.elegir("refutador", req, org=entrada.org, **_suscripcion(entrada))
     sistema = (
         f"Eres el verificador adversarial del gate '{entrada.fase.value}'. Intenta demostrar que el "
         "hallazgo es falso o irrelevante para el material. Ante la duda, refuta."

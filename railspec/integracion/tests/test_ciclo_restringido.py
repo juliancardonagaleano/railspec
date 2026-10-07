@@ -212,6 +212,10 @@ def test_en_restringido_no_viaja_codigo(ciclo, entorno):
     assert len(snapshots) == 1
     s = snapshots[0]
     assert s["nivel_codigo"] == "restringido"
+    # El nivel se congela al crear la unidad (1.7) y es lo que rige el material, no el proveedor.
+    unidad = db.unidades.find_one(_filtro(ciclo))
+    assert unidad is not None and unidad["nivel_efectivo"] == "restringido"
+    assert [r["nivel_codigo"] for r in unidad["repositorios"]] == ["restringido"]
     assert s["diff"] is None and s["fragmentos"] is None
     assert sorted(a["ruta"] for a in s["archivos"]) == sorted(CODIGO)
     assert all(a["sha256_despues"] for a in s["archivos"])

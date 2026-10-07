@@ -76,6 +76,7 @@ from railspec.contracts.snapshot import Snapshot
 from ..estado.checkpoints import nombre_workflow
 from . import ordenes
 from .artefactos import Extraido, GrupoPlan, hallazgos_estructura, validar
+from .contexto_grafo import Rebanada, rebanada
 from .gate import Accion, EntradaGate, EvaluacionPanel, Guardia, decidir, evaluar_panel
 from .gate import Decision as DecisionGate
 from .nucleo import Nucleo
@@ -177,6 +178,8 @@ GATE_DE_ARTEFACTO = {
     Artefacto.tasks: GateFase.tasks,
 }
 ARTEFACTO_DE_GATE = {v: k for k, v in GATE_DE_ARTEFACTO.items()}
+#: Fases cuya orden lleva la rebanada del grafo (``contexto_grafo``); la de código la pide al grafo el arnés.
+FASES_CON_GRAFO = frozenset(GATE_DE_ARTEFACTO.values())
 FASE_DE_GATE = {
     GateFase.spec: Fase.spec,
     GateFase.plan: Fase.plan,
@@ -208,10 +211,29 @@ class Nodo(Executor):
         ctx.set_state(CLAVE_DATOS, datos.model_dump(mode="json"))
 
     async def contexto(self, fase: GateFase, datos: DatosUnidad) -> ContextoArmado:
+        """Gobernanza, insumos y, para spec, plan y tasks, la rebanada del grafo remoto.
+
+        El grafo no es obligatorio: sin él (o sin índice canónico) el contexto sale igual y
+        ``grafo_avisos`` lo dice. Los críticos del gate no reciben este contexto: evalúan el artefacto
+        con la gobernanza, y solo el gate de código suma el impacto del grafo (``impacto_grafo``)."""
+
         estado = self.n.leer(self.alcance)
         r = await self.n.gobernanza.consultar(self.alcance, fase, _objeto(estado.titulo, datos))
         insumos = self.n.insumos.resolver(estado) if self.n.insumos is not None and estado.insumos else []
-        return ContextoArmado(gobernanza=r.items, gobernanza_consultada=r.consultada, insumos=insumos)
+        grafo = Rebanada()
+        if fase in FASES_CON_GRAFO:
+            criterios = [c.texto for c in datos.extraido.criterios[:10]]
+            grafo = await rebanada(
+                self.n.grafo, self.alcance, estado, estado.titulo, datos.pedido[:1000], *criterios
+            )
+        return ContextoArmado(
+            gobernanza=r.items,
+            gobernanza_consultada=r.consultada,
+            insumos=insumos,
+            grafo=grafo.nodos,
+            grafo_frescura=grafo.frescura,
+            grafo_avisos=grafo.avisos,
+        )
 
     async def emitir_orden(self, ctx: WorkflowContext, orden: Any) -> None:
         self.n.almacen.guardar_orden(orden)
@@ -518,7 +540,6 @@ class Gate(Nodo):
                 nivel=nivel,
                 hallazgos_previos=previos,
                 org=self.alcance.org,
-                zona=self.n.zona(estado),
                 commits=_commits(estado),
                 guardia=Guardia(
                     lambda gastado: self.n.presupuesto_agotado(estado, fase, fase_presupuesto, gastado)

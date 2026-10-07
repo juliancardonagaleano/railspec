@@ -32,7 +32,7 @@ Sin ninguna de las dos el servidor solo arranca con `RAILSPEC_PERMITIR_DESARROLL
 - Usa la cadena del **pooler en modo sesión** (puerto 5432 del host `…pooler.supabase.com`): la conexión directa es solo IPv6 y muchos hosts gratuitos no la alcanzan. El modo transacción debería servir también (el servidor no usa sentencias preparadas y cada operación va en su propia transacción), pero no se ha probado contra Supabase.
 - La tabla vive en el esquema `railspec`, no en `public`, porque Supabase expone `public` por su API REST. Además la tabla se crea con seguridad por filas activa y sin políticas, así que la clave anónima no lee nada. El rol de la conexión es el dueño y no se ve afectado.
 - El plan gratuito pausa el proyecto tras una semana sin actividad, tiene 500 MB y no hace respaldos: conviene un `pg_dump` periódico.
-- Los datos quedan en Supabase, fuera de la zona de datos de Azure donde corren los modelos. Para repositorios propietarios es una decisión de política antes que técnica ([chat.md](chat.md), [proveedores.md](proveedores.md)).
+- Los datos quedan en Supabase, fuera de la zona de datos de Azure donde pueden correr los modelos. Para repositorios propietarios es una decisión de política antes que técnica ([chat.md](chat.md), [proveedores.md](proveedores.md#política-por-nivel)).
 
 Despliegue completo con Supabase y Render, incluido CI: [despliegue-render.md](despliegue-render.md).
 

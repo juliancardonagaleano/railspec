@@ -189,16 +189,37 @@ class Nucleo:
     def nivel(self, estado: EstadoUnidad, repositorio: str | None = None) -> NivelCodigo:
         """Nivel de ``repositorio`` o, sin él, el efectivo de la unidad.
 
-        Todo lo que sale de la unidad hacia un modelo (elección del modelo, material del gate,
-        auditoría) usa el efectivo: el más restrictivo de todos sus repositorios, no el del
-        primario. Quien necesita el de un repositorio concreto (el nivel que declara su snapshot)
-        lo pide por nombre.
+        El nivel solo gobierna qué material de código viaja al modelo (fragmentos en ``interno``,
+        diff en ``abierto``) y se audita; no elige proveedor, modelo ni región. Todo lo que sale de
+        la unidad hacia un modelo (material del gate, auditoría) usa el efectivo: el más restrictivo
+        de todos sus repositorios, no el del primario. Quien necesita el de un repositorio concreto
+        (el nivel que declara su snapshot) lo pide por nombre.
+
+        Rige el nivel congelado al crear la unidad (``RepositorioUnidad.nivel_codigo`` y
+        ``EstadoUnidad.nivel_efectivo``, contrato 1.7): un cambio posterior del vínculo en la consola no
+        altera las unidades en curso. Una unidad anterior a 1.7 (sin nivel congelado) lee el vínculo vivo.
         """
 
-        ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
         if repositorio is not None:
+            congelado = next(
+                (r.nivel_codigo for r in estado.repositorios if r.repositorio == repositorio), None
+            )
+            if congelado is not None:
+                return congelado
+            ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
             return self.nivel_de(ws, repositorio)
+        if estado.nivel_efectivo is not None:
+            return estado.nivel_efectivo
+        ws = AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace)
         return self.niveles(ws, (r.repositorio for r in estado.repositorios))
+
+    def congelar_niveles(
+        self, ws: AlcanceWorkspace, repositorios: Iterable[str]
+    ) -> tuple[list[NivelCodigo], NivelCodigo]:
+        """Niveles de los vínculos de ``repositorios`` (en orden) y el efectivo, para congelarlos."""
+
+        niveles = [self.nivel_de(ws, r) for r in repositorios]
+        return niveles, mas_restrictivo(niveles)
 
     async def validar_perfil(
         self, ws: AlcanceWorkspace, nombre: Perfil, repositorios: str | Iterable[str], riesgo: Riesgo
@@ -206,33 +227,16 @@ class Nucleo:
         """Motivos por los que el catálogo conectado no puede servir el perfil; vacío = válido.
 
         Se llama antes de crear la unidad: el motor rechaza el arranque en vez
-        de degradar el modelo en silencio a mitad de un gate. Con varios
-        repositorios se valida contra el nivel más restrictivo de todos, el
-        mismo con el que correrá el gate.
+        de degradar el modelo en silencio a mitad de un gate. El nivel de los
+        repositorios solo elige las claves por nivel del perfil (el más restrictivo
+        de todos, el mismo con el que correrá el gate); no restringe proveedores.
         """
 
         perfil = self.almacen.perfil(ws, nombre) or perfil_por_defecto(ws, nombre)
         nivel = self.niveles(ws, [repositorios] if isinstance(repositorios, str) else repositorios)
-        leer_ws = getattr(self.almacen, "workspace", None)
-        workspace = leer_ws(ws) if leer_ws else None
         await self.proveedores.refrescar(ws.org)
         pares = requisitos_del_gate(perfil, nivel, tope_gate(perfil, riesgo).adversarial)
-        return self.proveedores.validar(
-            pares,
-            nivel,
-            org=ws.org,
-            zona=workspace.zona_datos_azure if workspace else None,
-            suscripcion=perfil.suscripcion,
-        )
-
-    def zona(self, estado: EstadoUnidad) -> str | None:
-        """Zona de datos de Azure del workspace (``Workspace.zona_datos_azure``), si la declara."""
-
-        leer = getattr(self.almacen, "workspace", None)
-        if leer is None:
-            return None
-        ws = leer(AlcanceWorkspace(org=estado.unidad.org, workspace=estado.unidad.workspace))
-        return ws.zona_datos_azure if ws else None
+        return self.proveedores.validar(pares, org=ws.org, suscripcion=perfil.suscripcion)
 
     # --- llamadas a modelo ------------------------------------------------------------------
 

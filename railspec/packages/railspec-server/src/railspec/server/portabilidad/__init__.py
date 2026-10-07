@@ -145,6 +145,7 @@ class Portabilidad:
             )
         )
         presupuesto = self.n.almacen.presupuesto(e.alcance)
+        niveles, nivel_efectivo = self.n.congelar_niveles(e.alcance, [r.repositorio for r in e.repositorios])
         return EstadoUnidad(
             unidad=alcance,
             version=1,
@@ -158,9 +159,11 @@ class Portabilidad:
                     rama=r.rama,
                     base_commit=r.base_commit,
                     rol=RolRepositorio.primario if i == 0 else RolRepositorio.transversal,
+                    nivel_codigo=niveles[i],
                 )
                 for i, r in enumerate(e.repositorios)
             ],
+            nivel_efectivo=nivel_efectivo,
             # Una unidad cerrada pasa por implement solo hasta que el DAG la cierra (done exige completado).
             fase=Fase.implement if paquete.fase_retomar == Fase.done else paquete.fase_retomar,
             estado=EstadoFase.en_progreso,

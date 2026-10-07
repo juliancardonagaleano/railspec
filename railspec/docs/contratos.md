@@ -184,8 +184,9 @@ su prueba negativa.
     (`anthropic-messages` u `openai-chat`, obligatorio en las compatibles) y
     `precio_usd_mtok` (sin él el modelo cuenta 0 USD y `costo_usd_max` no lo
     frena).
-  - `ModeloCatalogo.hosting` admite `externo`. Un modelo `externo` nunca sirve a
-    `restringido` ni a `interno`, solo a `abierto`.
+  - `ModeloCatalogo.hosting` admite `externo`. Era un modelo que solo servía a `abierto`;
+    desde la decisión del 2026-10-06 es un dato informativo y sirve a cualquier repositorio
+    (ver la regla del vínculo, abajo).
 - **Embeddings.** Son opcionales en el delta y en la búsqueda. Si el proxy
   no tiene codificador local, sube el delta sin embeddings y busca sin
   `vector_b64`; los símbolos sin vector solo se encuentran por texto en la superposición
@@ -199,12 +200,19 @@ su prueba negativa.
   de su contenido canónico y solo existe si el gate de salida lo permitió.
 - **Actor (R2).** Humano con `github_id` y login; servicio con su identidad
   OIDC; agente con su nodo y, si actúa por alguien, `en_nombre_de`.
-- **Vínculo de repositorio (R4).** En `restringido` e `interno` el chat solo
-  usa modelos de la zona de datos de Azure y nunca devuelve fragmentos.
+- **Vínculo de repositorio (R4).** El nivel de código solo gobierna qué material de código
+  viaja al modelo (`restringido`: nada; `interno`: fragmentos; `abierto`: diff) y se audita; **no
+  restringe proveedor, modelo, región ni zona de datos** (decisión del 2026-10-06: usar
+  Anthropic, modelos abiertos o proveedores compatibles es decisión consciente del usuario, y
+  esos servicios pueden tener otras condiciones de retención y región). El validador del
+  vínculo ya no exige `hosting: azure-zona-datos` ni prohíbe `fragmentos_en_respuesta` en
+  `restringido`/`interno`; `PoliticaChat.hosting` y `Workspace.zona_datos_azure` quedan por
+  compatibilidad como datos informativos. El nivel se congela al crear la unidad
+  (`RepositorioUnidad.nivel_codigo`, `EstadoUnidad.nivel_efectivo`, 1.7).
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.8`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.9`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -240,6 +248,18 @@ su prueba negativa.
   `1.8` añade `Proveedor.compatible`, `SuscripcionModelo.servicio`/`endpoint_mensajes`,
   `ModeloSuscripcion.protocolo`/`precio_usd_mtok` y el `hosting` `externo` de `ModeloCatalogo`.
   Sin ellos rige lo de 1.7.
+  `1.9` añade, todo con valor por defecto, la frescura del grafo y el contexto de grafo: `graph.query` añade a su
+  salida `frescura` (por repositorio consultado: `indexado`, `commit`, `indexado_en` y
+  `desactualizado`, también para los repositorios sin índice, que no están en `commits`) y `avisos`
+  (frases legibles); ambos con valor por defecto, así que un cliente que no los lee no cambia.
+  `ContextoArmado` añade `grafo_frescura` y `grafo_avisos`, y `grafo`, que existía y nunca se
+  llenaba, lo llena el servidor en las órdenes de spec, plan y tasks. Un servidor anterior no los
+  manda y el cliente nuevo los toma como vacíos. Como con todo campo de salida nuevo, un proxy
+  anterior valida con `extra="forbid"` y rechazaría una respuesta que los trae: el servidor no
+  rebaja la salida de `graph.query` ni las órdenes a la versión del cliente, así que se actualizan
+  juntos (primero el proxy, que ignora lo que no sabe de un servidor anterior). Sin ellos rige lo de 1.8.
+  `1.9` no cambia ninguna forma de datos por la decisión del 2026-10-06 sobre el nivel de código
+  (se quitó un validador, ver el vínculo de repositorio, R4).
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

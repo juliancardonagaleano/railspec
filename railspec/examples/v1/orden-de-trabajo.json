@@ -13,6 +13,8 @@
     "gobernanza": [],
     "gobernanza_consultada": "si",
     "grafo": [],
+    "grafo_avisos": [],
+    "grafo_frescura": {},
     "hallazgos_previos": [],
     "insumos": []
   },
@@ -51,5 +53,5 @@
     "unidad": "0001-emitir-pdf",
     "workspace": "certificados"
   },
-  "version_contrato": "1.8"
+  "version_contrato": "1.9"
 }

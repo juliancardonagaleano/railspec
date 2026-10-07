@@ -22,6 +22,10 @@
   unidad sin actividad (ni snapshot nuevo) desde hace N días y la preparación
   de un índice sin lotes nuevos desde hace N horas. Las superposiciones
   retenidas (``integrado``) no caducan por tiempo.
+- Cada consulta dice qué tan al día está el canónico de los repositorios que toca
+  (``GraphQuerySalida.frescura`` y ``avisos``): si nunca se indexó, el commit, el instante
+  del último índice aplicado (``Meta.actualizado`` del canónico) y si superó
+  ``RAILSPEC_GRAFO_FRESCURA_HORAS`` (72; ``0`` = no avisa).
 - Grafo y vectores comparten grafo físico (el embedding es propiedad del
   nodo), así que borrar un repositorio por cualquiera de los dos borra ambos.
 """
@@ -36,7 +40,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from railspec.contracts.comun import AlcanceRepositorio
-from railspec.contracts.referencias import RefCriterio, RefNodoGrafo, RefSimbolo
+from railspec.contracts.referencias import FrescuraGrafo, RefCriterio, RefNodoGrafo, RefSimbolo
 from railspec.contracts.snapshot import DeltaIndice, Embedding, Relacion, TipoSimbolo
 from railspec.contracts.tools import (
     ConsultaRelated,
@@ -51,6 +55,12 @@ from railspec.contracts.tools import (
 from .acceso import AccesoGrafo, Espacio
 from .analitica import RELACIONES_DEPENDENCIA, calcular_clusters, calcular_procesos, nivel_riesgo
 from .motor import AristaMotor, Cluster, Meta, Proceso, Traza
+from .plazos import plazo
+
+#: Variable que fija tras cuántas horas sin índice nuevo un canónico se avisa como desactualizado
+#: (``0`` = nunca avisa); se lee al construir ``AlmacenGrafo``, y una inválida impide arrancar.
+VAR_FRESCURA_HORAS = "RAILSPEC_GRAFO_FRESCURA_HORAS"
+FRESCURA_HORAS = 72.0
 
 
 class CodificadorConsulta(Protocol):
@@ -91,7 +101,8 @@ class Vista:
     def __init__(self, canon: Espacio, sup: Espacio | None) -> None:
         self.canon = canon
         self.alcance = canon.alcance
-        self.commit = canon.meta().commit
+        self.meta_canon = canon.meta()
+        self.commit = self.meta_canon.commit
         self.sup = sup if sup is not None and sup.existe() else None
         meta = self.sup.meta() if self.sup else Meta()
         if self.sup and meta.commit:
@@ -246,10 +257,15 @@ class AlmacenGrafo:
         codificador: CodificadorConsulta | None = None,
         *,
         reloj: Callable[[], datetime] | None = None,
+        frescura_horas: float | None = None,
     ) -> None:
+        """``frescura_horas`` (``0`` = no avisa) sustituye a ``RAILSPEC_GRAFO_FRESCURA_HORAS``; sin él se
+        lee aquí, al construir, y un valor inválido impide arrancar."""
+
         self._acceso = acceso
         self._codificador = codificador
         self._reloj = reloj or (lambda: datetime.now(UTC))
+        self._frescura = plazo(frescura_horas, VAR_FRESCURA_HORAS, FRESCURA_HORAS, "hours")
 
     def ahora(self) -> datetime:
         """El instante con que se sella la actividad de una superposición o de un índice (UTC)."""
@@ -272,7 +288,7 @@ class AlmacenGrafo:
         e.upsert_simbolos([_props(s) for s in delta.simbolos_upsert])
         e.agregar_aristas([_arista(a) for a in delta.aristas_agregadas])
         e.fijar_embeddings({emb.simbolo: decodificar(emb.vector_b64) for emb in delta.embeddings})
-        e.fijar_meta(Meta(commit=commit))
+        e.fijar_meta(Meta(commit=commit, actualizado=self.ahora()))
         self.recalcular_analitica(alcance)
 
     def _reconstruir_superposicion(
@@ -407,7 +423,11 @@ class AlmacenGrafo:
 
     # --- lectura -----------------------------------------------------------
     def vistas(self, consulta: GraphQueryEntrada, visibles: list[AlcanceRepositorio]) -> list[Vista]:
-        repos = self._acceso.visibles(consulta.alcance, visibles, list(consulta.repositorios))
+        return self._vistas(
+            consulta, self._acceso.visibles(consulta.alcance, visibles, list(consulta.repositorios))
+        )
+
+    def _vistas(self, consulta: GraphQueryEntrada, repos: list[AlcanceRepositorio]) -> list[Vista]:
         vistas = []
         for r in repos:
             sup = self._acceso.espacio(r, consulta.unidad) if consulta.unidad else None
@@ -416,8 +436,54 @@ class AlmacenGrafo:
                 vistas.append(v)
         return vistas
 
+    def frescura(
+        self, repos: list[AlcanceRepositorio], vistas: list[Vista]
+    ) -> tuple[dict[str, FrescuraGrafo], list[str]]:
+        """Frescura del canónico de cada repositorio consultado y los avisos que de ella se siguen.
+
+        Un repositorio sin índice canónico no está en ``vistas`` (o está solo por la superposición de
+        la unidad) y una consulta sobre él devuelve vacío: el aviso lo dice, para que un vacío no se
+        lea como "no existe". ``desactualizado`` compara el instante del último índice con el plazo
+        configurado; un índice sin instante (anterior a que se guardara) no se marca."""
+
+        por_repo = {v.alcance.repositorio: v for v in vistas}
+        ahora = self.ahora()
+        frescura: dict[str, FrescuraGrafo] = {}
+        avisos: list[str] = []
+        for r in repos:
+            slug = r.repositorio
+            v = por_repo.get(slug)
+            meta = v.meta_canon if v else Meta()
+            if meta.commit is None:
+                frescura[slug] = FrescuraGrafo(indexado=False)
+                avisos.append(
+                    f"{slug}: sin índice canónico (nunca se indexó o CI no ha subido graph.index); "
+                    + (
+                        "solo se ve la superposición de la unidad."
+                        if v
+                        else "la consulta no devuelve nada de este repositorio, lo que no prueba que "
+                        "el código no exista."
+                    )
+                )
+                continue
+            en = meta.actualizado
+            if en is not None and en.tzinfo is None:
+                en = en.replace(tzinfo=UTC)
+            viejo = en is not None and self._frescura is not None and ahora - en > self._frescura
+            frescura[slug] = FrescuraGrafo(
+                indexado=True, commit=meta.commit, indexado_en=en, desactualizado=bool(viejo)
+            )
+            if viejo:
+                avisos.append(
+                    f"{slug}: el índice canónico ({meta.commit[:12]}) se aplicó hace "
+                    f"{_horas(ahora - en)}, más que el plazo de {_horas(self._frescura)} "
+                    f"({VAR_FRESCURA_HORAS}): puede no reflejar el código actual."
+                )
+        return frescura, avisos
+
     def consultar(self, consulta: GraphQueryEntrada, visibles: list[AlcanceRepositorio]) -> GraphQuerySalida:
-        vistas = self.vistas(consulta, visibles)
+        repos = self._acceso.visibles(consulta.alcance, visibles, list(consulta.repositorios))
+        vistas = self._vistas(consulta, repos)
         q = consulta.consulta
         if isinstance(q, ConsultaResolve):
             resultados = self._resolve(vistas, q, consulta.limite)
@@ -433,10 +499,13 @@ class AlmacenGrafo:
             resultados = self._trace(vistas, consulta.unidad, q.criterio, q.simbolo)
         else:  # pragma: no cover - la unión del contrato es cerrada
             raise TypeError(type(q))
+        frescura, avisos = self.frescura(repos, vistas)
         return GraphQuerySalida(
             resultados=resultados[: consulta.limite],
             commits={v.alcance.repositorio: v.commit for v in vistas},
             truncado=len(resultados) > consulta.limite,
+            frescura=frescura,
+            avisos=avisos,
         )
 
     def _resolve(self, vistas: list[Vista], q: ConsultaResolve, limite: int) -> list[ResultadoGrafo]:
@@ -617,6 +686,11 @@ class AlmacenGrafo:
         )
         workspace = vistas[0].alcance.workspace if vistas else None
         return [ResultadoGrafo(ref=RefCriterio(workspace=workspace, unidad=u, criterio=c)) for u, c in pares]
+
+
+def _horas(delta: timedelta) -> str:
+    horas = delta.total_seconds() / 3600
+    return f"{horas:.0f} h" if horas >= 10 else f"{horas:.1f} h"
 
 
 def procesos_tocados(vistas: list[Vista], ids: list[str]) -> set[str]:

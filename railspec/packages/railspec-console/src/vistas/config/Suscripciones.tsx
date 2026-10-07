@@ -169,8 +169,8 @@ function FormularioSuscripcion({
         {compatible ? (
           <>
             <Aviso tono="aviso">
-              Un proveedor compatible solo sirve a repositorios <b>abiertos</b>: no garantiza región ni retención. Los repositorios
-              restringidos e internos no lo pueden usar.
+              Usar un proveedor compatible es una decisión consciente: sirve a cualquier repositorio, pero puede tener otras condiciones de
+              retención y región que Foundry. El nivel de código del repositorio solo decide qué material se le envía.
             </Aviso>
             <Campo etiqueta="Servicio" htmlFor="sus-servicio" ayuda={conocido ? conocido.nota : "Endpoints propios de la organización."}>
               <Select
@@ -439,8 +439,7 @@ function ModelosDeSuscripcion({ org, s, editable }: { org: string; s: Suscripcio
                     <>
                       {m.sku ?? "—"} · {m.region ?? "sin región"}
                     </>
-                  )}{" "}
-                  {m.restringible ? <Badge tono="exito">restringido/interno</Badge> : <Badge tono="neutro">solo abierto</Badge>}
+                  )}
                 </TableCell>
                 <TableCell className="text-xs">
                   {m.capacidades.efforts?.join(", ") || "—"}

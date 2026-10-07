@@ -7,8 +7,9 @@ consola (SSE, R8): la consola se suscribe al flujo remoto→local de las
 unidades que puede ver.
 
 Reglas de conflicto (fijas): en el protocolo gana el remoto; en el código
-gana el local; un push del local reindexa el canónico y descarta la
-superposición de la unidad hasta ese commit.
+gana el local; un push del local no reindexa nada por sí mismo: el canónico
+avanza con el índice que sube CI (``graph.index``) y la superposición de la
+unidad integrada se retira cuando ese índice cubre su commit.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ class Direccion(StrEnum):
 REGLAS_CONFLICTO = {
     "protocolo": "remoto",
     "codigo": "local",
-    "push": "reindexar-canonico-y-descartar-superposicion",
+    "push": "canonico-avanza-con-graph-index-y-retira-superposicion",
 }
 
 

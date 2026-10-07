@@ -11,10 +11,10 @@ uno o de todos los proveedores y devuelve, por proveedor, qué pasó (``EstadoLe
 con un error clasificado y apto para mostrar (``ErrorCatalogo``). Cada lectura
 real queda registrada por organización con ``registrar``.
 
-Región de un despliegue de Foundry, que decide la política de zona de datos:
+Región de un despliegue de Foundry, que se audita (ya no restringe qué repositorios sirve):
 
 - SKU ``Global*``: ``global``. La inferencia puede correr en cualquier región
-  de Azure; nunca sirve a ``restringido`` ni ``interno``.
+  de Azure.
 - SKU ``DataZone*``: ``zona-<zona>`` con la zona del recurso (``us``, ``eu``).
 - El resto (``Standard``, ``Provisioned*``): la región del recurso.
 """
@@ -156,22 +156,6 @@ class EntradaCatalogo:
     def destino(self) -> str:
         return self.despliegue or self.modelo
 
-    def zona(self, zona_recurso: str | None) -> str | None:
-        if self.region is None or self.region == REGION_GLOBAL:
-            return None
-        if self.region.startswith("zona-"):
-            return self.region.removeprefix("zona-")
-        return zona_recurso
-
-    def en_zona(self, zona_workspace: str | None, zona_recurso: str | None) -> bool:
-        """¿Sirve a ``restringido``/``interno``? Azure, nunca ``global`` y dentro de la zona del workspace."""
-
-        if self.hosting != "azure" or self.region is None or self.region == REGION_GLOBAL:
-            return False
-        if not zona_workspace:
-            return True
-        return zona_workspace.lower() in {self.region.lower(), (self.zona(zona_recurso) or "").lower()}
-
 
 def capacidades_conocidas(modelo: str) -> Capacidades:
     """Capacidades de modelos conocidos cuando la API del proveedor no las da (Foundry).
@@ -312,8 +296,8 @@ class FuenteFoundryProyecto:
     proveedor_token: Callable[[], Awaitable[str]] | None = None
     transporte: Any | None = None
     proveedor: Proveedor = Proveedor.foundry
-    #: Sin ``sku`` en la respuesta, ``estricta`` deja la región sin determinar (no sirve a restringido ni
-    #: interno) en vez de suponer ``Standard``. La usan las suscripciones; las variables de entorno no.
+    #: Sin ``sku`` en la respuesta, ``estricta`` deja la región sin determinar (se audita como desconocida)
+    #: en vez de suponer ``Standard``. La usan las suscripciones; las variables de entorno no.
     estricta: bool = False
     nombres = ("proyecto",)
 

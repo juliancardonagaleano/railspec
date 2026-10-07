@@ -113,20 +113,38 @@ class AsignacionRol(EntidadConfiguracion):
 
 
 class HostingChat(StrEnum):
+    """Dato heredado: desde la decisión del 2026-10-06 ya no restringe proveedores.
+
+    Usar Anthropic, modelos abiertos o proveedores compatibles es decisión consciente del usuario; el
+    campo se conserva por compatibilidad y para la auditoría, sin efecto sobre la elección de modelo.
+    """
+
     azure_zona_datos = "azure-zona-datos"
     cualquiera = "cualquiera"
 
 
 class PoliticaChat(Contrato):
-    """``chat_contexto_codigo``: cómo usa el chat el código como contexto interno."""
+    """``chat_contexto_codigo``: cómo usa el chat el código como contexto interno.
+
+    ``hosting`` ya no restringe proveedores: el material que viaja lo gobiernan el nivel de código, la
+    huella N y los presupuestos de fuga.
+    """
 
     permitido: bool = True
     hosting: HostingChat
     modelos_permitidos: list[str] = Field(
-        default_factory=list, description="Vacío = todos los del catálogo que cumplan hosting."
+        default_factory=list,
+        description=(
+            "Lista explícita del usuario; vacío = todos los del catálogo. "
+            "``hosting`` ya no filtra el catálogo (decisión del 2026-10-06)."
+        ),
     )
     fragmentos_en_respuesta: bool = Field(
-        default=False, description="Solo abierto: fragmentos cortos bajo el presupuesto de fuga."
+        default=False,
+        description=(
+            "Fragmentos cortos en la respuesta, bajo el presupuesto de fuga. "
+            "Ya no se prohíbe en ningún nivel (decisión del 2026-10-06); por defecto solo en abierto."
+        ),
     )
     huella_tokens_n: int = Field(
         ge=4, le=64, description="Secuencia compartida máxima antes de bloquear (regla huella)."
@@ -166,16 +184,6 @@ class VinculoRepositorio(EntidadConfiguracion):
         default_factory=list, description="Patrones además de .railspecignore y los de secretos."
     )
 
-    @model_validator(mode="after")
-    def _politica(self) -> VinculoRepositorio:
-        chat = self.chat_contexto_codigo
-        if self.nivel_codigo != NivelCodigo.abierto:
-            if chat.hosting != HostingChat.azure_zona_datos:
-                raise ValueError("restringido/interno: el chat solo usa modelos en la zona de datos de Azure")
-            if chat.fragmentos_en_respuesta:
-                raise ValueError("restringido/interno: nunca salen fragmentos en la respuesta")
-        return self
-
 
 # --- Perfiles, catálogo, presupuestos, proveedores de contexto (R4) --------------------
 
@@ -195,7 +203,7 @@ class ModeloCatalogo(Mensaje):
     modelo: str = Field(min_length=1, max_length=120)
     despliegue: str | None = Field(default=None, max_length=120, description="Nombre en Foundry.")
     hosting: Literal["azure", "anthropic", "externo"] = Field(
-        description="Desde 1.8: ``externo`` = endpoint compatible fuera de Azure; solo sirve a ``abierto``."
+        description="Desde 1.8: ``externo`` = endpoint compatible fuera de Azure (informativo; no restringe)."
     )
     region: str | None = Field(default=None, max_length=40)
     capacidades: Capacidades
@@ -229,8 +237,8 @@ class ModeloSuscripcion(Contrato):
     ``origen`` ``descubierto`` sale de la API del proveedor; ``declarado`` lo escribe un administrador
     (un despliegue que la API no lista o unas capacidades que la API no da) y gana sobre el descubierto
     de la misma clave. ``region`` se deriva de la suscripción y del SKU (Foundry): ``global``,
-    ``zona-<zona>`` o la región del recurso; ``None`` si no se puede saber, y entonces no sirve a
-    ``restringido`` ni ``interno``. ``ausente``: estaba elegido y la última lectura ya no lo trae.
+    ``zona-<zona>`` o la región del recurso; ``None`` si no se puede saber. La región se audita y no
+    restringe qué repositorios sirve el modelo. ``ausente``: estaba elegido y la última lectura ya no lo trae.
     """
 
     modelo: str = Field(min_length=1, max_length=120)

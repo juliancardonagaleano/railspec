@@ -76,7 +76,7 @@ class AdaptadorCompatible:
     """
 
     proveedor = Proveedor.compatible
-    #: Sin región conocida: no sirve a ``restringido`` ni ``interno`` (``hosting`` es ``externo``).
+    #: Sin región conocida (``hosting`` es ``externo``): se audita como desconocida; no restringe.
     region: str | None = None
 
     def __init__(

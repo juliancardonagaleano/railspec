@@ -7,7 +7,9 @@ la interfaz que necesita y carga la implementación por *entry point* (grupo
 otra se puede instalar sin tocar el proxy.
 
 Sin indexador, el snapshot cae a ``solo-hashes``: viajan los hashes de
-archivo y el servidor reindexa esos archivos desde el canónico tras el push.
+archivo y nada más. El servidor no ingiere nada de un snapshot así (no hay
+delta que aplicar a la superposición de la unidad) y no reindexa nada tras el
+push: el canónico solo avanza con el índice que sube CI (``graph.index``).
 """
 
 from __future__ import annotations

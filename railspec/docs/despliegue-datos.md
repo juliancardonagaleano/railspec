@@ -255,22 +255,12 @@ Para otro volumen, `RAILSPEC_CLONES_CREAR_PVC=false` y se aporta el PVC con ese 
 
 ## Zona de datos del chat
 
-`RAILSPEC_CHAT_ZONA_DATOS` rechazaba `zona-us`, así que un despliegue de Foundry
-con SKU `DataZone*` no podía servir al chat en `restringido` ni `interno`. Para
-esos SKU el catálogo da la región `zona-<RAILSPEC_FOUNDRY_ZONA_DATOS>`
-([proveedores.md](proveedores.md)), que es lo que el servidor compara con esta
-lista. Ahora acepta, separados por comas:
-
-| Valor | Sirve a |
-| --- | --- |
-| una región de Azure en minúsculas (`eastus2`, `swedencentral`) | despliegues `Standard` o `Provisioned*` de `RAILSPEC_FOUNDRY_REGION` |
-| `zona-us` o `zona-eu` | despliegues `DataZoneStandard` y afines del recurso en esa zona |
-
-Se admiten mezclas (`zona-us,eastus2`). Cualquier otra forma se rechaza al
-renderizar, porque una errata no falla al arrancar: el chat se niega con 422
-`perfil-insatisfacible`. El renderizador avisa si pones `zona-eu` y
-`RAILSPEC_FOUNDRY_ZONA_DATOS` es `us` (o está vacía): ningún despliegue del
-recurso tendría esa región.
+Desde el 2026-10-06 el chat ya no exige zona de datos: `RAILSPEC_CHAT_ZONA_DATOS`
+se eliminó (el renderizador la ignora) y ningún nivel de repositorio impide usar
+un despliegue Global, Anthropic directo o un proveedor compatible
+([proveedores.md](proveedores.md#política-por-nivel)). Lo que queda es
+`RAILSPEC_FOUNDRY_ZONA_DATOS`, que solo etiqueta la región que se audita en los
+despliegues `DataZone*` (`zona-us`, `zona-eu`).
 
 ## CI
 

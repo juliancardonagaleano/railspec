@@ -208,8 +208,10 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
     ) -> dict[str, Any]:
         """Consulta el grafo de código del workspace. `consulta` lleva `verbo`
         (resolve, search, traverse, related, impact, trace) y sus campos. Devuelve referencias,
-        nunca código: resuélvelas leyendo el clon. Si una búsqueda semántica no lleva vector de
-        consulta, la respuesta trae `avisos`: no es por similitud."""
+        nunca código: resuélvelas leyendo el clon. Lee siempre `avisos`: dicen si una búsqueda
+        semántica no es por similitud, si el repositorio no tiene índice canónico (un resultado
+        vacío no prueba que el símbolo no exista) o si el índice está desactualizado o va por
+        detrás de tu rama base. `frescura` da el commit y el instante del último índice."""
         return await proxy().consultar_grafo(consulta, repositorios, unidad, limite)
 
     @_errores

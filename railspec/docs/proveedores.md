@@ -1,7 +1,7 @@
 # Proveedores de modelo, catálogo y herramientas de contexto
 
 Este documento describe cómo `railspec-server` llama a los modelos, cómo
-decide qué despliegue sirve a cada rol según el nivel del repositorio y cómo
+decide qué despliegue sirve a cada rol y cómo
 conecta las herramientas de contexto (gobernanza, documentación, memoria) que
 alimentan el prompt de los gates. El código vive en
 `packages/railspec-server/src/railspec/server/proveedores/` y
@@ -12,8 +12,8 @@ alimentan el prompt de los gates. El código vive en
 | Proveedor | Cuándo | Cómo |
 | --- | --- | --- |
 | Azure AI Foundry | Primario, siempre que haya `RAILSPEC_FOUNDRY_ENDPOINT`. | Un solo recurso con dos APIs. Los despliegues de Claude van por `<endpoint>/anthropic` con el SDK oficial (`AsyncAnthropicFoundry`) y, sin API key, token de Entra ID con scope `https://ai.azure.com/.default`. El resto de modelos va por chat completions en `<endpoint>/openai/v1` con el SDK de OpenAI y scope `https://cognitiveservices.azure.com/.default`. Las dos APIs comparten endpoint, credencial y región, y se auditan como `foundry`. |
-| Anthropic directo | Solo con `RAILSPEC_ANTHROPIC_HABILITADO=true` y solo para repositorios de nivel `abierto`. | SDK oficial (`AsyncAnthropic`) con `RAILSPEC_ANTHROPIC_API_KEY`. Su catálogo se lee con `GET /v1/models`. Su región es `global`. |
-| Compatible (1.8) | Solo desde una suscripción de la consola y solo para repositorios `abierto`. | OpenCode Zen, MiniMax o un endpoint propio con la API de Anthropic o de OpenAI; ver [Proveedores compatibles](#proveedores-compatibles). |
+| Anthropic directo | Solo con `RAILSPEC_ANTHROPIC_HABILITADO=true`; sirve a cualquier repositorio (decisión consciente del usuario, ver [Política por nivel](#política-por-nivel)). | SDK oficial (`AsyncAnthropic`) con `RAILSPEC_ANTHROPIC_API_KEY`. Su catálogo se lee con `GET /v1/models`. Su región es `global`. |
+| Compatible (1.8) | Solo desde una suscripción de la consola; sirve a cualquier repositorio (decisión consciente del usuario). | OpenCode Zen, MiniMax o un endpoint propio con la API de Anthropic o de OpenAI; ver [Proveedores compatibles](#proveedores-compatibles). |
 
 `ProveedorFoundry` decide la API por el id de catálogo del modelo: si empieza
 por `claude`, Messages API; si no, chat completions. Las dos piden salida
@@ -39,8 +39,8 @@ conexiones por organización se registran desde la consola ([Suscripciones de mo
 | --- | --- | --- | --- |
 | `RAILSPEC_FOUNDRY_ENDPOINT` | vacío | ConfigMap | Endpoint del recurso (`https://<recurso>.services.ai.azure.com`). Sin él no hay Foundry. |
 | `RAILSPEC_FOUNDRY_API_KEY` | vacío | Secret | Clave del recurso. Sin ella, Entra ID (Workload Identity en AKS). |
-| `RAILSPEC_FOUNDRY_REGION` | vacío | ConfigMap | Región del recurso (`eastus2`). Es la región de los SKU Standard y Provisioned y la que se audita. Sin ella, `restringido` e `interno` no tienen modelo en zona y el servidor lo avisa al arrancar. |
-| `RAILSPEC_FOUNDRY_ZONA_DATOS` | vacío | ConfigMap | Zona de datos del recurso (`us` o `eu`), la de los SKU DataZone. |
+| `RAILSPEC_FOUNDRY_REGION` | vacío | ConfigMap | Región del recurso (`eastus2`). Es la región de los SKU Standard y Provisioned y la que se audita. Sin ella, la región de los despliegues Standard queda sin auditar y el servidor lo avisa al arrancar. |
+| `RAILSPEC_FOUNDRY_ZONA_DATOS` | vacío | ConfigMap | Zona de datos del recurso (`us` o `eu`), la de los SKU DataZone. Solo etiqueta la región que se audita; no restringe qué repositorios sirve el modelo. |
 | `RAILSPEC_FOUNDRY_PROYECTO` | vacío | ConfigMap | Endpoint del proyecto de Foundry (`https://<recurso>.services.ai.azure.com/api/projects/<proyecto>`) para leer los despliegues por API. |
 | `RAILSPEC_FOUNDRY_PROYECTO_API_VERSION` | `v1` | entorno del contenedor | `api-version` de la API de proyectos. No pasa por el renderizador. |
 | `RAILSPEC_FOUNDRY_DESPLIEGUES` | vacío | ConfigMap | Despliegues declarados a mano, que se suman a los del proyecto y ganan por nombre. Forma compacta `despliegue=modelo[:SKU]` separada por comas, o una lista JSON de objetos con `despliegue`, `modelo`, `sku`, `efforts`, `structured_outputs` y `contexto`. En el ConfigMap solo cabe la forma compacta (ver más abajo). |
@@ -111,21 +111,19 @@ si hace falta, capacidades) y queda elegido igual.
 **Elegir.** Solo los modelos elegidos están disponibles para los perfiles de
 esa suscripción. La región de cada uno se deriva de la suscripción y del SKU:
 `Global*` → `global`, `DataZone*` → la zona de la suscripción, el resto → su
-región. Sin SKU conocido la región queda sin determinar y el modelo no sirve a
-`restringido` ni a `interno`.
+región. Sin SKU conocido la región queda sin determinar (se audita así).
 
-**Política de datos.** Es la de siempre, aplicada con los datos de la
-suscripción y no con supuestos globales: `restringido` e `interno` solo usan
-Foundry con SKU `DataZone*` o `Standard` en la zona del workspace (la zona y
-la región salen de la suscripción); `abierto` puede usar además cualquier SKU
-global y Anthropic directo, que no sirve a ningún otro nivel. Una suscripción
-`habilitada: false` no sirve a nadie.
+**Política de datos.** Cambió el 2026-10-06 (ver [Política por nivel](#política-por-nivel)):
+la región, el SKU y la zona del workspace se auditan pero ya no restringen
+qué repositorios sirve un modelo; cualquier modelo elegido de una suscripción
+sirve a cualquier repositorio. Una suscripción `habilitada: false` no sirve a
+nadie.
 
 **Perfiles.** `PerfilConfig.suscripcion` apunta a una suscripción. Al guardar
 un perfil la consola comprueba (422 si falla) que la suscripción exista y esté
 habilitada y que cada modelo de sus roles esté elegido en ella, admita el
-`effort`, las salidas estructuradas y el contexto pedidos; avisa (sin impedirlo)
-de los modelos que no sirven a `restringido`/`interno`. Si la organización ya
+`effort`, las salidas estructuradas y el contexto pedidos. Ya no avisa por el
+nivel de los repositorios ni por la región del modelo. Si la organización ya
 tiene suscripciones, un perfil nuevo o editado tiene que elegir una. No se puede
 borrar una suscripción que algún perfil usa (409 con la lista).
 
@@ -159,9 +157,11 @@ cualquier otro servicio así. El código está en `proveedores/compatible.py`
 (adaptador) y `proveedores/servicios_compatibles.py` (servicios conocidos y
 descubrimiento).
 
-**Solo `abierto`.** Ninguno corre en Azure ni en la zona de datos del workspace,
-así que su `hosting` es `externo` y `EntradaCatalogo.en_zona` lo rechaza para
-`restringido` e `interno` sin lógica aparte. Lo que declaran sus páginas
+**Decisión consciente del usuario.** Ninguno corre en Azure, así que su
+`hosting` es `externo` y su región queda desconocida; eso se audita pero ya no
+los excluye de ningún repositorio (el nivel de código solo gobierna qué material
+se les envía). Úsalos sabiendo que **pueden tener otras condiciones de
+retención, entrenamiento y región que Foundry**; lo que declaran sus páginas
 (consultadas el 2026-10-06, antes de elegir uno léelas de nuevo):
 
 | Servicio | Datos |
@@ -231,9 +231,9 @@ admiten. Cada proveedor aporta una fuente:
 Sin `RAILSPEC_FOUNDRY_PROYECTO` ni `RAILSPEC_FOUNDRY_DESPLIEGUES`, el catálogo
 de Foundry queda vacío y ningún perfil se satisface: `unit.start` responde
 `perfil-insatisfacible` y el servidor lo avisa al arrancar. Es deliberado: sin
-catálogo no se sabe el SKU, y un despliegue Global no puede servir a
-`restringido` ni a `interno`. Solo los dobles de prueba, que no pasan por
-`app.py`, eligen sin catálogo; ahí la zona sale de la región del adaptador.
+catálogo no se sabe el SKU (de él sale la región que se audita). Solo los
+dobles de prueba, que no pasan por `app.py`, eligen sin catálogo; ahí la región
+auditada sale del adaptador.
 
 **Caché y persistencia.** El catálogo se lee una vez por
 `RAILSPEC_CATALOGO_TTL_S` para todo el servidor, porque el proveedor responde
@@ -271,11 +271,14 @@ catálogo sin modelos. El parseo de los elementos reconocidos no cambió.
 
 **Región por SKU.** La región de un despliegue de Foundry sale de su SKU:
 
-| SKU | Región en el catálogo | ¿Sirve a `restringido` e `interno`? |
-| --- | --- | --- |
-| `Global*` (`GlobalStandard`, `GlobalProvisionedManaged`, …) | `global` | Nunca: la inferencia puede correr en cualquier región de Azure. |
-| `DataZone*` | `zona-<RAILSPEC_FOUNDRY_ZONA_DATOS>` (`zona-us`) | Sí, si la zona coincide con la del workspace. Sin zona del recurso, la región queda desconocida y no sirve. |
-| El resto (`Standard`, `Provisioned*`) o sin SKU | `RAILSPEC_FOUNDRY_REGION` | Sí, si la región o su zona coinciden con la del workspace. |
+| SKU | Región en el catálogo (se audita) |
+| --- | --- |
+| `Global*` (`GlobalStandard`, `GlobalProvisionedManaged`, …) | `global`: la inferencia puede correr en cualquier región de Azure. |
+| `DataZone*` | `zona-<RAILSPEC_FOUNDRY_ZONA_DATOS>` (`zona-us`). Sin zona del recurso, la región queda desconocida. |
+| El resto (`Standard`, `Provisioned*`) o sin SKU | `RAILSPEC_FOUNDRY_REGION`. |
+
+Antes del 2026-10-06 la región decidía qué despliegues podían servir a
+`restringido` e `interno`; ya no: cualquier SKU sirve a cualquier repositorio.
 
 **Capacidades.** La API de Foundry no da las capacidades del modelo, así que
 el servidor usa una tabla conservadora de modelos conocidos
@@ -287,29 +290,48 @@ estructurada y con contexto mínimo, de modo que no satisface ningún rol del
 gate hasta que se declare en `RAILSPEC_FOUNDRY_DESPLIEGUES` con la forma JSON
 (`"structured_outputs": true`, `"efforts": […]`, `"contexto": …`).
 
-> **Aviso para Julian.** Revisar el SKU de los despliegues de Claude en
-> Foundry. Si son `GlobalStandard` (lo habitual al desplegar Claude), el
-> catálogo los marca `global` y los repositorios `restringido` e `interno` no
-> pueden usarlos: `unit.start` devolverá `perfil-insatisfacible`. Hace falta
-> un despliegue `DataZoneStandard` o `Standard` del mismo modelo, o un modelo
-> que no sea Claude desplegado en zona y asignado a esos niveles con claves de
-> perfil (sección Perfiles).
+> **Nota sobre los SKU.** Un despliegue `GlobalStandard` (lo habitual al
+> desplegar Claude) queda marcado `global` en el catálogo y se audita así; ya
+> no impide que lo usen los repositorios `restringido` e `interno`. Si tu
+> organización necesita que el procesamiento se quede en una zona, elige tú un
+> despliegue `DataZoneStandard` o `Standard` y asígnalo en el perfil.
 
 ## Política por nivel
 
-La selección (`seleccion.py`) recorre los proveedores en orden y se queda con
-el primero cuyo catálogo tenga el modelo pedido por el perfil y cumpla el
-requisito del rol.
+**Desde el 2026-10-06 el nivel de código del repositorio ya no decide qué
+proveedor, modelo, región o zona de datos se usa** (decisión del dueño del
+producto: el uso de Railspec es consciente y usar modelos abiertos o distintos
+de Foundry es decisión del usuario). El nivel se conserva solo como control de
+qué material de código viaja al modelo y como dato de auditoría:
 
-| Nivel del repositorio | Proveedores | Despliegues admitidos |
-| --- | --- | --- |
-| `restringido`, `interno` | Solo Foundry. | Hosting `azure`, región conocida y distinta de `global` y, si el workspace declara `Workspace.zona_datos_azure`, dentro de esa zona (coincide con la región o con la zona del despliegue). |
-| `abierto` | Foundry primero, Anthropic después si está habilitado. | Cualquier modelo del catálogo. |
+| Nivel del repositorio | Material de código que puede salir hacia el modelo |
+| --- | --- |
+| `restringido` | Nada de texto de código: rutas, hashes e índice (símbolos y relaciones). |
+| `interno` | Además, fragmentos acotados a los símbolos tocados por la unidad. |
+| `abierto` | Además, el diff unificado base..árbol. |
 
-Un repositorio sin vínculo se trata como `restringido`. Además de la zona, la
-entrada del catálogo tiene que cumplir el requisito del rol: salida
+La selección (`seleccion.py`) no recibe nivel ni zona. Recorre los
+proveedores en orden (Foundry y, si está configurado, Anthropic directo; con
+suscripción en el perfil, solo la suya) y se queda con el primero cuyo catálogo
+tenga el modelo pedido por el perfil y cumpla el requisito del rol: salida
 estructurada, el `effort` pedido y el contexto mínimo si el perfil lo fija.
-Nunca se cambia de modelo para cumplirlo.
+Nunca se cambia de modelo para cumplirlo. Los proveedores `compatible` solo se
+usan desde una suscripción asociada al perfil. La región del despliegue se
+audita (`Eleccion.region`) sin condicionar la elección.
+
+Un repositorio sin vínculo se trata como `restringido` (el nivel más estricto
+en cuanto al material). Con varios repositorios en una unidad rige el más
+restrictivo, y ese nivel se **congela al crear la unidad**
+(`RepositorioUnidad.nivel_codigo` y `EstadoUnidad.nivel_efectivo`): bajarlo o
+subirlo en la consola no cambia las unidades en curso.
+
+> **Advertencia.** Anthropic directo, OpenCode Zen, MiniMax y cualquier
+> endpoint compatible son servicios de terceros con **otras condiciones de
+> retención, entrenamiento y región que Foundry** (Zen y MiniMax lo declaran en
+> sus términos; ver [Proveedores compatibles](#proveedores-compatibles)).
+> Railspec ya no los bloquea por el nivel del repositorio: quien registra la
+> suscripción o habilita Anthropic decide, con conocimiento, qué código le
+> envía.
 
 ## Perfiles
 
@@ -346,9 +368,10 @@ perfil elegido es el que se valida contra el catálogo antes de crear la unidad
 (`perfil-insatisfacible`) y el que queda en `EstadoUnidad.perfil`. Cambiar el
 perfil por defecto del workspace no toca las unidades ya creadas.
 
-Ejemplo: un workspace cuyo Claude solo está en despliegue Global y que tiene
-`gpt-5` en zona de datos manda los críticos de `restringido` e `interno` a
-`gpt-5` sin tocar el resto del perfil:
+Las claves por nivel son una opción del usuario, no una restricción: sin
+ellas, el nivel no cambia de modelo. Ejemplo: un workspace que quiere `gpt-5`
+(más barato) para los críticos de `restringido` e `interno` sin tocar el resto
+del perfil:
 
 ```json
 {
@@ -384,13 +407,14 @@ Ejemplo: un workspace cuyo Claude solo está en despliegue Global y que tiene
 ```
 
 **Validación al arrancar.** `unit.start` lee el catálogo (si caducó), arma
-cada `(rol, requisito)` que el gate puede pedir con ese perfil, el nivel del
-repositorio primario y el riesgo del triaje (el refutador solo si el tope del
+cada `(rol, requisito)` que el gate puede pedir con ese perfil, el nivel
+efectivo de los repositorios (solo para escoger las claves por nivel del perfil)
+y el riesgo del triaje (el refutador solo si el tope del
 riesgo es adversarial), y comprueba que todos tienen un despliegue que los
 sirva. Si alguno falla, la unidad no se crea y la tool responde con el error
 `perfil-insatisfacible` (HTTP 422, `isError` por MCP) y un motivo por rol,
-por ejemplo `rol critico-profundo en nivel restringido: foundry/claude-opus-5-5:
-opus-global: fuera de la zona de datos (global)`. El servidor nunca degrada el
+por ejemplo `rol critico-profundo: foundry/claude-opus-5-5: opus-g: sin salida
+estructurada` o `foundry/gpt-5 no está en el catálogo de foundry`. El servidor nunca degrada el
 modelo en silencio a mitad de un gate.
 
 ## Herramientas de contexto
@@ -553,8 +577,7 @@ python -m railspec.server.humo --org mi-org --nivel restringido --nivel abierto
 | Opción | Significado |
 | --- | --- |
 | `--org` | Organización con la que se persiste el catálogo, en memoria (defecto `humo`). |
-| `--nivel` | `restringido`, `interno` o `abierto`; se puede repetir. Por defecto, `restringido` y `abierto`. |
-| `--zona` | Zona del workspace (`Workspace.zona_datos_azure`), por ejemplo `us`, para probar la restricción de zona. |
+| `--nivel` | `restringido`, `interno` o `abierto`; se puede repetir. Solo cambia las claves por nivel del perfil que se prueban: el nivel no restringe proveedores. Por defecto, `restringido` y `abierto`. |
 | `--sin-llamada` | No hace llamadas a modelo, así que no gasta tokens. |
 
 Imprime, en orden:

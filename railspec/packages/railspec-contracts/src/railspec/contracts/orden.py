@@ -33,6 +33,7 @@ from .comun import (
 )
 from .hallazgos import Hallazgo
 from .insumo import InsumoResuelto
+from .referencias import FrescuraGrafo
 from .snapshot import SimboloId, TipoSimbolo
 
 # --- Contexto armado por el servidor -----------------------------------------
@@ -65,7 +66,29 @@ class NodoContexto(Contrato):
 class ContextoArmado(Contrato):
     gobernanza: list[ItemGobernanza] = Field(default_factory=list)
     gobernanza_consultada: GobernanzaConsultada
-    grafo: list[NodoContexto] = Field(default_factory=list)
+    grafo: list[NodoContexto] = Field(
+        default_factory=list,
+        description=(
+            "Desde 1.9: rebanada del grafo remoto para spec, plan y tasks (símbolos, rutas y "
+            "nombres que coinciden con el título y el objetivo de la unidad). Vacía no significa que "
+            "no exista código relacionado: ver `grafo_avisos`."
+        ),
+    )
+    grafo_frescura: dict[Slug, FrescuraGrafo] = Field(
+        default_factory=dict,
+        description=(
+            "Desde 1.9: frescura del canónico de cada repositorio de la unidad consultado para "
+            "armar `grafo` (vacío si no hubo consulta)."
+        ),
+    )
+    grafo_avisos: list[Annotated[str, Field(max_length=1000)]] = Field(
+        default_factory=list,
+        description=(
+            "Desde 1.9: por qué `grafo` puede faltar o estar viejo (sin grafo configurado, "
+            "repositorio sin índice canónico, índice desactualizado, consulta fallida). El arnés debe "
+            "tratarlos como 'no sé', no como 'no hay'."
+        ),
+    )
     hallazgos_previos: list[Hallazgo] = Field(
         default_factory=list, description="Hallazgos de la iteración anterior (gate_delta)."
     )

@@ -16,9 +16,9 @@ más específica que exista:
 4. ``<rol>``
 
 ``<gate>`` es ``spec``, ``plan``, ``tasks`` o ``codigo``; ``<nivel>``,
-``restringido``, ``interno`` o ``abierto``. Así un workspace con Claude solo en
-despliegue Global puede mandar ``restringido`` a un modelo en zona de datos
-sin tocar el resto del perfil.
+``restringido``, ``interno`` o ``abierto``. Las claves por nivel son una opción
+del usuario (p. ej. un modelo más barato en repositorios abiertos): el nivel por
+sí solo no cambia de modelo ni de proveedor; sin esas claves rige el rol a secas.
 """
 
 from __future__ import annotations

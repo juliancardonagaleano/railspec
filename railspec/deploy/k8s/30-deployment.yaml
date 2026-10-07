@@ -55,6 +55,7 @@ spec:
             # Claves: RAILSPEC_MONGO_URI (obligatoria), RAILSPEC_FALKORDB_URL,
             # RAILSPEC_FOUNDRY_API_KEY, RAILSPEC_PCE_API_KEY, RAILSPEC_ANTHROPIC_API_KEY,
             # RAILSPEC_CLAVE_MAESTRA (cifra las claves de las suscripciones de modelos de la consola),
+            # RAILSPEC_METRICAS_TOKEN (opcional: Bearer de GET /metrics, 16 caracteres o más),
             # RAILSPEC_CONSOLA_SECRETO (obligatoria, mínimo 32 caracteres: con la URL https del
             # ConfigMap el servidor no arranca sin ella), RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET (consola).
             - secretRef:

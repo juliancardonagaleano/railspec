@@ -119,6 +119,32 @@ def commit_empujado(repo: Path, rama: str) -> str | None:
     return salida.splitlines()[0] if salida else None
 
 
+def _rama_por_defecto(repo: Path, remoto: str) -> str | None:
+    """Rama por defecto de ``remoto`` según las referencias locales: su ``HEAD`` o ``main``/``master``."""
+
+    try:
+        return texto(repo, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{remoto}/HEAD").removeprefix(
+            f"{remoto}/"
+        )
+    except ErrorGit:
+        return next((r for r in ("main", "master") if _existe_ref(repo, f"refs/remotes/{remoto}/{r}")), None)
+
+
+def punta_conocida(repo: Path, remoto: str = "origin") -> str | None:
+    """Commit de la rama por defecto de ``remoto`` tal como lo recuerda este clon, sin tocar la red.
+
+    Vale lo que dejó el último ``fetch``: sirve para comparar con el índice canónico, no para nombrar
+    un commit de integración (para eso, ``punta_de_destino``). ``None`` sin remoto o sin esa rama."""
+
+    rama = _rama_por_defecto(repo, remoto)
+    if rama is None:
+        return None
+    try:
+        return texto(repo, "rev-parse", "--verify", f"refs/remotes/{remoto}/{rama}^{{commit}}")
+    except ErrorGit:
+        return None
+
+
 def punta_de_destino(repo: Path, remoto: str = "origin", espera_s: int = 30) -> str | None:
     """Commit con el que la rama por defecto de ``remoto`` recibe lo que una unidad integra.
 
@@ -126,12 +152,7 @@ def punta_de_destino(repo: Path, remoto: str = "origin", espera_s: int = 30) -> 
     una referencia vieja nombraría un commit que el índice canónico ya dejó atrás. Tampoco hay
     commit sin remoto o sin rama, ni si el repositorio no usa SHA-1 (el contrato pide 40 hex)."""
 
-    try:
-        rama = texto(repo, "symbolic-ref", "--quiet", "--short", f"refs/remotes/{remoto}/HEAD").removeprefix(
-            f"{remoto}/"
-        )
-    except ErrorGit:
-        rama = next((r for r in ("main", "master") if _existe_ref(repo, f"refs/remotes/{remoto}/{r}")), None)
+    rama = _rama_por_defecto(repo, remoto)
     if rama is None:
         return None
     try:

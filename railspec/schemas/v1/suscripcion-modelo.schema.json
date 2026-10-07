@@ -252,7 +252,7 @@
     },
     "ModeloSuscripcion": {
       "additionalProperties": false,
-      "description": "Un modelo (o despliegue de Foundry) de una suscripción, elegible o no como modelo disponible.\n\n``origen`` ``descubierto`` sale de la API del proveedor; ``declarado`` lo escribe un administrador\n(un despliegue que la API no lista o unas capacidades que la API no da) y gana sobre el descubierto\nde la misma clave. ``region`` se deriva de la suscripción y del SKU (Foundry): ``global``,\n``zona-<zona>`` o la región del recurso; ``None`` si no se puede saber, y entonces no sirve a\n``restringido`` ni ``interno``. ``ausente``: estaba elegido y la última lectura ya no lo trae.",
+      "description": "Un modelo (o despliegue de Foundry) de una suscripción, elegible o no como modelo disponible.\n\n``origen`` ``descubierto`` sale de la API del proveedor; ``declarado`` lo escribe un administrador\n(un despliegue que la API no lista o unas capacidades que la API no da) y gana sobre el descubierto\nde la misma clave. ``region`` se deriva de la suscripción y del SKU (Foundry): ``global``,\n``zona-<zona>`` o la región del recurso; ``None`` si no se puede saber. La región se audita y no\nrestringe qué repositorios sirve el modelo. ``ausente``: estaba elegido y la última lectura ya no lo trae.",
       "properties": {
         "ausente": {
           "default": false,
@@ -612,7 +612,7 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.8",
+      "default": "1.9",
       "enum": [
         "1.0",
         "1.1",
@@ -622,7 +622,8 @@
         "1.5",
         "1.6",
         "1.7",
-        "1.8"
+        "1.8",
+        "1.9"
       ],
       "title": "Version Contrato",
       "type": "string"

@@ -836,8 +836,6 @@ export interface ModeloSuscripcion {
   /** Despliegue o id del modelo: lo que se elige en un perfil. */
   clave: string;
   hosting: "azure" | "anthropic" | "externo";
-  /** Puede servir a restringido/interno (Azure y con región conocida que no sea global). */
-  restringible: boolean;
   /** Solo compatibles (1.8): la API que habla el modelo y su tarifa si se declaró. */
   protocolo?: ProtocoloCompatible | null;
   precio_usd_mtok?: PrecioModelo | null;

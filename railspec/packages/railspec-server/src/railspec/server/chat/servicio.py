@@ -4,8 +4,10 @@ Flujo de una pregunta:
 
 1. La conversación pertenece a su autor y a un workspace; su nivel efectivo y
    su política son los más restrictivos de sus repositorios.
-2. El modelo se elige antes de enviar nada: en ``restringido`` e ``interno``
-   solo Foundry en una región de la zona de datos configurada.
+2. El modelo se elige antes de enviar nada con el mismo criterio que el motor
+   (suscripción del workspace o Foundry y luego Anthropic): el nivel del
+   repositorio no restringe proveedor, modelo ni región; solo gobierna qué
+   material sale en las respuestas (huella N, fragmentos, presupuestos de fuga).
 3. El agente alterna pasos de modelo y llamadas a tools de lectura por la
    superficie ``chat`` del registro único, con la organización, el workspace
    y los repositorios fijados por el servidor, nunca por el modelo.
@@ -59,7 +61,6 @@ from railspec.contracts.comun import (
 from railspec.contracts.insumo import Insumo, RepositorioInsumo
 from railspec.contracts.repositorio import (
     EventoAuditoria,
-    HostingChat,
     RegistroAuditoria,
     RequisitoRol,
     Rol,
@@ -103,9 +104,6 @@ class InsumoBloqueado(ErrorChat):
 class ConfigChat:
     #: Modelo por proveedor para el rol ``chat``.
     modelos: dict[Proveedor, str] = field(default_factory=lambda: {Proveedor.foundry: "claude-sonnet-5-5"})
-    #: Regiones de Azure de la zona de datos (``RAILSPEC_CHAT_ZONA_DATOS``). Vacío = ningún modelo
-    #: sirve a ``restringido``/``interno``: el chat se niega antes de enviar nada.
-    zona_datos: frozenset[str] = frozenset()
     max_pasos: int = 6
     ttl: timedelta = timedelta(hours=72)
     bloqueos_para_limitar: int = 3
@@ -148,6 +146,13 @@ def _valores(datos: Any, ruta: str) -> list[str]:
 def politica_efectiva(
     vinculos: list[VinculoRepositorio],
 ) -> tuple[NivelCodigo, gate_salida.PoliticaGate, Any]:
+    """Nivel efectivo, política del gate de salida y restricciones de modelo de la conversación.
+
+    Solo combina lo que sigue siendo del material: la huella N, los presupuestos de fuga, si se permiten
+    fragmentos en la respuesta y los ``modelos_permitidos`` que el usuario fijó de forma explícita. El
+    ``hosting`` del vínculo ya no restringe proveedores (decisión del 2026-10-06).
+    """
+
     nivel = min((v.nivel_codigo for v in vinculos), key=_RESTRICCION.index)
     politicas = [v.chat_contexto_codigo for v in vinculos]
     gate = gate_salida.PoliticaGate(
@@ -158,8 +163,7 @@ def politica_efectiva(
     )
     listas = [set(p.modelos_permitidos) for p in politicas if p.modelos_permitidos]
     modelos = set.intersection(*listas) if listas else None
-    azure = any(p.hosting == HostingChat.azure_zona_datos for p in politicas) or nivel != NivelCodigo.abierto
-    return nivel, gate, {"modelos": modelos, "azure": azure}
+    return nivel, gate, {"modelos": modelos}
 
 
 class ServicioChat:
@@ -314,8 +318,8 @@ class ServicioChat:
 
     # --- modelo ----------------------------------------------------------------------------------
 
-    def _suscripcion_del_workspace(self, alcance: AlcanceWorkspace) -> tuple[str | None, str | None]:
-        """Suscripción (la del perfil por defecto del workspace) y zona de datos del workspace.
+    def _suscripcion_del_workspace(self, alcance: AlcanceWorkspace) -> str | None:
+        """Suscripción del perfil por defecto del workspace.
 
         El chat no tiene perfil propio: usa la suscripción del perfil por defecto del workspace, que es la
         que el administrador asoció en la consola. Sin ella, rigen las variables de entorno del servidor.
@@ -325,18 +329,14 @@ class ServicioChat:
         leer_perfil = getattr(self.almacen, "perfil", None)
         workspace = leer_ws(alcance) if leer_ws else None
         if leer_perfil is None:
-            return None, workspace.zona_datos_azure if workspace else None
+            return None
         nombre = workspace.perfil_por_defecto if workspace else Perfil.estandar
         perfil = leer_perfil(alcance, nombre)
-        return (
-            perfil.suscripcion if perfil else None,
-            workspace.zona_datos_azure if workspace else None,
-        )
+        return perfil.suscripcion if perfil else None
 
     async def _elegir(
         self,
         org: str,
-        nivel: NivelCodigo,
         restricciones: dict[str, Any],
         alcance: AlcanceWorkspace | None = None,
     ) -> tuple[Any, str, dict[str, Any]]:
@@ -352,13 +352,13 @@ class ServicioChat:
         parametros = inspect.signature(self.proveedores.elegir).parameters
         extra_elegir: dict[str, Any] = {"org": org} if "org" in parametros else {}
         modelos = self.config.modelos
-        suscripcion, zona = self._suscripcion_del_workspace(alcance) if alcance else (None, None)
+        suscripcion = self._suscripcion_del_workspace(alcance) if alcance else None
         if suscripcion and "suscripcion" in parametros:
-            extra_elegir |= {"suscripcion": suscripcion, "zona": zona}
+            extra_elegir |= {"suscripcion": suscripcion}
             modelo = modelos.get(Proveedor.foundry) or next(iter(modelos.values()))
             modelos = {p: modelo for p in Proveedor}
         try:
-            eleccion = self.proveedores.elegir("chat", RequisitoRol(modelo=modelos), nivel, **extra_elegir)
+            eleccion = self.proveedores.elegir("chat", RequisitoRol(modelo=modelos), **extra_elegir)
         except PerfilInsatisfacible as exc:
             raise ErrorChat(CodigoError.perfil_insatisfacible.value, str(exc), 422) from exc
         if restricciones["modelos"] is not None and eleccion.modelo not in restricciones["modelos"]:
@@ -367,21 +367,6 @@ class ServicioChat:
                 f"{eleccion.modelo} no está entre los modelos permitidos para el chat en estos repositorios",
                 422,
             )
-        if restricciones["azure"]:
-            region = getattr(eleccion, "region", None) or eleccion.proveedor.region
-            if eleccion.proveedor.proveedor != Proveedor.foundry or not region or region == "global":
-                raise ErrorChat(
-                    CodigoError.perfil_insatisfacible.value,
-                    "restringido/interno: el chat solo usa modelos de Azure con región fija",
-                    422,
-                )
-            # Con suscripción la zona ya la comprobó la selección contra la del workspace.
-            if not getattr(eleccion, "suscripcion", None) and region not in self.config.zona_datos:
-                raise ErrorChat(
-                    CodigoError.perfil_insatisfacible.value,
-                    f"la región {region} no está en la zona de datos configurada para el chat",
-                    422,
-                )
         campos = {f.name for f in dataclasses.fields(PeticionModelo)}
         extra = {
             c: getattr(eleccion, c) for c in ("despliegue", "region") if c in campos and hasattr(eleccion, c)
@@ -531,8 +516,8 @@ class ServicioChat:
         if not pregunta.strip() or len(pregunta) > 8000:
             raise ErrorChat("pregunta-invalida", "la pregunta debe tener entre 1 y 8000 caracteres", 422)
         vinculos = self._vinculos(conv)
-        nivel, politica, restricciones = politica_efectiva(vinculos)
-        proveedor, modelo, extra = await self._elegir(conv.alcance.org, nivel, restricciones, conv.alcance)
+        _, politica, restricciones = politica_efectiva(vinculos)
+        proveedor, modelo, extra = await self._elegir(conv.alcance.org, restricciones, conv.alcance)
         previos = self.chat.mensajes(conv.alcance, id_)
         m_usuario = MensajeChat(
             id=self.nuevo_id(),

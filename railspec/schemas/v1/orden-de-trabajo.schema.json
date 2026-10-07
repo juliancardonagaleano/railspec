@@ -223,11 +223,34 @@
           "$ref": "#/$defs/GobernanzaConsultada"
         },
         "grafo": {
+          "description": "Desde 1.9: rebanada del grafo remoto para spec, plan y tasks (símbolos, rutas y nombres que coinciden con el título y el objetivo de la unidad). Vacía no significa que no exista código relacionado: ver `grafo_avisos`.",
           "items": {
             "$ref": "#/$defs/NodoContexto"
           },
           "title": "Grafo",
           "type": "array"
+        },
+        "grafo_avisos": {
+          "description": "Desde 1.9: por qué `grafo` puede faltar o estar viejo (sin grafo configurado, repositorio sin índice canónico, índice desactualizado, consulta fallida). El arnés debe tratarlos como 'no sé', no como 'no hay'.",
+          "items": {
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "title": "Grafo Avisos",
+          "type": "array"
+        },
+        "grafo_frescura": {
+          "description": "Desde 1.9: frescura del canónico de cada repositorio de la unidad consultado para armar `grafo` (vacío si no hubo consulta).",
+          "patternProperties": {
+            "^[a-z0-9][a-z0-9-]{0,62}$": {
+              "$ref": "#/$defs/FrescuraGrafo"
+            }
+          },
+          "propertyNames": {
+            "description": "Identificador en minúsculas, dígitos y guiones (máx. 63)."
+          },
+          "title": "Grafo Frescura",
+          "type": "object"
         },
         "hallazgos_previos": {
           "description": "Hallazgos de la iteración anterior (gate_delta).",
@@ -300,6 +323,57 @@
       ],
       "title": "Fase",
       "type": "string"
+    },
+    "FrescuraGrafo": {
+      "additionalProperties": false,
+      "description": "Desde 1.9: qué tan al día está el grafo canónico de un repositorio consultado.\n\nLo calcula el servidor al responder ``graph.query`` y lo repite el contexto de una orden\n(``ContextoArmado.grafo_frescura``). El canónico lo avanza solo ``graph.index`` desde CI: un\nrepositorio puede no haberse indexado nunca, o llevar tiempo sin índice nuevo.",
+      "properties": {
+        "commit": {
+          "anyOf": [
+            {
+              "description": "SHA-1 completo de un commit git.",
+              "pattern": "^[0-9a-f]{40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Commit del canónico; None si nunca se indexó.",
+          "title": "Commit"
+        },
+        "desactualizado": {
+          "default": false,
+          "description": "True si ``indexado_en`` es más antiguo que el plazo del servidor (``RAILSPEC_GRAFO_FRESCURA_HORAS``; 0 = no avisa). Es un aviso de tiempo, no una comparación con el repositorio: ver ``avisos`` y el proxy local.",
+          "title": "Desactualizado",
+          "type": "boolean"
+        },
+        "indexado": {
+          "description": "False si el repositorio nunca recibió un índice canónico: sus consultas no devuelven nada de él (vacío no significa que el símbolo no exista).",
+          "title": "Indexado",
+          "type": "boolean"
+        },
+        "indexado_en": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instante en que se aplicó el último índice canónico. None si nunca se indexó o si el índice es anterior a que el servidor guardara este instante.",
+          "title": "Indexado En"
+        }
+      },
+      "required": [
+        "indexado"
+      ],
+      "title": "FrescuraGrafo",
+      "type": "object"
     },
     "GateFase": {
       "enum": [
@@ -673,7 +747,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.8",
+          "default": "1.9",
           "enum": [
             "1.0",
             "1.1",
@@ -683,7 +757,8 @@
             "1.5",
             "1.6",
             "1.7",
-            "1.8"
+            "1.8",
+            "1.9"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -822,7 +897,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.8",
+          "default": "1.9",
           "enum": [
             "1.0",
             "1.1",
@@ -832,7 +907,8 @@
             "1.5",
             "1.6",
             "1.7",
-            "1.8"
+            "1.8",
+            "1.9"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -975,7 +1051,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.8",
+          "default": "1.9",
           "enum": [
             "1.0",
             "1.1",
@@ -985,7 +1061,8 @@
             "1.5",
             "1.6",
             "1.7",
-            "1.8"
+            "1.8",
+            "1.9"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1105,7 +1182,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.8",
+          "default": "1.9",
           "enum": [
             "1.0",
             "1.1",
@@ -1115,7 +1192,8 @@
             "1.5",
             "1.6",
             "1.7",
-            "1.8"
+            "1.8",
+            "1.9"
           ],
           "title": "Version Contrato",
           "type": "string"

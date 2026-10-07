@@ -458,8 +458,9 @@ class ProxyLocal:
     def _detectar_empuje(self, almacen: Almacen, estado: EstadoLocal) -> EstadoLocal:
         """Encola ``commit.empujado`` si la rama de la unidad llegó al remoto con un commit nuevo.
 
-        La referencia remota la actualiza git en cada ``push``; el webhook de la GitHub App
-        sigue cubriendo las ramas empujadas desde otra máquina."""
+        La referencia remota la actualiza git en cada ``push`` y en cada ``fetch``, así que solo se ve
+        lo que esta máquina empujó o trajo. No hay receptor de webhooks de la GitHub App: una rama
+        empujada desde otra máquina no se avisa hasta que este clon la trae (ver ``contratos.md``)."""
 
         commit = git.commit_empujado(Path(estado.worktree), estado.rama)
         if commit is None or commit == almacen.leer_ultimo_empuje():
@@ -717,9 +718,73 @@ class ProxyLocal:
         )
         salida = await self.cliente.llamar("graph.query", entrada, GraphQuerySalida)
         respuesta: Json = _json(salida)
+        # Primero lo que dice el servidor del grafo (sin índice, desactualizado), luego lo de esta consulta
+        # y, al final, lo que solo se ve comparando con git: la respuesta nunca queda sin ellos.
+        avisos = [
+            *salida.avisos,
+            *avisos,
+            *await asyncio.to_thread(self._avisos_de_frescura, salida, repositorios or [], unidad),
+        ]
         if avisos:
             respuesta["avisos"] = avisos
+        else:
+            respuesta.pop("avisos", None)
         return respuesta
+
+    def _avisos_de_frescura(
+        self, salida: GraphQuerySalida, repositorios: list[str], unidad: str | None
+    ) -> list[str]:
+        """Compara el commit del canónico del repositorio de este clon con lo que el clon tiene en git.
+
+        Solo se ve en local: el servidor no tiene git y no sabe qué commit tiene la rama base. Sin red y
+        sin tocar nada: usa las referencias que dejó el último ``fetch``. Con ``unidad`` la referencia es
+        la base de esa unidad (lo que su worktree contiene); sin ella, la punta de la rama por defecto del
+        remoto si el clon la conoce y, si no, el ``HEAD`` de la raíz. Los avisos del servidor
+        (``GraphQuerySalida.avisos``) ya cubren un repositorio sin índice: aquí solo se añade lo que el
+        servidor no puede saber, y que el repositorio no figure en la respuesta de un servidor que no
+        informa frescura."""
+
+        slug = self.config.repo.repositorio
+        if repositorios and slug not in repositorios:
+            return []
+        fresco = salida.frescura.get(slug)
+        if fresco is not None and not fresco.indexado:
+            return []  # el servidor ya avisó
+        canonico = fresco.commit if fresco is not None and fresco.commit else salida.commits.get(slug)
+        if canonico is None:
+            return [
+                f"{slug}: el servidor no devolvió grafo canónico de este repositorio (sin vincular o sin "
+                "indexar): la consulta no cubre su código. Busca en el clon."
+            ]
+        try:
+            if unidad is not None:
+                referencia, nombre = self._almacen(unidad).leer().base_commit, "base de la unidad"
+            else:
+                referencia = git.punta_conocida(self.raiz)
+                nombre = "rama por defecto del remoto"
+                if referencia is None:
+                    referencia, nombre = git.head(self.raiz), "HEAD de este clon"
+            if not git.existe_commit(self.raiz, canonico):
+                return [
+                    f"{slug}: el índice canónico está en {canonico[:12]}, que este clon no tiene (¿falta "
+                    "`git fetch`?): no se puede comparar con tu base, y el grafo puede estar desfasado."
+                ]
+            if git.es_ancestro(self.raiz, referencia, canonico):
+                return []
+            if git.es_ancestro(self.raiz, canonico, referencia):
+                detras = git.contar_commits(self.raiz, canonico, referencia)
+                return [
+                    f"{slug}: el índice canónico ({canonico[:12]}) va {detras} commit(s) detrás de la "
+                    f"referencia local «{nombre}» ({referencia[:12]}): el grafo no tiene los símbolos de "
+                    "esos cambios; léelos del clon."
+                ]
+            return [
+                f"{slug}: el índice canónico ({canonico[:12]}) no contiene la referencia local "
+                f"«{nombre}» ({referencia[:12]}) y tampoco es ancestro suyo (historias distintas): el "
+                "grafo puede no reflejar tu código."
+            ]
+        except ErrorRailspec as exc:  # sin git o sin estado local: el aviso es una ayuda, no una condición
+            return [f"{slug}: no se pudo comparar el índice canónico con el clon local ({exc})."]
 
     def _preparar_consulta_grafo(self, consulta: Json) -> tuple[Json, list[str]]:
         """En una búsqueda semántica el vector de la consulta se calcula en local (contrato 1.1):

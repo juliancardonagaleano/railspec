@@ -298,13 +298,18 @@ def test_asignacion_org_admin_va_a_nivel_organizacion() -> None:
     _rechaza(AsignacionRol, d, "org-admin")
 
 
-def test_vinculo_restringido_no_usa_modelos_fuera_de_azure() -> None:
-    d = _dump(f.vinculo)
-    d["chat_contexto_codigo"]["hosting"] = "cualquiera"
-    _rechaza(VinculoRepositorio, d, "zona de datos")
-    d = _dump(f.vinculo)
-    d["chat_contexto_codigo"]["fragmentos_en_respuesta"] = True
-    _rechaza(VinculoRepositorio, d, "nunca salen fragmentos")
+def test_vinculo_restringido_ya_no_limita_el_hosting_ni_los_fragmentos() -> None:
+    """Decisión del 2026-10-06: el nivel solo gobierna el material de código; no restringe proveedores."""
+
+    for nivel in ("restringido", "interno", "abierto"):
+        d = _dump(f.vinculo)
+        d["nivel_codigo"] = nivel
+        d["chat_contexto_codigo"]["hosting"] = "cualquiera"
+        d["chat_contexto_codigo"]["fragmentos_en_respuesta"] = True
+        v = VinculoRepositorio.model_validate(d)
+        assert (
+            v.chat_contexto_codigo.hosting == "cualquiera" and v.chat_contexto_codigo.fragmentos_en_respuesta
+        )
 
 
 def test_auditoria_de_llamada_a_modelo_completa() -> None:
@@ -885,3 +890,53 @@ def test_unit_integrate_commit_integrado_opcional() -> None:
     assert UnitIntegrateEntrada.model_validate(base).commit_integrado is None
     UnitIntegrateEntrada.model_validate({**base, "commit_integrado": f.BASE})
     _rechaza(UnitIntegrateEntrada, {**base, "commit_integrado": "abc"}, "commit_integrado")
+
+
+def test_graph_query_salida_frescura_y_avisos_son_opcionales() -> None:
+    antigua = {"resultados": [], "commits": {"certificados-api": f.BASE}}
+    salida = GraphQuerySalida.model_validate(antigua)
+    assert salida.frescura == {} and salida.avisos == []
+    nueva = GraphQuerySalida.model_validate(
+        {
+            **antigua,
+            "frescura": {
+                "certificados-api": {
+                    "indexado": True,
+                    "commit": f.BASE,
+                    "indexado_en": "2026-10-01T00:00:00Z",
+                    "desactualizado": True,
+                },
+                "nuevo": {"indexado": False},
+            },
+            "avisos": ["nuevo: sin índice canónico."],
+        }
+    )
+    assert nueva.frescura["nuevo"].commit is None and not nueva.frescura["nuevo"].desactualizado
+    assert nueva.frescura["certificados-api"].desactualizado
+    _rechaza(
+        GraphQuerySalida,
+        {**antigua, "frescura": {"x": {"indexado": True, "otro": 1}}},
+        "otro",
+    )
+    _rechaza(
+        GraphQuerySalida,
+        {**antigua, "frescura": {"x": {"indexado": True, "indexado_en": "2026-10-01T00:00:00"}}},
+        "indexado_en",
+    )
+
+
+def test_contexto_armado_grafo_avisos_y_frescura_son_opcionales() -> None:
+    orden = json.loads((EJEMPLOS / "orden-de-trabajo.json").read_text(encoding="utf-8"))
+    contexto = orden["contexto"]
+    for campo in ("grafo", "grafo_frescura", "grafo_avisos"):
+        contexto.pop(campo, None)  # una orden anterior no los trae
+    antigua = TypeAdapter(OrdenDeTrabajo).validate_python(orden)
+    assert antigua.contexto.grafo == [] and antigua.contexto.grafo_frescura == {}
+    assert antigua.contexto.grafo_avisos == []
+    contexto["grafo_frescura"] = {"certificados-api": {"indexado": False}}
+    contexto["grafo_avisos"] = ["certificados-api: sin índice canónico."]
+    nueva = TypeAdapter(OrdenDeTrabajo).validate_python(orden)
+    assert nueva.contexto.grafo_frescura["certificados-api"].indexado is False
+    contexto["grafo_avisos"] = ["x" * 1001]
+    with pytest.raises(ValidationError):
+        TypeAdapter(OrdenDeTrabajo).validate_python(orden)

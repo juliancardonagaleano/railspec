@@ -29,7 +29,6 @@ const modelo = (clave: string, o: Partial<ModeloSuscripcion> = {}): ModeloSuscri
   ausente: false,
   clave,
   hosting: "azure",
-  restringible: true,
   ...o,
 });
 
@@ -64,7 +63,7 @@ const SERVICIOS: ServicioCompatible[] = [
     nombre: "MiniMax",
     endpoint: "https://api.minimax.io/v1",
     endpoint_mensajes: "https://api.minimax.io/anthropic",
-    nota: "Sus términos permiten usar entradas y salidas para mejorar el servicio. Solo abiertos.",
+    nota: "Sus términos permiten usar entradas y salidas para mejorar el servicio. Otras condiciones de retención y región que Foundry.",
   },
 ];
 
@@ -92,7 +91,6 @@ const modeloCompatible = (clave: string, o: Partial<ModeloSuscripcion> = {}): Mo
     region: null,
     capacidades: { efforts: [], structured_outputs: true, contexto_max_tokens: 204800 },
     hosting: "externo",
-    restringible: false,
     protocolo: "anthropic-messages",
     precio_usd_mtok: null,
     ...o,
@@ -219,7 +217,9 @@ describe("suscripciones de modelos", () => {
     const casilla = await screen.findByRole("checkbox", { name: "Disponible opus-eu" });
     expect(screen.getByText(/2 modelos/)).toBeInTheDocument();
     expect(casilla).not.toBeChecked();
-    expect(screen.getAllByText("restringido/interno")).toHaveLength(2);
+    // La región ya no clasifica los modelos: sin insignias de restringido/interno ni de solo abierto.
+    expect(screen.queryByText("restringido/interno")).toBeNull();
+    expect(screen.queryByText("solo abierto")).toBeNull();
 
     const guardar = screen.getByRole("button", { name: "Guardar modelos disponibles" });
     expect(guardar).toBeDisabled();
@@ -378,7 +378,7 @@ describe("perfil asociado a una suscripción", () => {
 describe("suscripciones de proveedores compatibles (contrato 1.8)", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("da de alta MiniMax por su servicio: no pide endpoints, avisa que solo sirve a abiertos y envía el servicio", async () => {
+  it("da de alta MiniMax por su servicio: no pide endpoints, avisa que es decisión consciente y envía el servicio", async () => {
     const user = userEvent.setup();
     let creada: Suscripcion[] = [];
     const s = servidorFalso({
@@ -393,7 +393,8 @@ describe("suscripciones de proveedores compatibles (contrato 1.8)", () => {
     await user.click(await screen.findByRole("button", { name: "Nueva suscripción" }));
     const dialogo = await screen.findByRole("dialog", { name: "Nueva suscripción" });
     await user.selectOptions(within(dialogo).getByLabelText("Proveedor"), "compatible");
-    expect(within(dialogo).getByText(/solo sirve a repositorios/)).toBeInTheDocument();
+    expect(within(dialogo).getByText(/decisión consciente: sirve a cualquier repositorio/)).toBeInTheDocument();
+    expect(within(dialogo).queryByText(/solo sirve a repositorios/)).toBeNull();
     expect(within(dialogo).getByLabelText("Servicio")).toHaveValue("minimax");
     expect(within(dialogo).getByText(/mejorar el servicio/)).toBeInTheDocument();
     expect(within(dialogo).queryByLabelText("Endpoint de chat completions")).toBeNull();
@@ -486,7 +487,7 @@ describe("suscripciones de proveedores compatibles (contrato 1.8)", () => {
 
     const fila = await screen.findByText("MiniMax-M2.7");
     expect(within(fila.closest("tr")!).getByText(/Messages de Anthropic · sin tarifa/)).toBeInTheDocument();
-    expect(within(fila.closest("tr")!).getByText("solo abierto")).toBeInTheDocument();
+    expect(within(fila.closest("tr")!).queryByText("solo abierto")).toBeNull();
     expect(screen.queryByRole("button", { name: "Declarar despliegue" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Declarar modelo" }));
@@ -509,7 +510,7 @@ describe("suscripciones de proveedores compatibles (contrato 1.8)", () => {
     expect(screen.getByText(/Chat completions de OpenAI · 0\.3\/1\.2 USD\/Mtok/)).toBeInTheDocument();
   });
 
-  it("el perfil con una suscripción compatible deshabilita el effort, lo quita y avisa que solo sirve a abiertos", async () => {
+  it("el perfil con una suscripción compatible deshabilita el effort, lo quita y avisa de otras condiciones", async () => {
     const user = userEvent.setup();
     const s = servidorFalso({
       "GET /orgs/acme/suscripciones": () => listaCompatibles([minimax({ modelos: [modeloCompatible("MiniMax-M3", { seleccionado: true })] })]),
@@ -525,7 +526,8 @@ describe("suscripciones de proveedores compatibles (contrato 1.8)", () => {
     montarConQuery(<EditorPerfil org="acme" nombre="estandar" inicial={inicial} editable />);
 
     await user.selectOptions(await screen.findByLabelText("Suscripción"), "minimax");
-    expect(screen.getByText(/solo sirve a repositorios abiertos y no admite effort/)).toBeInTheDocument();
+    expect(screen.getByText(/no admite effort. Usarlo es decisión tuya/)).toBeInTheDocument();
+    expect(screen.queryByText(/solo sirve a repositorios abiertos/)).toBeNull();
     expect(screen.getByLabelText("Effort para redactor")).toBeDisabled();
     expect(screen.getByLabelText("Modelo foundry para redactor")).toBeDisabled();
     const entrada = screen.getByLabelText("Modelo compatible para redactor");

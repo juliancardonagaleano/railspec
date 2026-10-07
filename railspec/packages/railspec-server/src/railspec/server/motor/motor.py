@@ -300,6 +300,8 @@ class Motor:
         )
         presupuesto = self.n.almacen.presupuesto(e.alcance)
         ahora = self.n.reloj()
+        # El nivel de código se congela aquí (1.7): un cambio posterior del vínculo no altera la unidad.
+        niveles, nivel_efectivo = self.n.congelar_niveles(e.alcance, [r.repositorio for r in e.repositorios])
         conversiones = []
         if e.modo is not None and e.modo != Modo.interactivo:
             conversiones.append(
@@ -324,9 +326,11 @@ class Motor:
                     rama=r.rama,
                     base_commit=r.base_commit,
                     rol=RolRepositorio.primario if i == 0 else RolRepositorio.transversal,
+                    nivel_codigo=niveles[i],
                 )
                 for i, r in enumerate(e.repositorios)
             ],
+            nivel_efectivo=nivel_efectivo,
             fase=Fase.spec,
             estado=EstadoFase.en_progreso,
             modo=conversiones[-1].a if conversiones else Modo.interactivo,
@@ -581,7 +585,7 @@ class Motor:
             if r.snapshot.nivel_codigo != esperado:
                 raise ErrorNegocio(
                     CodigoError.snapshot_invalido,
-                    f"el vínculo fija nivel {esperado.value}; "
+                    f"la unidad fija nivel {esperado.value}; "
                     f"el snapshot declara {r.snapshot.nivel_codigo.value}",
                     estado.version,
                 )

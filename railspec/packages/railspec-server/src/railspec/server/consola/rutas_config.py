@@ -239,7 +239,11 @@ def validar_perfil(roles: dict[str, RequisitoRol], catalogo: list[ModeloCatalogo
 def validar_perfil_con_suscripcion(
     ctx: ContextoConsola, org: str, id_: str | None, roles: dict[str, RequisitoRol]
 ) -> list[str]:
-    """Con suscripciones, el perfil elige una y solo usa sus modelos elegidos; 422 si no. Devuelve avisos."""
+    """Con suscripciones, el perfil elige una y solo usa sus modelos elegidos; 422 si no. Devuelve avisos.
+
+    La región del modelo y el nivel de código de los repositorios no dan avisos ni errores: el nivel no
+    restringe proveedores (decisión del 2026-10-06).
+    """
 
     if id_ is None:
         raise HTTPException(
@@ -277,13 +281,6 @@ def validar_perfil_con_suscripcion(
             errores.append(f"{rol}: {nombre} no admite salidas estructuradas")
         if req.contexto_min_tokens and req.contexto_min_tokens > c.contexto_max_tokens:
             errores.append(f"{rol}: {nombre} tiene contexto de {c.contexto_max_tokens} tokens")
-        if s.proveedor in (Proveedor.anthropic, Proveedor.compatible):
-            quien = "Anthropic directo" if s.proveedor == Proveedor.anthropic else "Un proveedor compatible"
-            avisos.append(f"{rol}: {quien} solo sirve a repositorios abiertos")
-        elif m.region in (None, "global"):
-            avisos.append(
-                f"{rol}: {nombre} no sirve a restringido ni interno ({m.region or 'región sin determinar'})"
-            )
     if errores:
         raise HTTPException(422, "; ".join(errores))
     return avisos

@@ -2,7 +2,8 @@
 
 Sin red ni credenciales: los clientes de los SDK son dobles y el listado usa ``httpx.MockTransport``.
 Lo que se comprueba es lo que no se puede dar por hecho de esas APIs: que la salida estructurada se emula, que
-un JSON malo escala y nunca aprueba, que solo sirven a ``abierto`` y que la clave nunca sale.
+un JSON malo escala y nunca aprueba, que sirven a cualquier repositorio (el nivel no los restringe) y que la
+clave nunca sale.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import httpx
 import pytest
 from apoyo_motor import ORG
 from pydantic import ValidationError
-from railspec.contracts.comun import Effort, NivelCodigo, Proveedor
+from railspec.contracts.comun import Effort, Proveedor
 from railspec.contracts.repositorio import (
     Capacidades,
     ModeloSuscripcion,
@@ -661,11 +662,12 @@ def _con_modelo_elegido(servicio, **kw):
 SIN_EFFORT = RequisitoRol(modelo={COMPATIBLE: "MiniMax-M3"}, structured_outputs=True)
 
 
-def test_un_proveedor_compatible_sirve_a_abierto_con_su_adaptador_y_sin_region():
+def test_un_proveedor_compatible_sirve_a_cualquier_repositorio_con_su_adaptador_y_sin_region():
     doble = ProveedorGuionado(lambda p: None, proveedor=COMPATIBLE)
     servicio, _, _ = _servicio(fabrica=lambda s, c: doble)
     p = _con_modelo_elegido(servicio)
-    e = p.elegir("refutador", SIN_EFFORT, NivelCodigo.abierto, org=ORG, suscripcion="minimax")
+    # Ya no hay nivel ni zona que comprobar: el repositorio restringido también lo usa si el perfil lo elige.
+    e = p.elegir("refutador", SIN_EFFORT, org=ORG, suscripcion="minimax")
     assert (e.proveedor, e.modelo, e.despliegue, e.region, e.suscripcion) == (
         doble,
         "MiniMax-M3",
@@ -673,18 +675,7 @@ def test_un_proveedor_compatible_sirve_a_abierto_con_su_adaptador_y_sin_region()
         None,
         "minimax",
     )
-
-
-@pytest.mark.parametrize("nivel", [NivelCodigo.restringido, NivelCodigo.interno])
-def test_un_proveedor_compatible_nunca_sirve_a_restringido_ni_a_interno(nivel):
-    servicio, _, _ = _servicio(fabrica=lambda s, c: ProveedorGuionado(lambda p: None, proveedor=COMPATIBLE))
-    p = _con_modelo_elegido(servicio)
-    for zona in (None, "eu"):
-        with pytest.raises(
-            PerfilInsatisfacible, match="un proveedor compatible y solo sirve a repositorios abiertos"
-        ):
-            p.elegir("refutador", SIN_EFFORT, nivel, org=ORG, suscripcion="minimax", zona=zona)
-    assert p.validar([("refutador", SIN_EFFORT)], nivel, org=ORG, suscripcion="minimax")
+    assert p.validar([("refutador", SIN_EFFORT)], org=ORG, suscripcion="minimax") == []
 
 
 def test_los_modelos_compatibles_no_admiten_effort_y_un_perfil_que_lo_pide_es_insatisfacible():
@@ -692,11 +683,11 @@ def test_los_modelos_compatibles_no_admiten_effort_y_un_perfil_que_lo_pide_es_in
     p = _con_modelo_elegido(servicio)
     con_effort = RequisitoRol(modelo={COMPATIBLE: "MiniMax-M3"}, effort=Effort.high, structured_outputs=True)
     with pytest.raises(PerfilInsatisfacible, match="no admite effort high"):
-        p.elegir("refutador", con_effort, NivelCodigo.abierto, org=ORG, suscripcion="minimax")
+        p.elegir("refutador", con_effort, org=ORG, suscripcion="minimax")
     # Y un modelo que no se eligió no se usa, aunque la suscripción lo descubra.
     con_otro = RequisitoRol(modelo={COMPATIBLE: "MiniMax-M2.7"}, structured_outputs=True)
     with pytest.raises(PerfilInsatisfacible, match="no está entre los modelos elegidos"):
-        p.elegir("refutador", con_otro, NivelCodigo.abierto, org=ORG, suscripcion="minimax")
+        p.elegir("refutador", con_otro, org=ORG, suscripcion="minimax")
 
 
 def test_la_fabrica_real_arma_el_adaptador_con_los_protocolos_las_tarifas_y_los_endpoints_de_la_suscripcion():
@@ -730,8 +721,7 @@ def test_el_catalogo_marca_externo_el_hosting_de_las_suscripciones_compatibles()
     assert hosting_de(s) == "externo" and activa.entradas == []  # ninguno elegido todavía
     servicio.seleccionar(ORG, "minimax", s.version, ["MiniMax-M3"], AUDITORIA)
     (e,) = servicio.activa(ORG, "minimax").entradas
-    assert (e.hosting, e.protocolo, e.region) == ("externo", MENSAJES, None) and not e.en_zona(None, None)
-    assert not e.en_zona("eu", "eu")
+    assert (e.hosting, e.protocolo, e.region) == ("externo", MENSAJES, None)
 
 
 def test_un_modelo_del_catalogo_con_hosting_externo_es_un_contrato_valido():
@@ -745,7 +735,7 @@ def test_un_modelo_del_catalogo_con_hosting_externo_es_un_contrato_valido():
         capacidades=Capacidades(structured_outputs=True, contexto_max_tokens=1),
         leido_en=AUDITORIA.creado_en,
     )
-    assert m.version_contrato == "1.8"
+    assert m.version_contrato == "1.9"
     with pytest.raises(ValidationError):
         ModeloCatalogo.model_validate({**m.model_dump(), "hosting": "otro"})
 
@@ -791,9 +781,8 @@ def test_la_consola_registra_descubre_declara_y_asocia_un_perfil_compatible():
             assert r.status_code == 200, r.text
             modelos = {x["clave"]: x for x in r.json()["suscripcion"]["modelos"]}
             assert modelos["MiniMax-M3"]["protocolo"] == "anthropic-messages"
-            assert (modelos["MiniMax-M3"]["hosting"], modelos["MiniMax-M3"]["restringible"]) == (
-                "externo",
-                False,
+            assert (
+                modelos["MiniMax-M3"]["hosting"] == "externo" and "restringible" not in modelos["MiniMax-M3"]
             )
             version = r.json()["suscripcion"]["version"]
             r = await c.put(
@@ -825,7 +814,7 @@ def test_la_consola_registra_descubre_declara_y_asocia_un_perfil_compatible():
                 2,
                 True,
             )
-            # El perfil usa la suscripción sin effort; avisa de que solo sirve a repositorios abiertos.
+            # El perfil usa la suscripción sin effort; ya no avisa de nivel alguno.
             perfil = {
                 "suscripcion": "minimax",
                 "roles": {"refutador": {"modelo": {"compatible": "MiniMax-M3"}, "structured_outputs": True}},
@@ -834,7 +823,7 @@ def test_la_consola_registra_descubre_declara_y_asocia_un_perfil_compatible():
             }
             r = await c.put(f"/consola/api/orgs/{ORG}/perfiles/ligero", json=perfil, headers=CSRF)
             assert r.status_code == 200, r.text
-            assert any("solo sirve a repositorios abiertos" in a for a in r.json()["avisos"])
+            assert r.json()["avisos"] == []
             con_effort = {**perfil, "version": 1}
             con_effort["roles"] = {
                 "refutador": {

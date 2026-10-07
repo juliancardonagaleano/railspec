@@ -20,9 +20,10 @@ from railspec.contracts._base import VERSION_CONTRATO
 from railspec.contracts.comun import NivelCodigo
 from railspec.contracts.estado import BloqueoInstancia, EstadoLocal
 from railspec.contracts.eventos import OrdenReportada, SnapshotSubido
+from railspec.contracts.referencias import FrescuraGrafo
 from railspec.contracts.reporte import ResultadoOrden
 from railspec.contracts.snapshot import EstadoArchivo, ModoDelta
-from railspec.contracts.tools import CodigoError
+from railspec.contracts.tools import CodigoError, GraphQuerySalida
 from railspec.local.almacen import Almacen
 from railspec.local.errores import FueraDeAlcance, SecretosDetectados, UnidadEnUso
 
@@ -457,6 +458,176 @@ def test_con_vector_u_otra_consulta_no_hay_aviso(tmp_path):
     )
 
     assert all("avisos" not in r for r in (con_vector, por_texto, por_nombre, con_su_vector))
+
+
+# --- frescura del grafo: el servidor la informa y el proxy la compara con git ------------------------
+
+
+def _salida_grafo(commit=None, *, indexado=True, avisos=()):
+    """Lo que responde un servidor con (o sin) índice canónico de ``certificados-api``."""
+
+    return GraphQuerySalida(
+        resultados=[],
+        commits={"certificados-api": commit} if commit else {},
+        frescura={"certificados-api": FrescuraGrafo(indexado=indexado, commit=commit)},
+        avisos=list(avisos),
+    )
+
+
+def _consultar(proxy, servidor, canonico, **kw):
+    servidor.salida_grafo = _salida_grafo(canonico)
+    return correr(proxy.consultar_grafo({"verbo": "search", "texto": "suma"}, **kw))
+
+
+def _commit_nuevo(repo: Path, nombre: str) -> str:
+    (repo / nombre).write_text(nombre, encoding="utf-8")
+    sh(repo, "add", "-A")
+    sh(repo, "commit", "-q", "-m", nombre)
+    return sh(repo, "rev-parse", "HEAD").strip()
+
+
+def test_un_canonico_que_contiene_el_head_no_trae_aviso_y_el_formato_no_cambia(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    head = sh(proxy.raiz, "rev-parse", "HEAD").strip()
+
+    respuesta = _consultar(proxy, servidor, head)
+
+    assert "avisos" not in respuesta
+    assert respuesta["commits"] == {"certificados-api": head} and respuesta["resultados"] == []
+    assert respuesta["frescura"]["certificados-api"]["commit"] == head
+
+
+def test_un_canonico_por_detras_del_head_avisa_cuantos_commits(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    indexado = sh(proxy.raiz, "rev-parse", "HEAD").strip()
+    _commit_nuevo(proxy.raiz, "a.txt")
+    nuevo = _commit_nuevo(proxy.raiz, "b.txt")
+
+    respuesta = _consultar(proxy, servidor, indexado)
+
+    (aviso,) = respuesta["avisos"]
+    assert "certificados-api" in aviso and indexado[:12] in aviso and nuevo[:12] in aviso
+    assert "2 commit(s) detrás de la referencia local «HEAD de este clon»" in aviso
+
+
+def test_con_remoto_la_referencia_es_la_punta_de_la_rama_por_defecto_que_el_clon_conoce(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    remoto = _con_remoto(tmp_path, proxy.raiz)
+    indexado = sh(proxy.raiz, "rev-parse", "HEAD").strip()
+    otro = tmp_path / "otro"
+    sh(tmp_path, "clone", "-q", str(remoto), str(otro))
+    sh(otro, "config", "user.email", "otro@example.com")
+    sh(otro, "config", "user.name", "Otro")
+    punta = _commit_nuevo(otro, "c.txt")
+    sh(otro, "push", "-q", "origin", "main")
+
+    # Mientras el clon no traiga main, no sabe que el canónico va detrás.
+    assert "avisos" not in _consultar(proxy, servidor, indexado)
+    sh(proxy.raiz, "fetch", "-q", "origin")
+    (aviso,) = _consultar(proxy, servidor, indexado)["avisos"]
+    assert (
+        "1 commit(s) detrás de la referencia local «rama por defecto del remoto»" in aviso
+        and punta[:12] in aviso
+    )
+    # El canónico en la punta ya no avisa, aunque el HEAD local no la tenga.
+    sh(proxy.raiz, "merge", "-q", "--ff-only", "origin/main")
+    assert "avisos" not in _consultar(proxy, servidor, punta)
+
+
+def test_un_canonico_que_el_clon_no_tiene_pide_traerlo(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+
+    (aviso,) = _consultar(proxy, servidor, "9" * 40)["avisos"]
+
+    assert "999999999999" in aviso and "no tiene" in aviso and "git fetch" in aviso
+
+
+def test_un_canonico_de_otra_historia_se_avisa_como_distinto(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    sh(proxy.raiz, "checkout", "-q", "-b", "otra", "HEAD~1")
+    otra = _commit_nuevo(proxy.raiz, "otra.txt")
+    sh(proxy.raiz, "checkout", "-q", "main")
+
+    (aviso,) = _consultar(proxy, servidor, otra)["avisos"]
+
+    assert (
+        otra[:12] in aviso
+        and "no contiene la referencia local «HEAD de este clon»" in aviso
+        and "historias distintas" in aviso
+    )
+
+
+def test_con_unidad_la_referencia_es_la_base_de_la_unidad(tmp_path):
+    servidor = ServidorDoble()
+    proxy, worktree, _ = arrancar(tmp_path, servidor)
+    base = Almacen(worktree).leer().base_commit
+    # La raíz avanza después de crear la unidad: el canónico en `base` sigue cubriendo lo de la unidad.
+    _commit_nuevo(proxy.raiz, "posterior.txt")
+
+    assert "avisos" not in _consultar(proxy, servidor, base, unidad="0001-sumar")
+    anterior = sh(proxy.raiz, "rev-parse", f"{base}~1").strip()
+    (aviso,) = _consultar(proxy, servidor, anterior, unidad="0001-sumar")["avisos"]
+    assert "detrás de la referencia local «base de la unidad»" in aviso and base[:12] in aviso
+
+
+def test_los_avisos_del_servidor_los_de_la_consulta_y_los_de_git_llegan_juntos_y_en_ese_orden(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    indexado = sh(proxy.raiz, "rev-parse", "HEAD").strip()
+    _commit_nuevo(proxy.raiz, "a.txt")
+    servidor.salida_grafo = _salida_grafo(indexado, avisos=["certificados-api: índice viejo (servidor)."])
+
+    respuesta = correr(proxy.consultar_grafo({"verbo": "search", "texto": "suma", "semantica": True}))
+
+    servidor_, consulta, git_ = respuesta["avisos"]
+    assert servidor_ == "certificados-api: índice viejo (servidor)."
+    assert "no lleva vector de consulta" in consulta
+    assert "detrás de la referencia local «HEAD de este clon»" in git_
+
+
+def test_un_repositorio_sin_indice_solo_trae_el_aviso_del_servidor(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    servidor.salida_grafo = _salida_grafo(
+        None, indexado=False, avisos=["certificados-api: sin índice canónico."]
+    )
+
+    respuesta = correr(proxy.consultar_grafo({"verbo": "resolve", "nombre": "suma"}))
+
+    assert respuesta["avisos"] == [
+        "certificados-api: sin índice canónico."
+    ]  # git no repite lo que ya se dijo
+
+
+def test_un_servidor_que_no_informa_frescura_y_no_devuelve_el_repositorio_falta(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    servidor.salida_grafo = GraphQuerySalida(resultados=[], commits={})
+
+    (aviso,) = correr(proxy.consultar_grafo({"verbo": "resolve", "nombre": "suma"}))["avisos"]
+    assert "no devolvió grafo canónico de este repositorio" in aviso
+    # Si la consulta pidió otro repositorio, este no tiene por qué estar.
+    otro = correr(proxy.consultar_grafo({"verbo": "resolve", "nombre": "suma"}, repositorios=["otro-repo"]))
+    assert "avisos" not in otro
+
+
+def test_sin_git_la_consulta_sigue_y_el_aviso_dice_que_no_pudo_comparar(tmp_path):
+    servidor = ServidorDoble()
+    proxy = crear_proxy(tmp_path, servidor)
+    servidor.salida_grafo = _salida_grafo("5" * 40)
+
+    respuesta = correr(
+        proxy.consultar_grafo({"verbo": "resolve", "nombre": "suma"}, unidad="0009-inexistente")
+    )
+
+    assert respuesta["resultados"] == []
+    (aviso,) = respuesta["avisos"]
+    assert "no se pudo comparar" in aviso
 
 
 def test_insumo_pull_escribe_markdown_sin_codigo(tmp_path):

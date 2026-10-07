@@ -388,7 +388,8 @@ def test_relajar_la_politica_del_vinculo_exige_org_admin_y_motivo():
             assert ultimo["evento"] == "cambio-nivel"
             d = ultimo["detalle"]
             assert (d["de"], d["a"], d["motivo"]) == ("restringido", "abierto", "repo público")
-            assert d["cambio_chat_hosting"] == "azure-zona-datos -> cualquiera"
+            assert d["cambio_chat_hosting"] == "azure-zona-datos -> cualquiera"  # se audita, ya no relaja
+            assert "chat_hosting" not in d["relaja"]
             assert d["cambio_chat_fragmentos_en_respuesta"] == "false -> true"
             assert "nivel_codigo" in d["relaja"] and "cambio_nivel_codigo" not in d
 
@@ -424,7 +425,9 @@ def test_crear_un_vinculo_menos_restrictivo_que_el_por_defecto_tambien_es_relaja
     correr(caso())
 
 
-def test_zona_de_datos_del_workspace_solo_se_amplia_con_org_admin_y_motivo():
+def test_zona_de_datos_del_workspace_es_informativa_y_la_cambia_el_workspace_admin():
+    """Decisión del 2026-10-06: la zona no restringe proveedores; cambiarla no exige org-admin ni motivo."""
+
     async def caso():
         m = Montaje()
         _crear_org(m, "acme")
@@ -440,40 +443,52 @@ def test_zona_de_datos_del_workspace_solo_se_amplia_con_org_admin_y_motivo():
             assert (await _auditoria(c))[0]["detalle"]["zona_datos_azure"] == "us"
         edicion = {"nombre": "Certificados", "perfil_por_defecto": "estandar", "version": 1}
         async with m.cliente("tk-ana") as c:
-            # Quitar la zona o cambiarla a otra no se puede probar que endurezca: relaja.
-            for zona in (None, "eu", "global"):
-                r = await c.put(base, json=edicion | {"zona_datos_azure": zona, "motivo": "x"}, headers=CSRF)
-                assert r.status_code == 403, (zona, r.text)
+            # Cambiar o quitar la zona ya no es relajar nada: sin motivo y sin org-admin.
+            for version, zona in enumerate(("eu", None, "us"), start=1):
+                r = await c.put(
+                    base, json=edicion | {"zona_datos_azure": zona, "version": version}, headers=CSRF
+                )
+                assert r.status_code == 200, (zona, r.text)
+                d = (await _auditoria(c))[0]["detalle"]
+                assert d["accion"] == "editar" and "relaja" not in d and "motivo" not in d
+                assert d["cambio_zona_datos_azure"].endswith(f"-> {zona or '-'}")
             assert m.ctx.datos.workspace(ORG, WS).zona_datos_azure == "us"
-            # Lo demás del workspace sigue siendo del workspace-admin (la zona igual, sin motivo).
-            r = await c.put(base, json=edicion | {"zona_datos_azure": "us", "nombre": "Certs"}, headers=CSRF)
-            assert r.status_code == 200, r.text
-            ultimo = (await _auditoria(c))[0]
-            assert (
-                ultimo["detalle"]["accion"] == "editar" and "cambio_zona_datos_azure" not in ultimo["detalle"]
+            # El motivo sigue siendo opcional y queda en la auditoría si se da.
+            r = await c.put(
+                base,
+                json=edicion | {"zona_datos_azure": "eu", "version": 4, "motivo": "migración a EU"},
+                headers=CSRF,
             )
+            assert r.status_code == 200, r.text
+            assert (await _auditoria(c))[0]["detalle"]["motivo"] == "migración a EU"
+
+    correr(caso())
+
+
+def test_una_politica_de_chat_sin_hosting_azure_ni_fragmentos_prohibidos_es_valida_en_cualquier_nivel():
+    """El contrato ya no prohíbe ``hosting=cualquiera`` ni fragmentos en restringido/interno."""
+
+    async def caso():
+        m = Montaje(nivel=None)
+        _crear_org(m, "acme")
+        asignar(m.almacen, Rol.workspace_admin, ANA_ID)
+        url = f"{BASE_VINCULOS}/{REPO}"
         async with m.cliente("tk-julian") as c:
-            e2 = edicion | {"nombre": "Certs", "version": 2}
-            r = await c.put(base, json=e2 | {"zona_datos_azure": "eu"}, headers=CSRF)
-            assert r.status_code == 422 and "motivo" in r.json()["detalle"], r.text
-            r = await c.put(
-                base, json=e2 | {"zona_datos_azure": "eu", "motivo": "migración a EU"}, headers=CSRF
-            )
+            r = await c.put(url, json=CUERPO_VINCULO, headers=CSRF)
             assert r.status_code == 200, r.text
-            d = (await _auditoria(c))[0]["detalle"]
-            assert d["cambio_zona_datos_azure"] == "us -> eu" and d["relaja"] == "zona_datos_azure"
-            assert d["motivo"] == "migración a EU"
-            # Quitar la restricción de zona es ampliarla: motivo y org-admin.
-            r = await c.put(
-                base, json=e2 | {"zona_datos_azure": None, "version": 3, "motivo": "sin zona"}, headers=CSRF
-            )
-            assert r.status_code == 200, r.text
-        async with m.cliente("tk-ana") as c:
-            # Fijar una zona donde no había restringe: lo hace el workspace-admin, sin motivo.
-            r = await c.put(base, json=e2 | {"zona_datos_azure": "eu", "version": 4}, headers=CSRF)
-            assert r.status_code == 200, r.text
-            d = (await _auditoria(c))[0]["detalle"]
-            assert d["cambio_zona_datos_azure"] == "- -> eu" and "relaja" not in d
+            v = r.json()
+            politica = _politica(v, hosting="cualquiera", fragmentos_en_respuesta=True)
+            for nivel in ("restringido", "interno", "abierto"):
+                r = await c.put(
+                    url,
+                    json=CUERPO_VINCULO
+                    | {"version": v["version"], "nivel_codigo": nivel, "chat_contexto_codigo": politica}
+                    | {"motivo": "prueba"},
+                    headers=CSRF,
+                )
+                assert r.status_code == 200, (nivel, r.text)
+                v = r.json()
+                assert v["chat_contexto_codigo"]["hosting"] == "cualquiera"
 
     correr(caso())
 

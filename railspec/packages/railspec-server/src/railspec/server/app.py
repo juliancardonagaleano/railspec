@@ -151,7 +151,7 @@ def ensamblar(
         autorizador=autorizador,
         proveedores=proveedores,
         fuente=fuente_codigo,
-        config=ConfigChat(modelos={Proveedor.foundry: config.chat_modelo}, zona_datos=config.chat_zona_datos),
+        config=ConfigChat(modelos={Proveedor.foundry: config.chat_modelo}),
     )
     sondas = _sondas(config, almacen, motor_grafo)
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas)
@@ -226,10 +226,10 @@ def _proveedores(config: Configuracion, almacen: Any, suscripciones: Any | None 
     if f is not None:
         disponibles[Proveedor.foundry] = proveedor_foundry(f.endpoint, f.api_key, f.region)
         if f.region is None:
-            log.warning("sin RAILSPEC_FOUNDRY_REGION: restringido e interno no tendrán modelo en zona")
+            log.warning("sin RAILSPEC_FOUNDRY_REGION: la región de los Standard queda sin auditar")
         # Siempre con catálogo: sin despliegues declarados ni proyecto, el catálogo
-        # queda vacío y ningún perfil se satisface. Mejor que adivinar el SKU (un
-        # despliegue Global no sirve a restringido ni a interno).
+        # queda vacío y ningún perfil se satisface. Mejor que adivinar el SKU (la región
+        # que se audita sale de él).
         if not (f.proyecto or f.despliegues):
             log.warning(
                 "Foundry sin RAILSPEC_FOUNDRY_PROYECTO ni RAILSPEC_FOUNDRY_DESPLIEGUES: catálogo vacío"
@@ -253,7 +253,6 @@ def _proveedores(config: Configuracion, almacen: Any, suscripciones: Any | None 
     return Proveedores(
         disponibles,
         catalogo,
-        zona_recurso=f.zona_datos if f else None,
         cache=cache,
         suscripciones=suscripciones,
     )

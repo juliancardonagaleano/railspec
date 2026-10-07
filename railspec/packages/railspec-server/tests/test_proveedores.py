@@ -1,4 +1,4 @@
-"""Adaptadores reales (con clientes dobles), catálogo, política de zona de datos y perfiles."""
+"""Adaptadores reales (con clientes dobles), catálogo, selección sin restricción por nivel y perfiles."""
 
 from __future__ import annotations
 
@@ -355,7 +355,7 @@ def test_catalogo_cachea_persiste_y_sobrevive_a_un_fallo():
     assert [e.despliegue for e in nuevo.entradas()] == ["opus-dz"]
 
 
-# --- Selección y zona de datos -------------------------------------------------------------
+# --- Selección: el nivel de código no restringe proveedor, modelo ni región ---
 
 
 def _proveedores(entradas, *, anthropic=False):
@@ -370,7 +370,7 @@ def _proveedores(entradas, *, anthropic=False):
             proveedor = Proveedor.anthropic
 
         fuentes.append(FuenteA([e for e in entradas if e.proveedor == Proveedor.anthropic]))
-    return Proveedores(disponibles, Catalogo(fuentes), zona_recurso="us")
+    return Proveedores(disponibles, Catalogo(fuentes))
 
 
 REQ = RequisitoRol(
@@ -380,57 +380,73 @@ REQ = RequisitoRol(
 )
 
 
-def test_restringido_solo_en_zona_y_nunca_global():
+def test_la_region_del_despliegue_se_audita_pero_no_restringe_a_ningun_repositorio():
     p = _proveedores([_entrada("opus-g", region="global")])
     with pytest.raises(PerfilInsatisfacible, match="sin leer"):
-        p.elegir("critico-profundo", REQ, NivelCodigo.restringido)
+        p.elegir("critico-profundo", REQ)
     correr(p.refrescar("acme"))
-    with pytest.raises(PerfilInsatisfacible, match="fuera de la zona"):
-        p.elegir("critico-profundo", REQ, NivelCodigo.restringido)
-    with pytest.raises(PerfilInsatisfacible):
-        p.elegir("critico-profundo", REQ, NivelCodigo.interno)
-    assert p.elegir("critico-profundo", REQ, NivelCodigo.abierto).despliegue == "opus-g"
+    # Un despliegue Global sirve igual: ya no hay comprobación de región ni de zona.
+    e = p.elegir("critico-profundo", REQ)
+    assert (e.modelo, e.despliegue, e.region) == ("claude-opus-5-5", "opus-g", "global")
 
     p = _proveedores([_entrada("opus-g", region="global"), _entrada("opus-dz", region="zona-us")])
     correr(p.refrescar())
-    e = p.elegir("critico-profundo", REQ, NivelCodigo.restringido, zona="us")
-    assert (e.modelo, e.despliegue, e.region) == ("claude-opus-5-5", "opus-dz", "zona-us")
-    with pytest.raises(PerfilInsatisfacible, match="workspace eu"):
-        p.elegir("critico-profundo", REQ, NivelCodigo.restringido, zona="eu")
+    assert p.elegir("critico-profundo", REQ).despliegue in {"opus-g", "opus-dz"}  # ambos sirven
     # Por nombre de despliegue también.
     req = REQ.model_copy(update={"modelo": {Proveedor.foundry: "opus-dz"}})
-    assert p.elegir("x", req, NivelCodigo.interno).modelo == "claude-opus-5-5"
+    e = p.elegir("x", req)
+    assert (e.modelo, e.region) == ("claude-opus-5-5", "zona-us")
+
+
+def test_elegir_ya_no_recibe_nivel_ni_zona():
+    import inspect
+
+    for metodo in (Proveedores.elegir, Proveedores.validar):
+        assert {"nivel", "zona"}.isdisjoint(inspect.signature(metodo).parameters)
+    assert "zona_recurso" not in inspect.signature(Proveedores).parameters
 
 
 def test_requisitos_del_rol_contra_el_catalogo():
     p = _proveedores([_entrada("gpt", modelo="gpt-5", efforts=[Effort.low, Effort.medium, Effort.high])])
     correr(p.refrescar())
     with pytest.raises(PerfilInsatisfacible, match="no está en el catálogo"):
-        p.elegir("r", REQ, NivelCodigo.restringido)
+        p.elegir("r", REQ)
     req = RequisitoRol(modelo={Proveedor.foundry: "gpt-5"}, effort=Effort.xhigh, structured_outputs=True)
     with pytest.raises(PerfilInsatisfacible, match="no admite effort xhigh"):
-        p.elegir("r", req, NivelCodigo.restringido)
+        p.elegir("r", req)
     req = req.model_copy(update={"effort": Effort.high, "contexto_min_tokens": 2_000_000})
     with pytest.raises(PerfilInsatisfacible, match="contexto"):
-        p.elegir("r", req, NivelCodigo.restringido)
+        p.elegir("r", req)
 
 
-def test_abierto_cae_a_anthropic_y_restringido_nunca():
+def test_cae_a_anthropic_directo_para_cualquier_repositorio():
     p = _proveedores([_entrada(None, hosting="anthropic", region=None)], anthropic=True)
     correr(p.refrescar())
-    e = p.elegir("r", REQ, NivelCodigo.abierto)
+    e = p.elegir("r", REQ)
     assert e.proveedor.proveedor == Proveedor.anthropic and e.despliegue is None
-    with pytest.raises(PerfilInsatisfacible):
-        p.elegir("r", REQ, NivelCodigo.restringido)
+    # Foundry primero: con el modelo en su catálogo no se llega a Anthropic.
+    p = _proveedores([_entrada("opus-dz"), _entrada(None, hosting="anthropic", region=None)], anthropic=True)
+    correr(p.refrescar())
+    assert p.elegir("r", REQ).proveedor.proveedor == Proveedor.foundry
+    # Sin Anthropic configurado, el motivo lo dice.
+    solo = _proveedores([_entrada("otro", modelo="gpt-5")])
+    correr(solo.refrescar())
+    with pytest.raises(PerfilInsatisfacible, match="anthropic no configurado"):
+        solo.elegir("r", REQ)
 
 
-def test_sin_catalogo_la_zona_sale_de_la_region_del_adaptador():
+def test_sin_catalogo_la_region_auditada_sale_del_adaptador():
     global_ = Proveedores({Proveedor.foundry: ProveedorGuionado(lambda p: None, region="global")})
-    with pytest.raises(PerfilInsatisfacible, match="zona de datos"):
-        global_.elegir("r", REQ, NivelCodigo.restringido)
-    assert global_.elegir("r", REQ, NivelCodigo.abierto).region == "global"
+    assert global_.elegir("r", REQ).region == "global"
+    sin_region = Proveedores({Proveedor.foundry: ProveedorGuionado(lambda p: None, region=None)})
+    assert sin_region.elegir("r", REQ).region is None
     en_zona = Proveedores({Proveedor.foundry: ProveedorGuionado(lambda p: None, region="eastus2")})
-    assert en_zona.elegir("r", REQ, NivelCodigo.restringido).region == "eastus2"
+    assert en_zona.elegir("r", REQ).region == "eastus2"
+    # Anthropic directo, sin catálogo: lo sirve cuando Foundry no está configurado.
+    directo = Proveedores(
+        {Proveedor.anthropic: ProveedorGuionado(lambda p: None, Proveedor.anthropic, "global")}
+    )
+    assert directo.elegir("r", REQ).proveedor.proveedor == Proveedor.anthropic
 
 
 def test_claves_de_perfil_por_etapa_y_nivel():
@@ -466,7 +482,6 @@ def _con_catalogo(motor, entradas, region_adaptador="eastus2"):
     motor.n.proveedores = Proveedores(
         {Proveedor.foundry: adaptador},
         Catalogo([FuenteContada(entradas)], motor.n.almacen),
-        zona_recurso="us",
     )
     return adaptador
 
@@ -474,15 +489,28 @@ def _con_catalogo(motor, entradas, region_adaptador="eastus2"):
 def test_unit_start_rechaza_un_perfil_que_el_catalogo_no_sirve():
     async def caso():
         motor, _ = construir()
-        _con_catalogo(
-            motor, [_entrada("opus-g", region="global"), _entrada("sonnet-g", "claude-sonnet-5-5", "global")]
-        )
+        _con_catalogo(motor, [_entrada("gpt", "gpt-5", "eastus2")])  # sin los modelos del perfil
         with pytest.raises(ErrorNegocio) as exc:
             await motor.start(entrada_start(), JULIAN)
         assert exc.value.codigo == CodigoError.perfil_insatisfacible
-        assert "fuera de la zona" in exc.value.detalle
+        assert "no está en el catálogo" in exc.value.detalle
         assert motor.n.almacen.db.unidades.count_documents({}) == 0  # nada creado
         # El catálogo quedó persistido para la organización.
+        assert {m.despliegue for m in motor.n.almacen.catalogo(ORG)} == {"gpt"}
+
+    correr(caso())
+
+
+def test_unit_start_en_restringido_acepta_despliegues_global():
+    """El nivel restringido (el de un vínculo sin configurar) ya no exige zona de datos ni región fija."""
+
+    async def caso():
+        motor, _ = construir()
+        _con_catalogo(
+            motor, [_entrada("opus-g", region="global"), _entrada("sonnet-g", "claude-sonnet-5-5", "global")]
+        )
+        out = await motor.start(entrada_start(), JULIAN)
+        assert out.estado.nivel_efectivo == NivelCodigo.restringido
         assert {m.despliegue for m in motor.n.almacen.catalogo(ORG)} == {"opus-g", "sonnet-g"}
 
     correr(caso())
@@ -566,14 +594,14 @@ def test_configuracion_y_ensamblado_de_proveedores_reales():
     assert c.foundry.proyecto is None and c.contexto_cache_s == 900
     almacen = almacen_en_memoria()
     p = _proveedores(c, almacen)
-    assert p.configurados == [Proveedor.foundry] and p.zona_recurso == "us"
+    assert p.configurados == [Proveedor.foundry]
     correr(p.refrescar(ORG))
-    e = p.elegir("critico-profundo", REQ, NivelCodigo.restringido, org=ORG)
+    e = p.elegir("critico-profundo", REQ, org=ORG)
     assert (e.despliegue, e.region) == ("opus-dz", "zona-us")
     assert [m.despliegue for m in almacen.catalogo(ORG)] == ["opus-dz"]
     assert isinstance(_contexto(c, almacen), ContextoConectable)
     # Sin despliegues declarados ni proyecto, el catálogo de Foundry queda vacío: nada se
-    # satisface (no se adivina el SKU), ni siquiera en abierto.
+    # satisface (no se adivina el SKU).
     sin = _proveedores(
         Configuracion.desde_entorno(
             {
@@ -585,9 +613,8 @@ def test_configuracion_y_ensamblado_de_proveedores_reales():
         almacen,
     )
     correr(sin.refrescar(ORG))
-    for nivel in (NivelCodigo.restringido, NivelCodigo.abierto):
-        with pytest.raises(PerfilInsatisfacible, match="no está en el catálogo"):
-            sin.elegir("r", REQ, nivel)
+    with pytest.raises(PerfilInsatisfacible, match="no está en el catálogo"):
+        sin.elegir("r", REQ)
 
 
 def test_humo_sin_llamada(monkeypatch, capsys):
@@ -602,6 +629,12 @@ def test_humo_sin_llamada(monkeypatch, capsys):
     )
     assert humo.main(["--sin-llamada", "--nivel", "interno"]) == 0
     assert "perfil estandar satisfacible" in capsys.readouterr().out
+    # Global ya no se rechaza en restringido; lo que falta en el catálogo sí.
+    monkeypatch.setenv(
+        "RAILSPEC_FOUNDRY_DESPLIEGUES",
+        "opus=claude-opus-5-5:GlobalStandard,sonnet=claude-sonnet-5-5:GlobalStandard",
+    )
+    assert humo.main(["--sin-llamada", "--nivel", "restringido"]) == 0
     monkeypatch.setenv("RAILSPEC_FOUNDRY_DESPLIEGUES", "opus=claude-opus-5-5:GlobalStandard")
     assert humo.main(["--sin-llamada", "--nivel", "restringido"]) == 1
 

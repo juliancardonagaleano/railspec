@@ -247,7 +247,6 @@ jobs:
           RAILSPEC_CLONES_ACTUALIZAR: "true"
           RAILSPEC_CLONES_REPOSITORIOS: acme/api acme/web
           RAILSPEC_FOUNDRY_ZONA_DATOS: us
-          RAILSPEC_CHAT_ZONA_DATOS: zona-us
         run: |
           python3 railspec/deploy/renderizar.py > "$RUNNER_TEMP/railspec-todo.yaml"
           kubeconform -strict -summary -kubernetes-version 1.31.0 "$RUNNER_TEMP/railspec-todo.yaml"

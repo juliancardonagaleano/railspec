@@ -73,7 +73,10 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_MONGO_DB": ("railspec", "Base de datos de Mongo."),
     "RAILSPEC_FOUNDRY_ENDPOINT": ("", "Endpoint del recurso de Azure AI Foundry."),
     "RAILSPEC_FOUNDRY_REGION": ("", "Región del recurso de Foundry (p. ej. eastus2)."),
-    "RAILSPEC_FOUNDRY_ZONA_DATOS": ("", "Zona de datos del recurso de Foundry (us o eu)."),
+    "RAILSPEC_FOUNDRY_ZONA_DATOS": (
+        "",
+        "Zona de datos del recurso de Foundry (us o eu): la región auditada de los despliegues DataZone.",
+    ),
     "RAILSPEC_FOUNDRY_PROYECTO": ("", "Endpoint del proyecto de Foundry para leer los despliegues."),
     "RAILSPEC_FOUNDRY_DESPLIEGUES": (
         "",
@@ -117,6 +120,12 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
         "Horas sin lotes nuevos tras las que se borra la preparación de un índice que no completó "
         "(0 = nunca; admite fracciones).",
     ),
+    # El defecto es FRESCURA_HORAS de railspec-graph (almacen.py): una prueba comprueba que no se separen.
+    "RAILSPEC_GRAFO_FRESCURA_HORAS": (
+        "72",
+        "Horas desde el último índice canónico tras las que graph.query avisa que el grafo puede estar "
+        "desactualizado (0 = no avisa; admite fracciones).",
+    ),
     "RAILSPEC_CONSOLA_ADMINS": ("", "github_id que administran la plataforma en la consola (coma)."),
     "RAILSPEC_CONSOLA_SESION_HORAS": ("4", "Vida de la sesión de la consola, en horas (1 a 24)."),
     "RAILSPEC_CONSOLA_AUTH_LIMITE": (
@@ -128,12 +137,6 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     "RAILSPEC_CONSOLA_SSE_REVALIDAR_S": (
         "30",
         "Cada cuántos segundos un flujo en vivo vuelve a comprobar el rol lector.",
-    ),
-    # Vacía a propósito: el chat falla cerrado. Sin regiones aquí no responde en restringido ni interno.
-    "RAILSPEC_CHAT_ZONA_DATOS": (
-        "",
-        "Regiones de Azure (coma, minúsculas: eastus2) donde el chat puede enviar código en "
-        "restringido/interno. Vacía = el chat no responde en esos niveles.",
     ),
     "RAILSPEC_CHAT_MODELO": ("", "Despliegue de Foundry del rol chat. Vacío = claude-sonnet-5-5."),
     "RAILSPEC_CHAT_CLONES_PVC": (
@@ -193,7 +196,6 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
     ),
 }
 _MARCA = re.compile(r"\$\{([A-Z0-9_]+)\}")
-_REGION_CHAT = r"(?:zona-(?:us|eu)|[a-z0-9]+)"
 _NOMBRE_K8S = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
 _ETIQUETA_K8S = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
 _CANTIDAD = re.compile(r"[1-9][0-9]*(Mi|Gi|Ti)")
@@ -268,11 +270,12 @@ def _entero(salida: Mapping[str, str], nombre: str, minimo: int, maximo: int | N
 
 
 def _validar_grafo(salida: Mapping[str, str]) -> None:
-    """Lo que acepta ``railspec.graph.indexado._plazo`` (o menos): ahí un valor inválido tumba el arranque."""
+    """Lo que acepta ``railspec.graph.plazos.plazo`` (o menos): ahí un valor inválido tumba el arranque."""
 
     for nombre, unidad in (
         ("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"),
         ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours"),
+        ("RAILSPEC_GRAFO_FRESCURA_HORAS", "hours"),
     ):
         valor = salida[nombre]
         if not _PLAZO.fullmatch(valor):
@@ -298,14 +301,6 @@ def _validar_consola(salida: Mapping[str, str]) -> None:
 
 
 def _validar_chat(salida: Mapping[str, str]) -> None:
-    # El servidor compara cada región con la del despliegue tal cual (minúsculas): una mayúscula
-    # no falla al arrancar, hace que el chat se niegue en silencio. La región de un SKU DataZone no es
-    # de Azure sino ``zona-<zona del recurso>``: de ahí ``zona-us`` y ``zona-eu``.
-    if not re.fullmatch(rf"{_REGION_CHAT}(\s*,\s*{_REGION_CHAT})*|", salida["RAILSPEC_CHAT_ZONA_DATOS"]):
-        raise ErrorRender(
-            "RAILSPEC_CHAT_ZONA_DATOS espera regiones de Azure en minúsculas separadas por comas "
-            "(p. ej. eastus2,swedencentral) o zona-us / zona-eu para un despliegue DataZone"
-        )
     if not re.fullmatch(r"[A-Za-z0-9._:-]*", salida["RAILSPEC_CHAT_MODELO"]):
         raise ErrorRender("RAILSPEC_CHAT_MODELO solo admite letras, dígitos y . _ : -")
     pvc = salida["RAILSPEC_CHAT_CLONES_PVC"]
@@ -369,24 +364,12 @@ def _validar_datos(salida: Mapping[str, str]) -> None:
 
 
 def avisos(entorno: Mapping[str, str]) -> list[str]:
-    """Configuraciones válidas que dejan el chat sin responder o sin código; van a stderr."""
+    """Configuraciones válidas que dejan el chat sin código o las bases sin respaldo; van a stderr."""
 
     tabla = valores(entorno)
     salida = []
-    if not tabla["RAILSPEC_CHAT_ZONA_DATOS"]:
-        salida.append(
-            "RAILSPEC_CHAT_ZONA_DATOS está vacía: el chat no responderá en restringido ni interno "
-            "(falla cerrado; ver railspec/docs/chat.md)"
-        )
     if not tabla["RAILSPEC_CHAT_CLONES_PVC"]:
         salida.append("RAILSPEC_CHAT_CLONES_PVC está vacía: el chat responderá sin leer código")
-    zona_recurso = tabla["RAILSPEC_FOUNDRY_ZONA_DATOS"].strip().lower()
-    for region in (r.strip() for r in tabla["RAILSPEC_CHAT_ZONA_DATOS"].split(",")):
-        if region.startswith("zona-") and region != f"zona-{zona_recurso}":
-            salida.append(
-                f"RAILSPEC_CHAT_ZONA_DATOS incluye {region} pero RAILSPEC_FOUNDRY_ZONA_DATOS es "
-                f"{zona_recurso or 'vacía'}: ningún despliegue DataZone del recurso tendrá esa región"
-            )
     if (tabla["RAILSPEC_MONGO_INTERNO"] == "true" or tabla["RAILSPEC_FALKORDB_INTERNO"] == "true") and tabla[
         "RAILSPEC_RESPALDO"
     ] != "true":

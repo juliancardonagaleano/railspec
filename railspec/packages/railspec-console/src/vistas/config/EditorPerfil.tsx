@@ -206,7 +206,7 @@ export function EditorPerfil({ org, ws, nombre, inicial, editable, alGuardar }: 
           {elegida && !elegida.habilitada ? <p className="mt-1 text-sm text-peligro">Esta suscripción está deshabilitada.</p> : null}
           {elegida?.proveedor === "compatible" ? (
             <p className="mt-1 text-sm text-suave">
-              Un proveedor compatible solo sirve a repositorios abiertos y no admite effort.
+              Un proveedor compatible no admite effort. Usarlo es decisión tuya: puede tener otras condiciones de retención y región.
             </p>
           ) : null}
         </section>

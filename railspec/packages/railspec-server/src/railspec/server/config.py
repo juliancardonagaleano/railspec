@@ -39,7 +39,7 @@ class ConfigFoundry:
     api_key: str | None = None
     #: Región del recurso (``eastus2``): la de la auditoría y la de los SKU Standard.
     region: str | None = None
-    #: Zona de datos del recurso (``us``, ``eu``): la de los SKU DataZone.
+    #: Zona de datos del recurso (``us``, ``eu``): la de los SKU DataZone (se audita; no restringe).
     zona_datos: str | None = None
     #: Endpoint del proyecto de Foundry para leer el catálogo de despliegues por API.
     proyecto: str | None = None
@@ -97,8 +97,6 @@ class Configuracion:
     #: Chat de contexto: carpeta con un clon de solo lectura por repositorio (``<owner>/<repo>``)
     #: para ``code.read``; sin ella el chat responde sin leer código.
     chat_clones: str | None = None
-    #: Regiones de Azure de la zona de datos donde el chat puede enviar código (restringido/interno).
-    chat_zona_datos: frozenset[str] = frozenset()
     chat_modelo: str = "claude-sonnet-5-5"
     host: str = "0.0.0.0"
     puerto: int = 8080
@@ -158,9 +156,6 @@ class Configuracion:
                 r.strip() for r in env.get("RAILSPEC_OIDC_REPOSITORIOS", "").split(",") if r.strip()
             ),
             chat_clones=env.get("RAILSPEC_CHAT_CLONES") or None,
-            chat_zona_datos=frozenset(
-                r.strip() for r in env.get("RAILSPEC_CHAT_ZONA_DATOS", "").split(",") if r.strip()
-            ),
             chat_modelo=env.get("RAILSPEC_CHAT_MODELO") or "claude-sonnet-5-5",
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),

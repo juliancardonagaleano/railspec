@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Union
 
-from pydantic import Field, model_validator
+from pydantic import AwareDatetime, Field, model_validator
 
 from ._base import Contrato
 from .comun import Commit, CriterioId, RutaRelativa, Slug, UnidadId
@@ -41,6 +41,38 @@ class RefArchivo(Contrato):
         if self.linea_inicio is not None and self.linea_fin < self.linea_inicio:  # type: ignore[operator]
             raise ValueError("linea_fin anterior a linea_inicio")
         return self
+
+
+class FrescuraGrafo(Contrato):
+    """Desde 1.9: qué tan al día está el grafo canónico de un repositorio consultado.
+
+    Lo calcula el servidor al responder ``graph.query`` y lo repite el contexto de una orden
+    (``ContextoArmado.grafo_frescura``). El canónico lo avanza solo ``graph.index`` desde CI: un
+    repositorio puede no haberse indexado nunca, o llevar tiempo sin índice nuevo.
+    """
+
+    indexado: bool = Field(
+        description=(
+            "False si el repositorio nunca recibió un índice canónico: sus consultas no devuelven "
+            "nada de él (vacío no significa que el símbolo no exista)."
+        )
+    )
+    commit: Commit | None = Field(default=None, description="Commit del canónico; None si nunca se indexó.")
+    indexado_en: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "Instante en que se aplicó el último índice canónico. None si nunca se indexó o si el "
+            "índice es anterior a que el servidor guardara este instante."
+        ),
+    )
+    desactualizado: bool = Field(
+        default=False,
+        description=(
+            "True si ``indexado_en`` es más antiguo que el plazo del servidor "
+            "(``RAILSPEC_GRAFO_FRESCURA_HORAS``; 0 = no avisa). Es un aviso de tiempo, no una "
+            "comparación con el repositorio: ver ``avisos`` y el proxy local."
+        ),
+    )
 
 
 class RefNodoGrafo(Contrato):

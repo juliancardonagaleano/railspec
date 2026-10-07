@@ -189,7 +189,7 @@ class Proveedor(StrEnum):
     foundry = "foundry"
     anthropic = "anthropic"
     #: Desde 1.8: endpoint compatible con la API de Anthropic o de OpenAI (OpenCode Zen y Go, MiniMax...).
-    #: Solo sirve a repositorios ``abierto``: su hosting no es Azure.
+    #: Sirve a cualquier repositorio: usarlo es decisión consciente del usuario (otro hosting que Azure).
     compatible = "compatible"
 
 

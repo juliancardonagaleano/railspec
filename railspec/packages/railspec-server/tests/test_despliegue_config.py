@@ -47,8 +47,8 @@ def test_los_defectos_del_renderizador_son_los_del_servidor():
     assert config.consola.sse_max_por_usuario == ConfigConsola().sse_max_por_usuario
     assert config.consola.sse_max_global == ConfigConsola().sse_max_global
     assert config.consola.sse_revalidar_s == ConfigConsola().sse_revalidar_s
-    # El chat falla cerrado: sin regiones no responde en restringido ni interno, sin clones no lee código.
-    assert config.chat_zona_datos == frozenset() and config.chat_clones is None
+    # Sin clones el chat no lee código; ya no hay zona de datos que exigirle (decisión del 2026-10-06).
+    assert config.chat_clones is None and not hasattr(config, "chat_zona_datos")
     assert config.chat_modelo == por_defecto.chat_modelo
 
 
@@ -57,7 +57,6 @@ def test_el_servidor_lee_lo_que_renderiza_el_chat_y_la_consola():
         {
             **_configmap(
                 {
-                    "RAILSPEC_CHAT_ZONA_DATOS": "eastus2, swedencentral",
                     "RAILSPEC_CHAT_MODELO": "claude-opus-5-5",
                     "RAILSPEC_CHAT_CLONES_PVC": "railspec-clones",
                     "RAILSPEC_CONSOLA_SESION_HORAS": "8",
@@ -70,7 +69,6 @@ def test_el_servidor_lee_lo_que_renderiza_el_chat_y_la_consola():
             **SECRETO,
         }
     )
-    assert config.chat_zona_datos == frozenset({"eastus2", "swedencentral"})
     assert config.chat_modelo == "claude-opus-5-5"
     assert config.chat_clones == renderizar.RUTA_CLONES
     consola = config.consola

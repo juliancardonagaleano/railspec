@@ -94,7 +94,8 @@ si hay `RAILSPEC_MONGO_URI` o GitHub App, salvo `RAILSPEC_PERMITIR_DESARROLLO=1`
    `desarrollador` o `lector` por workspace) a personas, por login, o a
    equipos de GitHub, por su id numérico (`GET /orgs/{org}/teams/{slug}` en
    la API de GitHub lo da).
-5. Vincular repositorios al workspace (nivel `restringido` por defecto). La URL
+5. Vincular repositorios al workspace (nivel `restringido` por defecto; el nivel solo
+   decide qué material de código se comparte con el modelo, no qué proveedor se usa). La URL
    es `https://github.com/<owner>/<repo>` y el owner, el `github_org` de la
    organización (ver «Vínculos de repositorio»); antes, la plataforma tiene que
    fijar ese `github_org` al crear o editar la organización.
@@ -213,7 +214,7 @@ oculta lo que el rol no permite, pero decide el servidor.
 | Aprobar checkpoints, integrar, cambiar modo, arrancar unidades (tools) | el `rol_minimo` de la tool (`desarrollador`) |
 | Editar workspace, vínculos, roles del workspace, configuración del workspace (**salvo relajar la política**, abajo) | `workspace-admin` |
 | Fijar la `url` y la `credencial_ref` de un proveedor de contexto (y crearlo) | `org-admin`; el `workspace-admin` edita el resto del proveedor |
-| Relajar la política de código: bajar `nivel_codigo`, habilitar `chat_contexto_codigo.permitido`, subir los presupuestos de fuga o `huella_tokens_n`, ampliar `modelos_permitidos`, `hosting` o `fragmentos_en_respuesta`, crear un vínculo menos restrictivo que el por defecto, o quitar o cambiar `zona_datos_azure`; siempre con motivo | `org-admin` |
+| Relajar la política de código: bajar `nivel_codigo`, habilitar `chat_contexto_codigo.permitido`, subir los presupuestos de fuga o `huella_tokens_n`, ampliar `modelos_permitidos` o `fragmentos_en_respuesta`, o crear un vínculo menos restrictivo que el por defecto; siempre con motivo | `org-admin` |
 | Crear workspaces, roles `org-admin`, configuración de la organización | `org-admin` |
 | Crear organizaciones; fijar o cambiar su `github_org` | administrador de la plataforma |
 
@@ -281,7 +282,8 @@ resultado de lectura y los perfiles que la usan.
   tokens (entrada y salida juntas); sin tarifa el costo cuenta 0 USD.
 - **Descubrir modelos.** Lee los modelos del proveedor. Si falla, la pantalla
   muestra el código y el detalle sin tocar la elección anterior. Cada modelo
-  aparece con su región, su SKU y si sirve a `restringido`/`interno`; se marcan
+  aparece con su región y su SKU (datos de auditoría: ya no deciden a qué repositorios
+  sirve); se marcan
   los que quedan disponibles y se guarda. Un despliegue que la API no lista se
   declara a mano y los marcados que ya no aparecen quedan `ausente`.
 - **Perfiles.** El editor de perfiles pide la suscripción y limita los modelos de
@@ -338,17 +340,21 @@ ya describe [proveedores.md](proveedores.md#catálogo-de-modelos).
   (422) con el motivo. Un `org-admin` no puede cambiar `github_org` (403): lo fija la
   plataforma, porque los clones son compartidos por owner/repo y quien eligiera su
   owner a gusto podría apuntar al clon de otro tenant.
-- **Política (`nivel_codigo`, `chat_contexto_codigo`) y zona de datos**: endurecer sigue
-  siendo del `workspace-admin` (bajar `huella_tokens_n` o los presupuestos de fuga,
-  apagar el chat, acotar los modelos, fijar una zona donde no había). Relajar cualquiera
-  de esos campos exige `org-admin` (o la plataforma, que actúa como tal) y un `motivo` no
-  vacío; si no, 403 o 422. Un vínculo nuevo se compara con la política por defecto de
-  `restringido`: crearlo en `interno` o `abierto` (o con una política más laxa) también
-  es relajar; si no, bastaría desvincular y volver a crear para esquivar el cambio de
-  nivel. De `zona_datos_azure`, quitarla o cambiarla a otra cuenta como ampliarla (no se
-  puede probar que otra zona sea más estricta). El motivo viaja en `motivo` del cuerpo
-  (`PUT …/repositorios/{repo}` y `PUT …/workspaces/{ws}`). La SPA solo pide motivo al
-  cambiar el nivel; el resto de relajaciones desde la SPA devuelve el error del servidor.
+- **Política (`nivel_codigo`, `chat_contexto_codigo`)**: el nivel solo decide qué material
+  de código se comparte con el modelo; **no decide qué proveedor, modelo o región se usa**
+  (decisión del 2026-10-06). Endurecer sigue siendo del `workspace-admin` (bajar
+  `huella_tokens_n` o los presupuestos de fuga, apagar el chat, acotar los modelos).
+  Relajar cualquiera de esos campos exige `org-admin` (o la plataforma, que actúa como
+  tal) y un `motivo` no vacío; si no, 403 o 422. Un vínculo nuevo se compara con la
+  política por defecto de `restringido`: crearlo en `interno` o `abierto` (o con una
+  política más laxa) también es relajar; si no, bastaría desvincular y volver a crear
+  para esquivar el cambio de nivel. `chat_contexto_codigo.hosting` y
+  `Workspace.zona_datos_azure` son datos informativos heredados: cambiarlos ya no relaja
+  nada ni exige motivo (el cambio queda en la auditoría). El nivel de una unidad ya
+  creada no cambia con el del vínculo: se congela en `unit.start`. El motivo viaja en
+  `motivo` del cuerpo (`PUT …/repositorios/{repo}` y `PUT …/workspaces/{ws}`). La SPA solo
+  pide motivo al cambiar el nivel; el resto de relajaciones desde la SPA devuelve el error
+  del servidor.
 - **Auditoría del diff**: cada `PUT` de vínculo deja el campo, el valor anterior y el nuevo
   como `cambio_<campo>: "antes -> después"` (`cambio_chat_huella_tokens_n: "12 -> 24"`),
   `relaja` con los campos que relajan y el `motivo`. El cambio de nivel sigue siendo el

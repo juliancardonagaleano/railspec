@@ -52,7 +52,7 @@ export function FormularioWorkspace({
         <Campo etiqueta="Nombre" htmlFor="ws-nombre">
           <Input id="ws-nombre" required maxLength={200} value={nombre} onChange={(e) => setNombre(e.target.value)} />
         </Campo>
-        <Campo etiqueta="Zona de datos Azure (opcional)" htmlFor="ws-zona">
+        <Campo etiqueta="Zona de datos Azure (opcional)" htmlFor="ws-zona" ayuda="Dato informativo: no restringe qué proveedor o modelo se usa.">
           <Input id="ws-zona" maxLength={40} value={zona} onChange={(e) => setZona(e.target.value)} />
         </Campo>
         <Campo etiqueta="Perfil por defecto" htmlFor="ws-perfil">

@@ -52,8 +52,6 @@ def _vista(ctx: ContextoConsola, s: SuscripcionModelo) -> dict[str, Any]:
     for m, original in zip(d["modelos"], s.modelos, strict=True):
         m["clave"] = original.clave
         m["hosting"] = hosting
-        # Que sirva a restringido/interno además depende de la zona del workspace: aquí solo si puede servir.
-        m["restringible"] = hosting == "azure" and original.region not in (None, "global")
     d["perfiles"] = [
         {"nombre": p.nombre.value, "workspace": p.workspace}
         for p in ctx.datos.perfiles_con_suscripcion(s.org, s.id)
