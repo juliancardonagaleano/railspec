@@ -192,8 +192,16 @@ queda para siempre:
   `desde`). La consola lo expone en `GET /orgs/{org}/workspaces/{ws}/grafo/retenidas`
   ([consola.md](consola.md)), solo lectura con rol `lector`.
 
-El barrido corre cuando llega un índice (ver abajo): un repositorio que no
-recibe `graph.index` no barre sus retenidas; el aviso sí sale en cada consulta.
+El barrido de retenidas corre de dos maneras: al aplicar un índice (como los
+otros, ver abajo) y por su cuenta, sin esperar un índice. `railspec-server`, con
+grafo configurado, llama cada hora (`BARRIDO_RETENIDAS_S` en `server/app.py`) a
+`AlmacenGrafo.barrer_retenidas()`: recorre los repositorios que tienen
+superposiciones (`AccesoGrafo.repositorios_con_superposiciones`, deducidos de los
+nombres de los grafos), aplica el plazo de `RAILSPEC_GRAFO_RETENIDAS_DIAS` y solo
+toca retenidas (sin plazo, `0`, no hace nada). Un repositorio que falla se
+registra y no impide barrer los demás. Corre también al arrancar y en cada
+réplica; es idempotente. Las superposiciones en curso y las preparaciones siguen
+con su barrido al llegar un índice.
 
 ## Lo abandonado: superposiciones y preparaciones
 

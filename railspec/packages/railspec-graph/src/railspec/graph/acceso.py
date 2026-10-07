@@ -31,6 +31,8 @@ from .motor import AristaMotor, Cluster, Meta, MotorGrafo, Proceso, Traza
 _UNIDAD = re.compile(r"^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$")
 #: Separador de la superposición de una unidad dentro del espacio del repositorio.
 SEPARADOR_SUPERPOSICION = ":u:"
+#: Con lo que empieza el nombre de todo grafo de un repositorio (ver ``nombre_grafo``).
+PREFIJO_GRAFOS = "railspec:"
 #: Separador del grafo de preparación de ``graph.index`` (lotes de un commit aún incompleto).
 SEPARADOR_INDEXADO = ":i:"
 #: Sufijo del grafo de trazas ``CA-NN`` del repositorio: sobrevive a reindexados y a la
@@ -192,6 +194,27 @@ class AccesoGrafo:
     def superposiciones(self, alcance: AlcanceRepositorio) -> list[str]:
         prefijo = nombre_grafo(alcance) + SEPARADOR_SUPERPOSICION
         return [n[len(prefijo) :] for n in self._motor.listar(prefijo)]
+
+    def repositorios_con_superposiciones(self) -> list[AlcanceRepositorio]:
+        """Los repositorios de todo el servidor que tienen alguna superposición, sin pasar por un índice.
+
+        Para el barrido de retenidas, que no puede esperar a que a un repositorio le llegue un
+        ``graph.index``: se deduce de los nombres de los grafos (``railspec:<org>:<ws>:<repo>:u:<unidad>``),
+        que ``nombre_grafo`` construye. Un nombre que no encaja se salta."""
+
+        vistos: dict[str, AlcanceRepositorio] = {}
+        for nombre in self._motor.listar(PREFIJO_GRAFOS):
+            base, separador, _ = nombre.partition(SEPARADOR_SUPERPOSICION)
+            partes = base.split(":")
+            if not separador or len(partes) != 4 or base in vistos:
+                continue
+            try:
+                alcance = AlcanceRepositorio(org=partes[1], workspace=partes[2], repositorio=partes[3])
+            except ValueError:
+                continue
+            if nombre_grafo(alcance) == base:
+                vistos[base] = alcance
+        return [vistos[b] for b in sorted(vistos)]
 
     def borrar_repositorio(self, alcance: AlcanceRepositorio) -> None:
         for unidad in self.superposiciones(alcance):

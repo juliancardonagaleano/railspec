@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from railspec.contracts.comun import Actor
 from railspec.contracts.tools import Superficie
 
+from . import fondo as tareas_fondo
 from .identidad import IdentidadNoDisponible, TokenInvalido, token_de_cabecera
 from .registro import Registro
 
@@ -109,15 +110,22 @@ def aplicacion(
     host: str = "0.0.0.0",
     sondas: dict[str, Callable[[], Any]] | None = None,
     tope_sonda_s: float = TOPE_SONDA_S,
+    fondo: Sequence[tareas_fondo.TareaFondo] = (),
 ):
-    """App ASGI con la API HTTP de la consola y el MCP montado en ``/mcp``."""
+    """App ASGI con la API HTTP de la consola y el MCP montado en ``/mcp``.
+
+    ``fondo``: tareas periódicas que corren mientras la aplicación está viva (ver ``api.fondo``)."""
 
     mcp_app = servidor_mcp(registro, identidad).streamable_http_app(streamable_http_path="/", host=host)
 
     @contextlib.asynccontextmanager
     async def vida(app):
-        async with mcp_app.router.lifespan_context(mcp_app):
-            yield
+        corriendo = tareas_fondo.iniciar(fondo)
+        try:
+            async with mcp_app.router.lifespan_context(mcp_app):
+                yield
+        finally:
+            await tareas_fondo.detener(corriendo)
 
     app = FastAPI(title="Railspec", version="0.1.0", lifespan=vida)
 
