@@ -735,7 +735,7 @@ def test_un_modelo_del_catalogo_con_hosting_externo_es_un_contrato_valido():
         capacidades=Capacidades(structured_outputs=True, contexto_max_tokens=1),
         leido_en=AUDITORIA.creado_en,
     )
-    assert m.version_contrato == "1.9"
+    assert m.version_contrato == "1.10"
     with pytest.raises(ValidationError):
         ModeloCatalogo.model_validate({**m.model_dump(), "hosting": "otro"})
 

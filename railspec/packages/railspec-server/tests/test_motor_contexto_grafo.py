@@ -191,6 +191,42 @@ def test_un_canonico_desactualizado_llega_al_contexto():
     assert any("puede no reflejar el código actual" in a for a in ctx.grafo_avisos)
 
 
+def test_un_canonico_que_no_coincide_con_el_repositorio_llega_al_contexto():
+    """La divergencia de contenido que ``graph.index`` detectó viaja como la de frescura: en ``avisos``."""
+
+    from railspec.graph.motor import Meta
+
+    acceso = AccesoGrafo(MotorMemoria())
+    grafo = AlmacenGrafo(acceso)
+    delta = DeltaIndice(
+        motor=MotorIndice(version="0.11.0"), simbolos_upsert=[simbolo("src/pdf.py", "pdf.firmar")]
+    )
+    grafo.aplicar_delta(ALCANCE_REPO, BASE, delta, None)
+    acceso.espacio(ALCANCE_REPO).fijar_meta(
+        Meta(
+            commit=BASE,
+            actualizado=grafo.ahora(),
+            contenido_verificado=False,
+            divergencias_total=2,
+            rutas_divergentes=["src/a.py", "src/b.py"],
+        )
+    )
+
+    async def caso():
+        motor, _ = construir()
+        motor.n.grafo = grafo
+        return (await primera_orden(motor))[1].contexto
+
+    ctx = correr(caso())
+
+    assert [n.nombre for n in ctx.grafo] == ["pdf.firmar"]  # sigue aportando, con el aviso
+    f = ctx.grafo_frescura[REPO]
+    assert f.contenido_verificado is False and f.divergencias_total == 2
+    assert f.rutas_divergentes == ["src/a.py", "src/b.py"]
+    (aviso,) = ctx.grafo_avisos
+    assert "no coincide" in aviso and "src/a.py" in aviso and "completo" in aviso
+
+
 # --- degradación ---------------------------------------------------------------------------
 
 

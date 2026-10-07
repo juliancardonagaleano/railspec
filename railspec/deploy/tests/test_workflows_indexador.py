@@ -11,6 +11,8 @@ rango (``>=``, ``~=``), y si la CI deja de correr las pruebas del instalador del
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 import textwrap
 
 import pytest
@@ -160,3 +162,115 @@ def test_la_ci_corre_las_pruebas_del_instalador_con_railspec_local_instalado():
     disparadores = ci.get("on", ci.get(True))  # PyYAML (YAML 1.1) lee la clave ``on`` como True
     for evento in ("pull_request", "push"):
         assert "installer/**" in disparadores[evento]["paths"]
+
+
+# --- el índice completo programado de railspec-reindexar.yml -----------------------------------------
+
+
+class _Contexto:
+    """Un contexto de GitHub Actions para evaluar expresiones: lo que no existe vale cadena vacía."""
+
+    def __init__(self, **valores) -> None:
+        self.__dict__.update(valores)
+
+    def __getattr__(self, nombre: str):
+        return ""
+
+
+def _evaluar(expresion: str, evento: str, *, fork: bool = False, **variables: str):
+    """Evalúa una expresión de ``if:`` o de ``env:`` del workflow (solo ``&&``, ``||``, ``==``, ``!=``,
+    cadenas, ``false`` y contextos), con la semántica de Actions para lo que falta."""
+
+    python = re.sub(r"\bfalse\b", "False", expresion.replace("&&", " and ").replace("||", " or "))
+    return eval(  # el texto sale del propio repositorio y los contextos son los de arriba
+        python,
+        {"__builtins__": {}},
+        {
+            "vars": _Contexto(**variables),
+            "inputs": _Contexto(),
+            "github": _Contexto(
+                event_name=evento,
+                ref="refs/heads/master",
+                event=_Contexto(repository=_Contexto(fork=fork)),
+            ),
+        },
+    )
+
+
+def _reindexar() -> dict:
+    return yaml.safe_load((WORKFLOWS / "railspec-reindexar.yml").read_text("utf-8"))
+
+
+def _paso_reindexar(flujo: dict) -> dict:
+    return next(p for p in flujo["jobs"]["reindexar"]["steps"] if p.get("name") == "Reindexar")
+
+
+VARIABLES = {
+    "RAILSPEC_URL": "https://railspec.example.com",
+    "RAILSPEC_OIDC_AUDIENCIA": "audiencia-larga-y-no-adivinable",
+    "RAILSPEC_ORGANIZACION": "acme",
+    "RAILSPEC_WORKSPACE": "ws",
+}
+
+
+def test_el_reindexado_se_programa_una_vez_por_semana():
+    flujo = _reindexar()
+    disparadores = flujo.get("on", flujo.get(True))
+    assert {"push", "schedule", "workflow_dispatch"} <= disparadores.keys()
+    (programado,) = disparadores["schedule"]
+    minuto, hora, dia_mes, mes, dia_semana = programado["cron"].split()
+    # Una vez por semana: minuto y hora fijos, un solo día de la semana y ninguna restricción más.
+    assert minuto.isdigit() and hora.isdigit() and dia_semana.isdigit()
+    assert (dia_mes, mes) == ("*", "*")
+    assert minuto != "0", "la hora en punto es cuando GitHub retrasa o descarta los programados"
+
+
+def test_el_programado_corre_en_la_rama_por_defecto_y_con_las_variables_de_oidc():
+    condicion = _reindexar()["jobs"]["reindexar"]["if"]
+    assert _evaluar(condicion, "schedule", **VARIABLES)
+    # Un fork no corre el programado, tenga o no las variables.
+    assert not _evaluar(condicion, "schedule", fork=True, **VARIABLES)
+    for falta in VARIABLES:
+        assert not _evaluar(condicion, "schedule", **{**VARIABLES, falta: ""}), f"corre sin {falta}"
+    # El push conserva su condición de siempre: solo exige RAILSPEC_URL.
+    assert _evaluar(condicion, "push", RAILSPEC_URL=VARIABLES["RAILSPEC_URL"])
+    assert not _evaluar(condicion, "push")
+
+
+def test_el_programado_corre_el_indice_completo_sin_retirar_todas():
+    """``--anterior ""`` es el índice completo; sin ``--sin-cobertura`` retira solo lo cubierto."""
+
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("sin bash")
+    paso = _paso_reindexar(_reindexar())
+    completo = paso["env"]["COMPLETO"].removeprefix("${{").removesuffix("}}").strip()
+    assert _evaluar(completo, "schedule")
+    assert not _evaluar(completo, "push")
+
+    def lanzar(evento: str, **entorno: str) -> list[str]:
+        guion = re.sub(r"\$\{\{\s*vars\.(\w+)\s*\}\}", r"v-\1", paso["run"])
+        guion = "python() { printf '<%s>\\n' \"$@\"; }\n" + guion
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_REF_NAME": "master",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_WORKSPACE": "/ws",
+            "REPOSITORIO": "repo",
+            "COMPLETO": "true" if evento == "schedule" else "",
+            "RETIRAR_TODAS": "",
+            "ANTERIOR": "" if evento == "schedule" else "b" * 40,
+            **entorno,
+        }
+        salida = subprocess.run([bash, "-c", guion], env=env, capture_output=True, text=True, check=True)
+        return re.findall(r"<(.*)>", salida.stdout)
+
+    programado = lanzar("schedule")
+    assert programado[programado.index("--anterior") + 1] == ""
+    assert "--sin-cobertura" not in programado
+    # Es el modo completo aunque llegara un commit anterior.
+    forzado = lanzar("schedule", ANTERIOR="b" * 40)
+    assert forzado[forzado.index("--anterior") + 1] == ""
+    # El push normal sigue siendo delta.
+    delta = lanzar("push")
+    assert delta[delta.index("--anterior") + 1] == "b" * 40

@@ -120,6 +120,12 @@ VARIABLES: dict[str, tuple[str | None, str]] = {
         "Horas sin lotes nuevos tras las que se borra la preparación de un índice que no completó "
         "(0 = nunca; admite fracciones).",
     ),
+    # El defecto es RETENIDAS_DIAS de railspec-graph (plazos.py): una prueba comprueba que no se separen.
+    "RAILSPEC_GRAFO_RETENIDAS_DIAS": (
+        "30",
+        "Días desde que se integra una unidad tras los que se retira su superposición retenida si ningún "
+        "índice cubrió su commit (0 = nunca; admite fracciones). graph.query avisa desde la mitad del plazo.",
+    ),
     # El defecto es FRESCURA_HORAS de railspec-graph (almacen.py): una prueba comprueba que no se separen.
     "RAILSPEC_GRAFO_FRESCURA_HORAS": (
         "72",
@@ -275,6 +281,7 @@ def _validar_grafo(salida: Mapping[str, str]) -> None:
     for nombre, unidad in (
         ("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"),
         ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours"),
+        ("RAILSPEC_GRAFO_RETENIDAS_DIAS", "days"),
         ("RAILSPEC_GRAFO_FRESCURA_HORAS", "hours"),
     ):
         valor = salida[nombre]

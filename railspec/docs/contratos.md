@@ -212,7 +212,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.9`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.10`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -260,6 +260,16 @@ su prueba negativa.
   juntos (primero el proxy, que ignora lo que no sabe de un servidor anterior). Sin ellos rige lo de 1.8.
   `1.9` no cambia ninguna forma de datos por la decisión del 2026-10-06 sobre el nivel de código
   (se quitó un validador, ver el vínculo de repositorio, R4).
+  `1.10` añade, todo con valor por defecto, la reconciliación del canónico por contenido:
+  `GraphIndexEntrada.resumen` (`ResumenIndice`: por archivo, ruta, número de símbolos y una huella
+  de 16 hex; solo en el último lote, hasta 20 000 archivos) que CI calcula sobre el índice completo
+  del commit, y `FrescuraGrafo.contenido_verificado`, `divergencias_total` y `rutas_divergentes`
+  (a lo sumo 20) en la salida de `graph.query`. El algoritmo de la huella vive en
+  `railspec.contracts.resumen`, que usan CI y servidor. `GraphIndexSalida` no cambia: un cliente
+  anterior la valida con campos prohibidos. Un CI 1.9 no manda resumen y el servidor deja
+  `contenido_verificado` en `None`; un servidor 1.9 rechaza el resumen con 422 y `reindexar.py`
+  reintenta sin él. Como en 1.9, un proxy anterior rechazaría los campos nuevos de `frescura`: se
+  actualiza primero el proxy. Sin ellos rige lo de 1.9.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

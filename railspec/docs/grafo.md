@@ -62,9 +62,12 @@ descartar la superposición del repositorio primario, la **retiene**:
 `AlmacenGrafo.retener_superposicion` guarda `integrado` en su meta y la
 superposición sigue visible a las consultas con esa `unidad` (incluidos
 `impact` y `trace`) hasta que el canónico alcance ese commit. Sin
-`commit_integrado`, o si el canónico ya está en él, se borra al integrar, y
-también se borran al integrar las de los repositorios transversales: el
-contrato trae un solo commit.
+`commit_integrado`, o si el canónico ya está en él o ya lo cubrió un índice
+anterior (ver [Commits cubiertos](#commits-cubiertos-por-el-canónico)), se
+borra al integrar, y también se borran al integrar las de los repositorios
+transversales: el contrato trae un solo commit. Al retenerla se sella
+`retenido_en` en su meta, de donde cuenta su [plazo
+máximo](#retenidas-varadas-plazo-aviso-y-listado).
 
 `IndexadorCanonico` retira las retenidas
 (`AlmacenGrafo.retirar_superposiciones`) justo después de avanzar el canónico.
@@ -102,14 +105,10 @@ conocidos:
 - Si `commit_integrado` no llega nunca al canónico (otra rama que la por
   defecto, el merge no se empujó, o un force-push lo borró de la historia) o
   queda fuera de los 1000 commits que declara un índice completo, la
-  superposición queda retenida. Se limpia con el lanzamiento manual de
-  `railspec-reindexar` con `retirar_todas`: un índice completo sin
-  cobertura, que retira todas las retenidas, también las que ningún índice
-  cubre.
-- Una unidad integrada cuando el canónico ya pasó de su commit (el arnés
-  entrega un commit viejo) no se retira por sí sola: el servidor no guarda
-  qué commits cubrió ya. El proxy manda la punta de la rama tras un
-  `git fetch`, así que no ocurre en el camino normal.
+  superposición queda retenida hasta que caduca por su plazo (ver [Retenidas
+  varadas](#retenidas-varadas-plazo-aviso-y-listado)); el lanzamiento manual de
+  `railspec-reindexar` con `retirar_todas` (un índice completo sin cobertura,
+  que retira todas las retenidas) sigue valiendo para no esperar.
 - Al desplegar, un servidor 1.4 rechaza `commits_cubiertos` y la versión 1.5
   con 422; `reindexar.py` lo detecta y sube el índice sin la lista (regla de
   1.4) mientras no se actualice el servidor. La respuesta de `graph.index` no
@@ -117,21 +116,63 @@ conocidos:
   cliente 1.4), así que sigue validándola. Una réplica anterior no
   lee la meta de una superposición retenida (falla solo la consulta con esa
   `unidad`); las metas del canónico no cambian de forma, y el sello de
-  actividad de las demás (`actualizado`, ver abajo) va como propiedad aparte
-  del nodo `Meta`, no dentro de su json, para que una réplica anterior las
-  siga leyendo.
+  actividad de las demás (`actualizado`, ver abajo) y todo lo que se añadió
+  en 1.10 (`cubiertos`, la reconciliación de contenido, el resumen de la
+  preparación y `retenido_en`) van como propiedades aparte del nodo `Meta`, no
+  dentro de su json, para que una réplica anterior las siga leyendo.
+
+### Commits cubiertos por el canónico
+
+El canónico recuerda los commits que cubren sus últimos índices
+(`Meta.cubiertos`): la unión de `commit` y `commits_cubiertos` de cada
+índice aplicado, los más recientes primero y a lo sumo 1000
+(`MAX_COMMITS_CUBIERTOS`). Un delta añade los suyos a los anteriores; un índice
+completo **reemplaza** la lista (CI declara de nuevo los últimos 1000). Un
+cliente 1.4, sin `commits_cubiertos`, cubre al menos su `commit`. Con ella
+`retener_superposicion` ya no compara solo con el commit del canónico: una
+unidad integrada en un commit que el canónico ya pasó (el arnés entregó un commit
+viejo, o CI indexó por delante) se retira al integrar en vez de quedar varada.
+
+### Retenidas varadas: plazo, aviso y listado
+
+Una retenida que ningún índice cubre (el commit nunca llegó al canónico) ya no
+queda para siempre:
+
+- **Plazo máximo.** `RAILSPEC_GRAFO_RETENIDAS_DIAS` (30 por defecto; `0` = no
+  caducan nunca; admite fracciones). `limpiar_huerfanos` borra las retenidas
+  cuyo `retenido_en` es más viejo que el plazo y las reporta aparte
+  (`Huerfanos.retenidas`). Cuenta desde que se retuvo, no desde el último
+  snapshot de la unidad. Una retenida de antes de esta versión no tiene
+  `retenido_en`: el primer barrido que la ve lo sella y el plazo cuenta desde ahí.
+  No toca el canónico, las trazas `CA-NN` ni las superposiciones en curso (sin
+  `integrado`), que siguen con su plazo de abandono.
+- **Aviso antes de borrar.** Una consulta `graph.query` con `unidad` cuya
+  superposición lleva retenida más de la mitad del plazo añade a `avisos`:
+  la unidad, el commit en que se integró y cuántos días faltan para
+  retirarla (o que ya superó el plazo y la retira el próximo barrido). Solo
+  avisa de la unidad consultada, así que el contexto de spec, plan y tasks de
+  esa unidad (`grafo_avisos`) también lo lleva.
+- **Listarlas.** `AlmacenGrafo.retenidas(alcance)` devuelve, por unidad,
+  `Retenida(unidad, integrado, desde, vence)` (`vence` es `None` sin plazo o sin
+  `desde`). La consola lo expone en `GET /orgs/{org}/workspaces/{ws}/grafo/retenidas`
+  ([consola.md](consola.md)), solo lectura con rol `lector`.
+
+El barrido corre cuando llega un índice (ver abajo): un repositorio que no
+recibe `graph.index` no barre sus retenidas; el aviso sí sale en cada consulta.
 
 ## Lo abandonado: superposiciones y preparaciones
 
 Dos cosas se quedan a medias cuando nadie vuelve a tocarlas: la superposición
 de una unidad que se abandonó, y el grafo de preparación `...:i:<commit>` de un
 índice que nunca completó (una corrida de CI que falló entre lotes).
-`AlmacenGrafo.limpiar_huerfanos(alcance, superposicion, indexado)` las borra:
+`AlmacenGrafo.limpiar_huerfanos(alcance, superposicion, indexado, retenida)` las borra
+(y, con `retenida`, las retenidas varadas):
 
 | Qué | Se borra cuando | Variable | Defecto |
 |---|---|---|---|
 | Superposición sin `integrado` | Sin snapshot nuevo desde hace N días | `RAILSPEC_GRAFO_SUPERPOSICION_DIAS` | `30` (la retención por defecto de los snapshots) |
 | Preparación `:i:<commit>` | Sin lotes nuevos desde hace N horas | `RAILSPEC_GRAFO_INDEXADO_HORAS` | `24` |
+| Superposición retenida (con `integrado`) | N días desde que se retuvo sin que un índice cubra su commit | `RAILSPEC_GRAFO_RETENIDAS_DIAS` | `30` |
 
 - Cada una lleva en su `Meta` el instante de su última actividad
   (`actualizado`, UTC): lo sella cada snapshot que reconstruye la
@@ -140,25 +181,26 @@ de una unidad que se abandonó, y el grafo de preparación `...:i:<commit>` de u
 - Un grafo sin sello (de antes de esta versión) no se borra por un tiempo que
   nadie vio pasar: el primer barrido lo sella (sin tocar el resto de su meta) y
   el plazo cuenta desde ahí.
-- Las superposiciones retenidas (con `integrado`) **no caducan por tiempo**:
-  salen cuando un índice las cubre (`commits_cubiertos`) o con `retirar_todas`
-  (ver arriba). El canónico y las trazas `CA-NN` nunca se tocan, ni nada de
+- Las superposiciones retenidas (con `integrado`) no cuentan por el plazo de
+  abandono: salen cuando un índice las cubre (`commits_cubiertos`), con
+  `retirar_todas` o, si ninguno las cubre, por su propio plazo (`retenido_en`;
+  ver arriba). El canónico y las trazas `CA-NN` nunca se tocan, ni nada de
   otros repositorios.
 - `IndexadorCanonico` barre el repositorio del índice tras cada índice aplicado
   (también al reenviar uno ya aplicado) y al llegar el **primer** lote de un
   commit nuevo, así que un repositorio cuyo índice nunca completa tampoco
   acumula preparaciones. Un repositorio que no recibe `graph.index` no se
   barre: no hay otro disparador.
-- Lo borrado se registra (INFO, logger `railspec.graph.indexado`: superposiciones
-  e índices sin completar, por repositorio). La respuesta de `graph.index` no
-  cambia, y si el barrido falla (FalkorDB caído) se registra con su traza y el
+- Lo borrado se registra (INFO, logger `railspec.graph.indexado`: superposiciones,
+  retenidas que ningún índice cubrió e índices sin completar, por repositorio).
+  La respuesta de `graph.index` no cambia, y si el barrido falla (FalkorDB caído) se registra con su traza y el
   índice sigue su curso.
 - Las variables se leen al construir `IndexadorCanonico` (el servidor lo hace al
   arrancar); `0` desactiva ese lado y admiten fracciones (`0.5`). Un valor que
   no es un número, negativo, `nan`, `inf` o desmesurado impide arrancar, con
   el nombre de la variable. En las pruebas, `AlmacenGrafo(acceso, reloj=...)`
-  inyecta el reloj y `IndexadorCanonico(..., superposicion_dias=, indexado_horas=)`
-  los plazos.
+  inyecta el reloj y `IndexadorCanonico(..., superposicion_dias=, indexado_horas=, retenidas_dias=)`
+  los plazos (`AlmacenGrafo(..., retenidas_dias=)`, el que usa para avisar y listar).
 - El barrido no toma lock. Si una unidad vuelve a la vida justo cuando se borra
   su superposición, el siguiente snapshot la reconstruye completa (siempre es
   base..árbol de trabajo); si llega un lote de un índice tras 24 horas de
@@ -242,10 +284,14 @@ defecto (un cliente anterior no los usa):
   índice y por eso no están en `commits`: `indexado` (falso si el canónico
   nunca recibió un índice), `commit` y `indexado_en` del canónico (no los de
   la superposición de la unidad, que sí lleva `commits`) y `desactualizado`.
-- `avisos`: frases legibles. Hoy dos casos: «sin índice canónico» (con la
+- `avisos`: frases legibles. Hoy cuatro casos: «sin índice canónico» (con la
   aclaración de que un vacío no prueba que el código no exista; si la consulta
-  trae `unidad` con superposición, dice que solo se ve esa) y «el índice
-  canónico se aplicó hace N h, más que el plazo».
+  trae `unidad` con superposición, dice que solo se ve esa), «el índice
+  canónico se aplicó hace N h, más que el plazo», «el contenido del índice
+  canónico no coincide con el que calculó CI» (ver [Reconciliación del
+  contenido](#reconciliación-del-contenido-con-el-repositorio-contrato-110)) y
+  «la superposición de la unidad sigue retenida» (ver [Retenidas
+  varadas](#retenidas-varadas-plazo-aviso-y-listado)).
 
 `indexado_en` sale de `Meta.actualizado` del canónico, que `graph.index` (y
 `aplicar_delta` sin unidad) fija al aplicar el índice; el barrido de lo
@@ -284,9 +330,52 @@ delta por lotes. `IndexadorCanonico.recibir(entrada, vinculo)`:
   del que sale la frescura de `graph.query`;
 - tras avanzar el canónico retira las superposiciones de unidades integradas
   que ese commit cubre, según los `commits_cubiertos` que declara CI (ver
-  arriba);
+  arriba), y recuerda esos commits en `Meta.cubiertos`;
+- con `resumen` (1.10, solo en el último lote) compara el contenido del canónico
+  con el repositorio (ver la sección siguiente);
 - borra lo abandonado del repositorio (ver [Lo
   abandonado](#lo-abandonado-superposiciones-y-preparaciones)).
+
+### Reconciliación del contenido con el repositorio (contrato 1.10)
+
+Los controles de commit y de reloj no ven un delta que perdió un símbolo o una
+exclusión mal aplicada: el canónico queda en el commit correcto pero distinto del
+código. El job de CI, que sí tiene el repositorio, calcula un `resumen` del
+índice completo del commit (por archivo: número de símbolos y una huella de sus
+`id` y `sha256`; el algoritmo vive en `railspec.contracts.resumen`, compartido por
+CI y servidor) y lo manda en el **último lote**. El servidor no puede aplicarlo
+hasta que llegan todos los lotes y estos pueden llegar desordenados, así que lo
+guarda en la meta de la preparación (`Meta.resumen`) hasta aplicar el índice.
+
+Al aplicar el índice, `IndexadorCanonico` resume lo que quedó en el canónico y lo
+compara ruta por ruta con el de CI (`divergencias`: una ruta diverge si falta de
+un lado o cambia su número de símbolos o su huella), **después de quitar de los dos
+lados las rutas que el vínculo excluye**: el servidor ya filtró el delta, así que
+el resumen de CI trae rutas que el canónico nunca tuvo. El resultado se guarda en
+la meta del canónico:
+
+| Campo de `Meta` | Qué dice |
+|---|---|
+| `contenido_verificado` | `True` coincide; `False` hay rutas que difieren; `None` el índice no trajo resumen (cliente anterior a 1.10) o la comparación no pudo hacerse. |
+| `divergencias_total` | Cuántas rutas difieren. |
+| `rutas_divergentes` | Las primeras 20, en orden alfabético. |
+
+- Un índice sin resumen deja `None` y no arrastra el resultado del anterior.
+- Una divergencia **nunca hace fallar el índice**: se aplica, se registra
+  (`log.warning`, logger `railspec.graph.indexado`, con el total y las primeras
+  rutas) y `graph.query` la avisa en `avisos` y la expone en `frescura`
+  (`contenido_verificado`, `divergencias_total`, `rutas_divergentes`). El aviso
+  dice cuántas rutas y las primeras, y que un índice `completo`
+  (`railspec-reindexar`) lo corrige. El contexto de spec, plan y tasks lo repite
+  en `grafo_avisos` y `grafo_frescura`.
+- Un delta incremental con resumen se compara contra el canónico entero (anterior
+  más delta), así que una divergencia que no se corrige persiste en los índices
+  siguientes hasta un índice completo.
+- Persistencia: en FalkorDB, `cubiertos`, el resultado de la comparación, el
+  resumen de la preparación y `retenido_en` van en una propiedad aparte del nodo
+  `Meta` (`ext`, con el commit al que pertenecen), igual que `actualizado`, para que
+  una réplica anterior siga leyendo el json. Una réplica anterior que avanza el
+  canónico no actualiza `ext`: al leerla, el commit ya no coincide y se ignora.
 
 ## Referencias entre repositorios
 

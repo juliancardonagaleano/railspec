@@ -61,8 +61,11 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
     define FalkorDB), con un repositorio sin índice canónico, con el índice
     desactualizado o con el grafo caído, la orden sale igual y
     `contexto.grafo_avisos` lo dice, con `grafo_frescura` (commit e instante
-    del último índice por repositorio) cuando hubo consulta. El arnés debe leer
-    una rebanada vacía como «no sé», no «no existe».
+    del último índice por repositorio) cuando hubo consulta; ahí viajan también
+    el aviso de que el contenido del canónico no coincide con el repositorio
+    (`contenido_verificado`, 1.10) y el de una superposición retenida de la
+    unidad que lleva más de la mitad de su plazo. El arnés debe leer una
+    rebanada vacía como «no sé», no «no existe».
   - Los críticos del gate de spec, plan y tasks no reciben este contexto:
     evalúan el artefacto con la gobernanza. Solo el gate de código suma
     información del grafo (impacto y trazas).
@@ -70,8 +73,10 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   enlaza los criterios de las tareas completadas; `unit.integrate` retiene
   la superposición de la unidad en el repositorio primario hasta que un
   `graph.index` cubra `commit_integrado` (el propio commit del índice o uno de
-  los `commits_cubiertos` que declara CI desde 1.5) y descarta las de los
-  demás (todas, si no hay commit); ver `grafo.md`.
+  los `commits_cubiertos` que declara CI desde 1.5; el canónico los recuerda,
+  así que una unidad integrada en un commit que ya cubrió se retira al integrar)
+  y descarta las de los demás (todas, si no hay commit). Una retenida que ningún
+  índice cubre caduca a los `RAILSPEC_GRAFO_RETENIDAS_DIAS` (30); ver `grafo.md`.
 - El modo lo fija el humano en `unit.start` o con `unit.set_mode`, solo
   tras research o tras el checkpoint del spec (contratos 1.2); rige desde el
   siguiente gate. `supervisado` y `desatendido` exigen un mandato: la entrada
@@ -225,7 +230,9 @@ Arranque: `pip install -e "railspec/packages/railspec-server[motor]"` y
   vínculo y que el workflow corriera en su rama por defecto (el `@ref` de
   `workflow_ref`).
 - Los lotes se guardan en el grafo de preparación del commit y el canónico
-  avanza al llegar el último (`IndexadorCanonico` de `railspec-graph`). Un
+  avanza al llegar el último (`IndexadorCanonico` de `railspec-graph`); con
+  `resumen` (1.10, en el último lote) compara entonces el contenido del canónico
+  con el que calculó CI y lo avisa en `graph.query` sin rechazar el índice. Un
   delta cuya base no es el canónico vigente responde `base-commit-distinto`
   (409) y el cliente repite con índice completo.
 

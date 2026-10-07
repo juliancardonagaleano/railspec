@@ -308,7 +308,7 @@
       "type": "string"
     },
     "version_contrato": {
-      "default": "1.9",
+      "default": "1.10",
       "enum": [
         "1.0",
         "1.1",
@@ -319,7 +319,8 @@
         "1.6",
         "1.7",
         "1.8",
-        "1.9"
+        "1.9",
+        "1.10"
       ],
       "title": "Version Contrato",
       "type": "string"

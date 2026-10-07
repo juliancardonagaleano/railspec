@@ -565,6 +565,42 @@ class GraphQuerySalida(Mensaje):
 MAX_COMMITS_CUBIERTOS = 1000
 
 
+#: Tope de ``ResumenIndice.archivos`` (desde 1.10): unos 2,5 MB en el lote que lo lleva.
+MAX_ARCHIVOS_RESUMEN = 20_000
+
+
+class ResumenArchivo(Contrato):
+    """Desde 1.10: huella de los símbolos que el indexador encontró en un archivo del commit."""
+
+    ruta: RutaRelativa
+    simbolos: int = Field(ge=0, description="Cuántos símbolos tiene el archivo en el índice.")
+    huella: str = Field(
+        pattern=r"^[0-9a-f]{16}$",
+        description=(
+            "Primeros 16 hex de sha256 sobre las líneas `<id>\\t<sha256>` de los símbolos del "
+            "archivo (id y sha256 tal como viajan en `Simbolo`), ordenadas por id y unidas con `\\n`."
+        ),
+    )
+
+
+class ResumenIndice(Contrato):
+    """Desde 1.10: lo que CI vio en el árbol completo del commit, para reconciliar el canónico.
+
+    CI lo calcula sobre el índice completo del commit (no sobre el delta), con el mismo motor que
+    produce los lotes. El servidor lo compara, archivo por archivo, con lo que quedó en el canónico
+    tras aplicar el índice, después de quitar de ambos lados las rutas que el vínculo excluye.
+    """
+
+    archivos: list[ResumenArchivo] = Field(max_length=MAX_ARCHIVOS_RESUMEN)
+
+    @model_validator(mode="after")
+    def _rutas_unicas(self) -> ResumenIndice:
+        rutas = [a.ruta for a in self.archivos]
+        if len(set(rutas)) != len(rutas):
+            raise ValueError("resumen con rutas repetidas")
+        return self
+
+
 class GraphIndexEntrada(Mensaje):
     """Desde 1.1: un job de CI sube el índice del canónico tras cada push.
 
@@ -599,10 +635,21 @@ class GraphIndexEntrada(Mensaje):
         ),
     )
 
+    resumen: ResumenIndice | None = Field(
+        default=None,
+        description=(
+            "Desde 1.10: resumen del contenido del commit para que el servidor verifique el canónico "
+            "tras aplicar el índice. Solo lo lleva el último lote (`lote == lotes`); en los demás "
+            "debe faltar. Ausente = no se compara (clientes 1.9 y anteriores)."
+        ),
+    )
+
     @model_validator(mode="after")
     def _lotes(self) -> GraphIndexEntrada:
         if self.lote > self.lotes:
             raise ValueError("lote mayor que lotes")
+        if self.resumen is not None and self.lote != self.lotes:
+            raise ValueError("el resumen solo viaja en el último lote")
         if self.commit_anterior == self.commit:
             raise ValueError("commit_anterior igual a commit")
         return self

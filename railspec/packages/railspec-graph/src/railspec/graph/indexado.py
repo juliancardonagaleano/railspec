@@ -23,8 +23,18 @@ Reglas:
   que nunca completa no deja su preparación para siempre: las superposiciones
   de unidades sin actividad desde hace ``RAILSPEC_GRAFO_SUPERPOSICION_DIAS``
   (30) y las preparaciones sin lotes nuevos desde hace
-  ``RAILSPEC_GRAFO_INDEXADO_HORAS`` (24); ``0`` lo desactiva. La respuesta de
-  ``graph.index`` no cambia y un fallo del barrido solo se registra.
+  ``RAILSPEC_GRAFO_INDEXADO_HORAS`` (24); ``0`` lo desactiva. Las superposiciones
+  retenidas que ningún índice cubrió caen a los ``RAILSPEC_GRAFO_RETENIDAS_DIAS`` (30)
+  de retenerse. La respuesta de ``graph.index`` no cambia y un fallo del barrido solo se registra.
+- El canónico recuerda los commits que cubren sus últimos índices (``Meta.cubiertos``: la unión del
+  commit y de ``commits_cubiertos`` de cada uno; un índice completo reemplaza la lista), para que
+  ``retener_superposicion`` retire al momento la de una unidad integrada en un commit que el canónico
+  ya pasó.
+- Con ``resumen`` (1.10, solo en el último lote) se reconcilia el contenido: tras aplicar el índice se
+  compara, ruta por ruta, el resumen de CI con el del canónico, sin las rutas que el vínculo excluye en
+  ninguno de los dos lados. El resultado queda en la meta del canónico y ``graph.query`` lo avisa. Una
+  divergencia nunca hace fallar el índice: se aplica, se registra y se avisa. Sin resumen no se compara
+  (``contenido_verificado`` queda en ``None``, sin arrastrar el del índice anterior).
 """
 
 from __future__ import annotations
@@ -34,12 +44,20 @@ from datetime import datetime
 
 from railspec.contracts.comun import AlcanceRepositorio
 from railspec.contracts.repositorio import VinculoRepositorio
-from railspec.contracts.tools import GraphIndexEntrada, GraphIndexSalida
+from railspec.contracts.resumen import divergencias, resumir
+from railspec.contracts.tools import (
+    MAX_COMMITS_CUBIERTOS,
+    GraphIndexEntrada,
+    GraphIndexSalida,
+    ResumenArchivo,
+    ResumenIndice,
+)
 
 from .acceso import AccesoGrafo, Espacio
 from .almacen import AlmacenGrafo, _arista, _props, decodificar
-from .ingesta import filtrar_delta
+from .ingesta import excluido, filtrar_delta
 from .motor import AristaMotor, Meta
+from .plazos import RETENIDAS_DIAS, VAR_RETENIDAS_DIAS
 from .plazos import plazo as _plazo
 
 log = logging.getLogger(__name__)
@@ -50,6 +68,8 @@ VAR_SUPERPOSICION_DIAS = "RAILSPEC_GRAFO_SUPERPOSICION_DIAS"
 VAR_INDEXADO_HORAS = "RAILSPEC_GRAFO_INDEXADO_HORAS"
 SUPERPOSICION_DIAS = 30.0
 INDEXADO_HORAS = 24.0
+#: Cuántas rutas divergentes guarda la meta del canónico (las primeras, en orden alfabético).
+MAX_RUTAS_DIVERGENTES = 20
 
 
 class IndiceRechazado(ValueError):
@@ -61,8 +81,9 @@ class IndiceDesfasado(IndiceRechazado):
 
 
 class IndexadorCanonico:
-    """``superposicion_dias`` e ``indexado_horas`` (``0`` = nunca caduca) sustituyen a las variables de
-    entorno; sin ellos se leen aquí, al construir, y una variable inválida impide arrancar."""
+    """``superposicion_dias``, ``indexado_horas`` y ``retenidas_dias`` (``0`` = nunca caduca) sustituyen
+    a las variables de entorno; sin ellos se leen aquí, al construir, y una variable inválida impide
+    arrancar."""
 
     def __init__(
         self,
@@ -71,11 +92,13 @@ class IndexadorCanonico:
         *,
         superposicion_dias: float | None = None,
         indexado_horas: float | None = None,
+        retenidas_dias: float | None = None,
     ) -> None:
         self._acceso = acceso
         self._grafo = grafo
         self._superposicion = _plazo(superposicion_dias, VAR_SUPERPOSICION_DIAS, SUPERPOSICION_DIAS, "days")
         self._indexado = _plazo(indexado_horas, VAR_INDEXADO_HORAS, INDEXADO_HORAS, "hours")
+        self._retenidas = _plazo(retenidas_dias, VAR_RETENIDAS_DIAS, RETENIDAS_DIAS, "days")
 
     def recibir(self, entrada: GraphIndexEntrada, vinculo: VinculoRepositorio) -> GraphIndexSalida:
         alcance = entrada.alcance
@@ -111,6 +134,15 @@ class IndexadorCanonico:
             estado.aristas_borradas |= {
                 (a.origen, a.destino, a.relacion.value) for a in delta.aristas_borradas
             }
+            escribir = True
+        else:
+            escribir = False
+        if entrada.resumen is not None and estado.resumen is None:
+            # El resumen viaja en el último lote, que no tiene por qué ser el que completa el commit
+            # (los lotes pueden llegar desordenados): se guarda con la preparación hasta aplicarlo.
+            estado.resumen = [(a.ruta, a.simbolos, a.huella) for a in entrada.resumen.archivos]
+            escribir = True
+        if escribir:
             estado.escribir(prep, entrada, self._grafo.ahora())
 
         if len(estado.recibidos) < entrada.lotes:
@@ -118,13 +150,22 @@ class IndexadorCanonico:
                 self._limpiar(alcance)  # un repositorio cuyo índice nunca completa no llega al otro barrido
             return _salida(entrada, len(estado.recibidos), aplicado=False)
 
-        self._aplicar(canon, prep, estado, entrada)
+        self._aplicar(canon, prep, estado, entrada, vinculo)
         prep.borrar()
         self._limpiar(alcance)
         return _salida(entrada, entrada.lotes, aplicado=True)
 
-    def _aplicar(self, canon: Espacio, prep: Espacio, estado: _Estado, entrada: GraphIndexEntrada) -> None:
-        if entrada.commit_anterior is None:
+    def _aplicar(
+        self,
+        canon: Espacio,
+        prep: Espacio,
+        estado: _Estado,
+        entrada: GraphIndexEntrada,
+        vinculo: VinculoRepositorio,
+    ) -> None:
+        completo = entrada.commit_anterior is None
+        previos = [] if completo else canon.meta().cubiertos
+        if completo:
             canon.borrar()
         else:
             canon.borrar_simbolos(sorted(estado.borrados))
@@ -133,18 +174,81 @@ class IndexadorCanonico:
         canon.upsert_simbolos(simbolos)
         canon.agregar_aristas(prep.todas_aristas())
         canon.fijar_embeddings(prep.leer_embeddings([s["id"] for s in simbolos]))
+        verificado, difieren = self._verificar(canon, estado.resumen, vinculo, entrada)
         # ``actualizado`` es el instante del índice: ``graph.query`` lo devuelve como frescura.
-        canon.fijar_meta(Meta(commit=entrada.commit, actualizado=self._grafo.ahora()))
+        canon.fijar_meta(
+            Meta(
+                commit=entrada.commit,
+                actualizado=self._grafo.ahora(),
+                cubiertos=_cubiertos(entrada, previos, completo),
+                contenido_verificado=verificado,
+                divergencias_total=len(difieren),
+                rutas_divergentes=difieren[:MAX_RUTAS_DIVERGENTES],
+            )
+        )
         self._grafo.recalcular_analitica(entrada.alcance)
-        self._retirar(entrada, completo=entrada.commit_anterior is None)
+        self._retirar(entrada, completo=completo)
+
+    def _verificar(
+        self,
+        canon: Espacio,
+        resumen: list[tuple[str, int, str]] | None,
+        vinculo: VinculoRepositorio,
+        entrada: GraphIndexEntrada,
+    ) -> tuple[bool | None, list[str]]:
+        """Compara el resumen de CI con lo que quedó en el canónico: ``(verificado, rutas que difieren)``.
+
+        Sin resumen no se compara (``None``). Las rutas que el vínculo excluye se quitan de los dos lados:
+        el servidor ya filtró el delta, así que el resumen de CI las trae y el canónico no. Nunca falla el
+        índice: una divergencia se registra y se avisa; si la comparación misma falla, queda sin comparar."""
+
+        if resumen is None:
+            return None, []
+        a = entrada.alcance
+        try:
+            patrones = list(vinculo.exclusiones)
+            esperado = ResumenIndice(
+                archivos=[
+                    ResumenArchivo(ruta=r, simbolos=n, huella=h)
+                    for r, n, h in resumen
+                    if not excluido(r, patrones)
+                ]
+            )
+            encontrado = resumir(
+                (s["id"], s["ruta"], s["sha256"])
+                for s in canon.todos_simbolos()
+                if not excluido(s["ruta"], patrones)
+            )
+            difieren = divergencias(esperado, encontrado)
+        except Exception:
+            log.exception(
+                "no se pudo comparar el contenido de %s/%s/%s con el resumen de CI",
+                a.org,
+                a.workspace,
+                a.repositorio,
+            )
+            return None, []
+        if difieren:
+            log.warning(
+                "canónico de %s/%s/%s en %s: el contenido difiere del resumen de CI en %d ruta(s), p. ej. %s",
+                a.org,
+                a.workspace,
+                a.repositorio,
+                entrada.commit,
+                len(difieren),
+                difieren[:5],
+            )
+        return not difieren, difieren
 
     def _limpiar(self, alcance: AlcanceRepositorio) -> None:
         """Barre lo abandonado del repositorio. Nunca falla el índice: ya se aplicó o quedó guardado."""
 
-        if self._superposicion is None and self._indexado is None:
+        if self._superposicion is None and self._indexado is None and self._retenidas is None:
             return
         try:
-            borrado = self._grafo.limpiar_huerfanos(alcance, self._superposicion, self._indexado)
+            borrado = self._grafo.limpiar_huerfanos(
+                alcance, self._superposicion, self._indexado, self._retenidas
+            )
         except Exception:
             log.exception(
                 "no se pudo limpiar lo abandonado de %s/%s/%s",
@@ -155,11 +259,13 @@ class IndexadorCanonico:
             return
         if borrado:
             log.info(
-                "grafo de %s/%s/%s: abandonado y borrado, superposiciones %s, índices sin completar %s",
+                "grafo de %s/%s/%s: abandonado y borrado, superposiciones %s, retenidas que ningún índice "
+                "cubrió %s, índices sin completar %s",
                 alcance.org,
                 alcance.workspace,
                 alcance.repositorio,
                 borrado.superposiciones,
+                borrado.retenidas,
                 borrado.indexados,
             )
 
@@ -177,6 +283,18 @@ class IndexadorCanonico:
                 entrada.commit,
                 retiradas,
             )
+
+
+def _cubiertos(entrada: GraphIndexEntrada, previos: list[str], completo: bool) -> list[str]:
+    """Commits que cubre el canónico tras este índice, los más recientes primero y a lo sumo
+    ``MAX_COMMITS_CUBIERTOS``: el commit y los que declara CI, y los de índices anteriores salvo que este
+    sea completo, que reemplaza la lista."""
+
+    nuevos = list(dict.fromkeys([entrada.commit, *(entrada.commits_cubiertos or [])]))
+    if completo:
+        return nuevos[:MAX_COMMITS_CUBIERTOS]
+    ya = set(nuevos)
+    return (nuevos + [c for c in previos if c not in ya])[:MAX_COMMITS_CUBIERTOS]
 
 
 def _salida(entrada: GraphIndexEntrada, lotes_recibidos: int, aplicado: bool) -> GraphIndexSalida:
@@ -199,6 +317,7 @@ class _Estado:
         self.recibidos = set(meta.recibidos)
         self.borrados = set(meta.borrados)
         self.aristas_borradas = {tuple(a) for a in meta.aristas_borradas}
+        self.resumen = meta.resumen
 
     @classmethod
     def leer(cls, prep: Espacio) -> _Estado:
@@ -220,5 +339,6 @@ class _Estado:
                 lotes=entrada.lotes,
                 recibidos=sorted(self.recibidos),
                 actualizado=ahora,
+                resumen=self.resumen,
             )
         )

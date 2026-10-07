@@ -18,7 +18,15 @@ desprotegido. Pasos:
    lista): el índice completo retira todas las retenidas, que es como se limpian
    las que quedaron varadas. Un servidor 1.4 rechaza la lista con 422 y entonces
    se sube sin ella.
-4. Lo parte en lotes y llama ``POST {servidor}/v1/tools/graph.index`` con un
+4. Calcula el ``resumen`` (1.10) del contenido del commit: conteo y huella de los símbolos de cada
+   archivo, sobre el índice COMPLETO del árbol en ese commit y no sobre el delta, y lo manda en el
+   último lote para que el servidor verifique el canónico tras aplicarlo (``railspec.contracts.resumen``
+   es el algoritmo, compartido con el servidor). Si el commit tiene más archivos con símbolos que
+   ``MAX_ARCHIVOS_RESUMEN`` no se manda uno parcial (sería una divergencia falsa): se omite y se avisa.
+   ``--sin-resumen`` habla 1.9 (sin resumen); un servidor 1.9 que lo rechaza con 422 recibe el índice
+   sin él y el job avisa "sin verificación de contenido". ``--sin-cobertura`` habla 1.4, que tampoco
+   conoce el resumen: lo apaga.
+5. Lo parte en lotes y llama ``POST {servidor}/v1/tools/graph.index`` con un
    token OIDC de GitHub Actions como actor de servicio. Si el servidor dice
    que el canónico no está en el commit base, repite con índice completo.
 
@@ -43,8 +51,15 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from railspec.contracts.comun import AlcanceRepositorio
-from railspec.contracts.snapshot import DeltaIndice
-from railspec.contracts.tools import MAX_COMMITS_CUBIERTOS, GraphIndexEntrada, GraphIndexSalida
+from railspec.contracts.resumen import resumir
+from railspec.contracts.snapshot import DeltaIndice, Simbolo
+from railspec.contracts.tools import (
+    MAX_ARCHIVOS_RESUMEN,
+    MAX_COMMITS_CUBIERTOS,
+    GraphIndexEntrada,
+    GraphIndexSalida,
+    ResumenIndice,
+)
 
 #: Código con el que el servidor rechaza un delta cuya base no es el
 #: canónico vigente; entonces se reintenta con índice completo.
@@ -52,6 +67,8 @@ CODIGOS_DESFASE = {"base-commit-distinto"}
 CERO = "0" * 40
 #: Versión con la que se habla sin ``commits_cubiertos``: servidores 1.4 y ``--sin-cobertura``.
 VERSION_SIN_COBERTURA = "1.4"
+#: Versión con la que se habla sin ``resumen``: servidores 1.9 y ``--sin-resumen``.
+VERSION_SIN_RESUMEN = "1.9"
 
 
 class Indexador(Protocol):
@@ -77,6 +94,19 @@ class RechazoServidor(ErrorReindexado):
 
         return self.estado == 422 and any(
             str(e.get("ruta", "")).split(".")[0] in ("commits_cubiertos", "version_contrato")
+            for e in self.errores
+            if isinstance(e, dict)
+        )
+
+    @property
+    def rechaza_resumen(self) -> bool:
+        """422 de un servidor 1.9: no conoce ``resumen`` ni la versión 1.10.
+
+        ``resumen`` ha de ser la ruta entera (campo extra): un resumen mal formado en un servidor que
+        sí lo conoce da ``resumen.archivos...`` y es un fallo nuestro que no se debe esconder."""
+
+        return self.estado == 422 and any(
+            str(e.get("ruta", "")) in ("resumen", "version_contrato")
             for e in self.errores
             if isinstance(e, dict)
         )
@@ -117,13 +147,19 @@ class Plan:
     commit_anterior: str | None
     #: Commits que el índice incorpora (1.5); ``None`` = no se declaran (1.4).
     cubiertos: list[str] | None = None
+    #: Contenido del commit (1.10); ``None`` = no se manda (1.9).
+    resumen: ResumenIndice | None = None
 
     @property
     def completo(self) -> bool:
         return self.commit_anterior is None
 
     def sin_cobertura(self) -> Plan:
-        return replace(self, cubiertos=None)
+        # 1.4 no conoce el resumen: hablar 1.4 es hablar sin él.
+        return replace(self, cubiertos=None, resumen=None)
+
+    def sin_resumen(self) -> Plan:
+        return replace(self, resumen=None)
 
 
 def commits_cubiertos(raiz: Path, commit: str, anterior: str | None) -> list[str]:
@@ -143,9 +179,16 @@ def commits_cubiertos(raiz: Path, commit: str, anterior: str | None) -> list[str
     return salida.split()
 
 
-def plan_completo(raiz: Path, commit: str) -> Plan:
+def _arbol_completo(raiz: Path, commit: str) -> tuple[str, list[str]]:
+    """El árbol vacío (base de un índice completo) y todas las rutas del árbol de ``commit``."""
+
     arbol_vacio = _git(raiz, "hash-object", "-t", "tree", "/dev/null").strip()
     rutas = [r for r in _git(raiz, "ls-tree", "-r", "-z", "--name-only", commit).split("\0") if r]
+    return arbol_vacio, rutas
+
+
+def plan_completo(raiz: Path, commit: str) -> Plan:
+    arbol_vacio, rutas = _arbol_completo(raiz, commit)
     return Plan(
         rutas=rutas,
         base=arbol_vacio,
@@ -166,6 +209,68 @@ def planificar(raiz: Path, commit: str, anterior: str | None) -> Plan:
         commit_anterior=anterior,
         cubiertos=commits_cubiertos(raiz, commit, anterior),
     )
+
+
+# --- resumen del contenido -----------------------------------------------------------
+
+
+def _simbolos_del_commit(
+    raiz: Path,
+    alcance: AlcanceRepositorio,
+    commit: str,
+    plan: Plan,
+    delta: DeltaIndice,
+    indexador: Indexador,
+    excluir: list[str],
+) -> list[Simbolo]:
+    """Todos los símbolos que el indexador ve en el árbol de ``commit``.
+
+    El resumen cubre el árbol entero, no el delta: si solo cubriera lo que cambió, el servidor lo
+    compararía con un canónico más grande y daría divergencias falsas en cada archivo intacto. En un
+    índice completo el delta ya los trae todos. En uno incremental el job solo tiene en memoria los
+    de las rutas tocadas. El índice local de ``codebase-memory-mcp`` del runner ya los tiene todos,
+    pero el único acceso que ``Indexador`` expone a él es ``delta``: se le pide el índice completo
+    desde el árbol vacío (la misma llamada que un índice completo manual) y de él solo se toman los
+    símbolos, con las mismas exclusiones y el mismo parser que los lotes, que es lo que hace
+    comparables los dos lados. Cuesta una pasada más por push incremental."""
+
+    if plan.completo:
+        return delta.simbolos_upsert
+    arbol_vacio, rutas = _arbol_completo(raiz, commit)
+    return indexador.delta(raiz, alcance.repositorio, arbol_vacio, rutas, excluir).simbolos_upsert
+
+
+def calcular_resumen(
+    raiz: Path,
+    alcance: AlcanceRepositorio,
+    commit: str,
+    plan: Plan,
+    delta: DeltaIndice,
+    indexador: Indexador,
+    excluir: list[str],
+) -> ResumenIndice | None:
+    """El resumen del commit, o ``None`` (con aviso) si no se puede mandar uno fiable.
+
+    La verificación es opcional: que falte el indexador o que el repositorio no quepa nunca debe
+    impedir que el canónico avance, solo dejarlo sin verificar."""
+
+    try:
+        por_id = {
+            s.id: s for s in _simbolos_del_commit(raiz, alcance, commit, plan, delta, indexador, excluir)
+        }
+        archivos = {s.ruta for s in por_id.values()}
+        if len(archivos) > MAX_ARCHIVOS_RESUMEN:
+            print(
+                f"reindexar: el commit tiene {len(archivos)} archivos con símbolos, más que el tope del "
+                f"resumen ({MAX_ARCHIVOS_RESUMEN}): se sube sin verificación de contenido"
+            )
+            return None
+        resumen = resumir((s.id, s.ruta, s.sha256) for s in por_id.values())
+    except Exception as exc:  # da igual por qué falle: el índice sube igual
+        print(f"reindexar: no se pudo calcular el resumen ({exc}): se sube sin verificación de contenido")
+        return None
+    print(f"resumen: {len(resumen.archivos)} archivos con símbolos")
+    return resumen
 
 
 # --- lotes ----------------------------------------------------------------------------
@@ -274,6 +379,16 @@ def enviar(
 # --- flujo ----------------------------------------------------------------------------
 
 
+def _version(plan: Plan) -> dict[str, str]:
+    """La versión que habla el plan: la actual solo si lleva todo lo que ella añade."""
+
+    if plan.cubiertos is None:
+        return {"version_contrato": VERSION_SIN_COBERTURA}
+    if plan.resumen is None:
+        return {"version_contrato": VERSION_SIN_RESUMEN}
+    return {}
+
+
 def _subir(
     plan: Plan,
     delta: DeltaIndice,
@@ -298,7 +413,8 @@ def _subir(
             lotes=len(lotes),
             delta=parte,
             commits_cubiertos=plan.cubiertos,
-            **({} if plan.cubiertos is not None else {"version_contrato": VERSION_SIN_COBERTURA}),
+            resumen=plan.resumen if i == len(lotes) else None,  # solo el último lote lo lleva
+            **_version(plan),
         )
         salida = enviar(entrada, url, token, transporte, espera_s=espera_s)
         print(f"lote {i}/{len(lotes)}: recibidos={salida.lotes_recibidos} aplicado={salida.aplicado}")
@@ -320,17 +436,47 @@ def _subir_o_degradar(
     transporte: Transporte,
     espera_s: float,
 ) -> GraphIndexSalida:
-    """``_subir``; un servidor 1.4 que rechaza ``commits_cubiertos`` recibe el índice sin la lista."""
+    """``_subir`` con retroceso por versión del servidor.
+
+    Un servidor 1.9 que rechaza ``resumen`` recibe el índice sin él (1.9) y un 1.4 que además rechaza
+    ``commits_cubiertos`` lo recibe sin la lista: cada rechazo quita lo último que el servidor no
+    conoce y reintenta, de lo más nuevo a lo más antiguo."""
 
     try:
         return _subir(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
     except RechazoServidor as exc:
+        if plan.resumen is not None and exc.rechaza_resumen:
+            print("el servidor no admite resumen (contrato 1.9): se sube sin verificación de contenido")
+            return _subir_o_degradar(
+                plan.sin_resumen(), delta, alcance, rama, commit, url, token, tamano, transporte, espera_s
+            )
         if plan.cubiertos is None or not exc.rechaza_cobertura:
             raise
         print("el servidor no admite commits_cubiertos (contrato 1.4): se sube sin cobertura")
         return _subir(
             plan.sin_cobertura(), delta, alcance, rama, commit, url, token, tamano, transporte, espera_s
         )
+
+
+def _con_resumen(
+    raiz: Path,
+    alcance: AlcanceRepositorio,
+    commit: str,
+    plan: Plan,
+    delta: DeltaIndice,
+    indexador: Indexador,
+    excluir: list[str],
+    activo: bool,
+) -> Plan:
+    """``plan`` con el resumen del commit, si está activo y el plan habla una versión que lo conoce."""
+
+    if not activo:
+        print("resumen desactivado (--sin-resumen): sin verificación de contenido")
+        return plan
+    if plan.cubiertos is None:  # sin cobertura se habla 1.4, que no conoce el resumen
+        print("--sin-cobertura habla 1.4, sin resumen: sin verificación de contenido")
+        return plan
+    return replace(plan, resumen=calcular_resumen(raiz, alcance, commit, plan, delta, indexador, excluir))
 
 
 def reindexar(
@@ -347,6 +493,7 @@ def reindexar(
     transporte: Transporte = transporte_http,
     espera_s: float = 2.0,
     cobertura: bool = True,
+    resumen: bool = True,
 ) -> GraphIndexSalida:
     url = servidor.rstrip("/") + "/v1/tools/graph.index"
     plan = planificar(raiz, commit, anterior)
@@ -354,6 +501,7 @@ def reindexar(
         plan = plan.sin_cobertura()
     print(f"{'índice completo' if plan.completo else 'delta'}: {len(plan.rutas)} rutas")
     delta = indexador.delta(raiz, alcance.repositorio, plan.base, plan.rutas, excluir)
+    plan = _con_resumen(raiz, alcance, commit, plan, delta, indexador, excluir, resumen)
     try:
         return _subir_o_degradar(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
     except RechazoServidor as exc:
@@ -364,6 +512,7 @@ def reindexar(
     if not cobertura:
         plan = plan.sin_cobertura()
     delta = indexador.delta(raiz, alcance.repositorio, plan.base, plan.rutas, excluir)
+    plan = _con_resumen(raiz, alcance, commit, plan, delta, indexador, excluir, resumen)
     return _subir_o_degradar(plan, delta, alcance, rama, commit, url, token, tamano, transporte, espera_s)
 
 
@@ -387,6 +536,14 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "No declarar commits_cubiertos (contrato 1.4): un índice completo retira todas las "
             "superposiciones retenidas, también las varadas."
+        ),
+    )
+    p.add_argument(
+        "--sin-resumen",
+        action="store_true",
+        help=(
+            "No mandar el resumen del contenido (contrato 1.9): el servidor no verifica el canónico "
+            "contra el repositorio, y el job se ahorra la pasada de índice completo en los deltas."
         ),
     )
     a = p.parse_args(argv)
@@ -414,6 +571,7 @@ def main(argv: list[str] | None = None) -> int:
             secretos.exclusiones(raiz),
             a.tamano_lote,
             cobertura=not a.sin_cobertura,
+            resumen=not a.sin_resumen,
         )
     except ErrorReindexado as exc:
         print(f"reindexar: {exc}", file=sys.stderr)

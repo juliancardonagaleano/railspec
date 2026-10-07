@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from railspec.contracts.comun import AlcanceRepositorio
+from railspec.contracts.resumen import resumir
 from railspec.contracts.snapshot import (
     Arista,
     DeltaIndice,
@@ -128,6 +129,7 @@ def test_render_oidc_exige_repositorios_y_una_audiencia_no_adivinable():
 
 GRAFO = DEPLOY.parent / "packages" / "railspec-graph" / "src" / "railspec" / "graph" / "indexado.py"
 GRAFO_ALMACEN = GRAFO.with_name("almacen.py")
+GRAFO_PLAZOS = GRAFO.with_name("plazos.py")
 
 
 def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_paquete_graph():
@@ -139,6 +141,10 @@ def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_pa
             re.search(r"^SUPERPOSICION_DIAS = ([\d.]+)$", fuente, re.M)[1]
         ),
         "RAILSPEC_GRAFO_INDEXADO_HORAS": float(re.search(r"^INDEXADO_HORAS = ([\d.]+)$", fuente, re.M)[1]),
+        # Las retenidas las leen el indexador y AlmacenGrafo; su defecto vive con el helper de plazos.
+        "RAILSPEC_GRAFO_RETENIDAS_DIAS": float(
+            re.search(r"^RETENIDAS_DIAS = ([\d.]+)$", GRAFO_PLAZOS.read_text(encoding="utf-8"), re.M)[1]
+        ),
         # La frescura la lee AlmacenGrafo (almacen.py), no el indexador.
         "RAILSPEC_GRAFO_FRESCURA_HORAS": float(
             re.search(r"^FRESCURA_HORAS = ([\d.]+)$", GRAFO_ALMACEN.read_text(encoding="utf-8"), re.M)[1]
@@ -154,11 +160,13 @@ def test_render_caducidad_del_grafo_sale_en_el_configmap_con_los_defectos_del_pa
         {
             "RAILSPEC_GRAFO_SUPERPOSICION_DIAS": "0",
             "RAILSPEC_GRAFO_INDEXADO_HORAS": "0.5",
+            "RAILSPEC_GRAFO_RETENIDAS_DIAS": "0",
             "RAILSPEC_GRAFO_FRESCURA_HORAS": "0",
         }
     )
     assert mapa["RAILSPEC_GRAFO_SUPERPOSICION_DIAS"] == "0"
     assert mapa["RAILSPEC_GRAFO_INDEXADO_HORAS"] == "0.5"
+    assert mapa["RAILSPEC_GRAFO_RETENIDAS_DIAS"] == "0"  # 0 = las retenidas no caducan nunca
     assert mapa["RAILSPEC_GRAFO_FRESCURA_HORAS"] == "0"  # 0 = no avisa de frescura
 
 
@@ -180,7 +188,12 @@ PLAZOS_RECHAZADOS = [
 
 @pytest.mark.parametrize(
     "variable",
-    ["RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "RAILSPEC_GRAFO_INDEXADO_HORAS", "RAILSPEC_GRAFO_FRESCURA_HORAS"],
+    [
+        "RAILSPEC_GRAFO_SUPERPOSICION_DIAS",
+        "RAILSPEC_GRAFO_INDEXADO_HORAS",
+        "RAILSPEC_GRAFO_RETENIDAS_DIAS",
+        "RAILSPEC_GRAFO_FRESCURA_HORAS",
+    ],
 )
 @pytest.mark.parametrize("valor", [*PLAZOS_RECHAZADOS, "99999999999999"], ids=lambda v: repr(v)[:20])
 def test_render_rechaza_plazos_del_grafo_que_impedirian_arrancar_al_servidor(variable, valor):
@@ -193,6 +206,7 @@ def test_render_rechaza_plazos_del_grafo_que_impedirian_arrancar_al_servidor(var
     [
         ("RAILSPEC_GRAFO_SUPERPOSICION_DIAS", "days"),
         ("RAILSPEC_GRAFO_INDEXADO_HORAS", "hours"),
+        ("RAILSPEC_GRAFO_RETENIDAS_DIAS", "days"),
         ("RAILSPEC_GRAFO_FRESCURA_HORAS", "hours"),
     ],
 )
@@ -898,7 +912,7 @@ class ServidorDoble:
 ALCANCE = AlcanceRepositorio(org="acme", workspace="ws", repositorio="repo")
 
 
-def _correr(raiz, commit, anterior, servidor, indexador=None, **extra):
+def _correr(raiz, commit, anterior, servidor, indexador=None, excluir=(), **extra):
     return reindexar.reindexar(
         raiz,
         ALCANCE,
@@ -908,7 +922,7 @@ def _correr(raiz, commit, anterior, servidor, indexador=None, **extra):
         "https://railspec.example.com/",
         lambda: "jwt",
         indexador or IndexadorDoble(),
-        [],
+        list(excluir),
         tamano=1,
         transporte=servidor,
         espera_s=0,
@@ -933,7 +947,7 @@ def test_reindexar_declara_los_commits_cubiertos_en_cada_lote(tmp_path):
     servidor = ServidorDoble()
     assert _correr(raiz, c3, c1, servidor).aplicado
     assert [(c["version_contrato"], c["commits_cubiertos"]) for c in servidor.cuerpos] == [
-        ("1.9", [c3, c2])
+        ("1.10", [c3, c2])
     ] * 2
 
 
@@ -944,6 +958,7 @@ def test_reindexar_sin_cobertura_habla_1_4(tmp_path):
     servidor = ServidorDoble()
     assert _correr(raiz, c3, None, servidor, cobertura=False).aplicado
     assert all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in servidor.cuerpos)
+    assert all("resumen" not in c for c in servidor.cuerpos)  # 1.4 no lo conoce
 
 
 def test_un_servidor_14_que_rechaza_la_lista_recibe_el_indice_sin_ella(tmp_path, capsys):
@@ -955,9 +970,204 @@ def test_un_servidor_14_que_rechaza_la_lista_recibe_el_indice_sin_ella(tmp_path,
     servidor = ServidorDoble([(422, rechazo)])
     assert _correr(raiz, c3, c1, servidor).aplicado
     primero, *resto = servidor.cuerpos
-    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.9"
+    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.10"
     assert resto and all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in resto)
     assert "sin cobertura" in capsys.readouterr().out
+
+
+# --- resumen del contenido (1.10) --------------------------------------------------------
+
+
+class IndexadorPorArchivo:
+    """Un símbolo por ruta pedida (menos las excluidas), con ``ruta`` real y sha según la ruta."""
+
+    def __init__(self) -> None:
+        self.llamadas: list[tuple[str, list[str]]] = []
+
+    @staticmethod
+    def simbolo(ruta: str) -> Simbolo:
+        return Simbolo(
+            id=id_simbolo("repo", ruta, "funcion", "f"),
+            nombre="f",
+            tipo=TipoSimbolo.funcion,
+            ruta=ruta,
+            linea_inicio=1,
+            linea_fin=2,
+            sha256=("1" if ruta.startswith("a") else "2") * 64,
+        )
+
+    def delta(self, worktree, repositorio, base_commit, rutas, excluir):
+        self.llamadas.append((base_commit, rutas))
+        return DeltaIndice(motor=MOTOR, simbolos_upsert=[self.simbolo(r) for r in rutas if r not in excluir])
+
+
+def _esperado(*rutas: str):
+    """El resumen que el servidor calcularía: el algoritmo compartido, no una copia."""
+
+    ind = IndexadorPorArchivo
+    return resumir((ind.simbolo(r).id, r, ind.simbolo(r).sha256) for r in rutas).model_dump(mode="json")
+
+
+def test_el_resumen_cubre_el_arbol_completo_y_viaja_solo_en_el_ultimo_lote(tmp_path):
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    servidor, indexador = ServidorDoble(), IndexadorPorArchivo()
+    assert _correr(raiz, c3, c1, servidor, indexador).aplicado
+    # El delta solo toca b.py y c.py (dos lotes), pero el resumen incluye a.py: es del árbol, no del delta.
+    assert [len(c["delta"]["simbolos_upsert"]) for c in servidor.cuerpos] == [1, 1]
+    assert "resumen" not in servidor.cuerpos[0]
+    assert servidor.cuerpos[1]["resumen"] == _esperado("a.py", "b.py", "c.py")
+    assert {c["version_contrato"] for c in servidor.cuerpos} == {"1.10"}
+    # La pasada completa parte del árbol vacío y pide todas las rutas del commit.
+    vacio = reindexar._git(raiz, "hash-object", "-t", "tree", "/dev/null").strip()
+    assert indexador.llamadas == [(c1, ["b.py", "c.py"]), (vacio, ["a.py", "b.py", "c.py"])]
+
+
+def test_un_indice_completo_no_repite_la_pasada_para_el_resumen(tmp_path):
+    raiz, (_, _, c3) = _repo(tmp_path)
+    servidor, indexador = ServidorDoble(), IndexadorPorArchivo()
+    assert _correr(raiz, c3, None, servidor, indexador).aplicado
+    assert len(indexador.llamadas) == 1
+    assert [("resumen" in c) for c in servidor.cuerpos] == [False, False, True]
+    assert servidor.cuerpos[-1]["resumen"] == _esperado("a.py", "b.py", "c.py")
+
+
+def test_el_resumen_lleva_lo_que_el_servidor_quita_por_las_exclusiones_del_vinculo(tmp_path):
+    """CI no conoce las exclusiones del vínculo (las aplica el servidor en ambos lados): manda todo
+    lo que el indexador ve. Solo faltan las rutas que el propio job excluye (secretos)."""
+
+    raiz, (_, _, c3) = _repo(tmp_path)
+    (raiz / "vendor").mkdir()
+    (raiz / "vendor" / "lib.py").write_text("def g():\n    return 0\n")
+    (raiz / ".env.py").write_text("def h():\n    return 0\n")
+    reindexar._git(raiz, "add", ".")
+    reindexar._git(raiz, "-c", "user.email=ci@example.com", "-c", "user.name=ci", "commit", "-q", "-m", "v")
+    commit = reindexar._git(raiz, "rev-parse", "HEAD").strip()
+    servidor = ServidorDoble()
+    assert _correr(raiz, commit, c3, servidor, IndexadorPorArchivo(), excluir=[".env.py"]).aplicado
+    resumen = servidor.cuerpos[-1]["resumen"]
+    assert resumen == _esperado("a.py", "b.py", "c.py", "vendor/lib.py")
+    assert "vendor/lib.py" in [a["ruta"] for a in resumen["archivos"]]
+
+
+def test_un_repositorio_sobre_el_tope_sube_sin_resumen_y_lo_avisa(tmp_path, monkeypatch, capsys):
+    """Un resumen recortado sería una divergencia falsa en cada archivo que falta: se omite entero."""
+
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    monkeypatch.setattr(reindexar, "MAX_ARCHIVOS_RESUMEN", 2)  # el commit tiene tres archivos
+    servidor = ServidorDoble()
+    assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
+    assert all("resumen" not in c and c["version_contrato"] == "1.9" for c in servidor.cuerpos)
+    assert all("commits_cubiertos" in c for c in servidor.cuerpos)  # la cobertura no se toca
+    salida = capsys.readouterr().out
+    assert "3 archivos con símbolos" in salida and "sin verificación de contenido" in salida
+    # En el tope justo sí se manda.
+    monkeypatch.setattr(reindexar, "MAX_ARCHIVOS_RESUMEN", 3)
+    servidor = ServidorDoble()
+    assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
+    assert "resumen" in servidor.cuerpos[-1]
+
+
+def test_si_el_resumen_no_se_puede_calcular_el_indice_sube_igual(tmp_path, capsys):
+    raiz, (c1, _, c3) = _repo(tmp_path)
+
+    class IndexadorRoto(IndexadorPorArchivo):
+        def delta(self, worktree, repositorio, base_commit, rutas, excluir):
+            if len(self.llamadas) == 1:  # la pasada completa del resumen
+                raise RuntimeError("el binario se cayó")
+            return super().delta(worktree, repositorio, base_commit, rutas, excluir)
+
+    servidor = ServidorDoble()
+    assert _correr(raiz, c3, c1, servidor, IndexadorRoto()).aplicado
+    assert all("resumen" not in c and c["version_contrato"] == "1.9" for c in servidor.cuerpos)
+    salida = capsys.readouterr().out
+    assert "no se pudo calcular el resumen (el binario se cayó)" in salida
+
+
+def test_un_servidor_19_que_rechaza_el_resumen_recibe_el_indice_sin_el(tmp_path, capsys):
+    raiz, (c1, c2, c3) = _repo(tmp_path)
+    rechazo = {
+        "detalle": "entrada fuera de contrato",
+        "errores": [
+            {"ruta": "version_contrato", "mensaje": "Input should be '1.0', ..., '1.9'"},
+            {"ruta": "resumen", "mensaje": "Extra inputs are not permitted"},
+        ],
+    }
+    servidor = ServidorDoble([(422, rechazo)])
+    assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
+    primero, *resto = servidor.cuerpos
+    assert primero["version_contrato"] == "1.10" and primero["lote"] == 1
+    # Se reinicia desde el lote 1, ya sin resumen, con 1.9 y conservando la cobertura.
+    assert [c["lote"] for c in resto] == [1, 2]
+    assert all("resumen" not in c and c["version_contrato"] == "1.9" for c in resto)
+    assert all(c["commits_cubiertos"] == [c3, c2] for c in resto)
+    assert "sin verificación de contenido" in capsys.readouterr().out
+
+
+def test_un_servidor_14_retrocede_primero_el_resumen_y_despues_la_cobertura(tmp_path):
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    sin_resumen = {"errores": [{"ruta": "resumen", "mensaje": "Extra inputs are not permitted"}]}
+    sin_lista = {"errores": [{"ruta": "commits_cubiertos", "mensaje": "Extra inputs are not permitted"}]}
+    servidor = ServidorDoble([(422, sin_resumen), (422, sin_lista)])
+    assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
+    versiones = [(c["version_contrato"], "commits_cubiertos" in c, "resumen" in c) for c in servidor.cuerpos]
+    assert versiones[0] == ("1.10", True, False)  # lote 1: el resumen va en el último
+    assert versiones[1] == ("1.9", True, False)
+    assert set(versiones[2:]) == {("1.4", False, False)}
+
+
+def test_un_422_de_un_resumen_mal_formado_no_se_esconde(tmp_path):
+    """Si el servidor conoce el resumen y lo rechaza por su contenido es un fallo nuestro."""
+
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    mal = {"errores": [{"ruta": "resumen.archivos.0.huella", "mensaje": "String should match pattern"}]}
+    servidor = ServidorDoble([(422, mal)])
+    with pytest.raises(reindexar.RechazoServidor, match="422"):
+        _correr(raiz, c3, c1, servidor, IndexadorPorArchivo())
+    assert len(servidor.cuerpos) == 1
+
+
+def test_sin_resumen_habla_1_9_y_se_ahorra_la_pasada_completa(tmp_path, capsys):
+    raiz, (c1, c2, c3) = _repo(tmp_path)
+    servidor, indexador = ServidorDoble(), IndexadorPorArchivo()
+    assert _correr(raiz, c3, c1, servidor, indexador, resumen=False).aplicado
+    assert all("resumen" not in c and c["version_contrato"] == "1.9" for c in servidor.cuerpos)
+    assert all(c["commits_cubiertos"] == [c3, c2] for c in servidor.cuerpos)
+    assert len(indexador.llamadas) == 1
+    assert "--sin-resumen" in capsys.readouterr().out
+
+
+def test_el_reintento_completo_por_desfase_lleva_el_resumen(tmp_path):
+    raiz, (c1, _, c3) = _repo(tmp_path)
+    servidor = ServidorDoble([(409, {"codigo": "base-commit-distinto", "detalle": "x"})])
+    assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
+    assert "commit_anterior" not in servidor.cuerpos[-1]
+    assert servidor.cuerpos[-1]["resumen"] == _esperado("a.py", "b.py", "c.py")
+
+
+def test_main_traduce_sin_resumen_y_sin_cobertura_a_dos_opciones_independientes(tmp_path, monkeypatch):
+    from railspec.local import indexador_cbm
+
+    llamadas = []
+    monkeypatch.setattr(reindexar, "reindexar", lambda *a, **k: llamadas.append(k) or _SalidaFalsa())
+    monkeypatch.setattr(reindexar, "TokenOidc", lambda audiencia: lambda: "jwt")
+    monkeypatch.setattr(indexador_cbm, "crear", lambda: object())
+    base = [
+        *("--servidor", "https://railspec.example.com"),
+        *("--org", "acme", "--workspace", "ws", "--repositorio", "repo"),
+        *("--rama", "master", "--commit", "a" * 40, "--audiencia", "aud", "--raiz", str(tmp_path)),
+    ]
+    for extra, cobertura, resumen in [
+        ([], True, True),
+        (["--sin-resumen"], True, False),
+        (["--sin-cobertura"], False, True),
+        (["--sin-resumen", "--sin-cobertura"], False, False),
+    ]:
+        assert reindexar.main([*base, *extra]) == 0
+        assert (llamadas[-1]["cobertura"], llamadas[-1]["resumen"]) == (cobertura, resumen)
+
+
+class _SalidaFalsa:
+    commit = "a" * 40
 
 
 def test_un_422_que_no_es_de_la_cobertura_no_se_reintenta(tmp_path):
@@ -986,7 +1196,8 @@ def test_reindexar_reintenta_completo_si_el_canonico_esta_desfasado(tmp_path):
     indexador = IndexadorDoble()
     salida = _correr(raiz, c3, c1, servidor, indexador)
     assert salida.aplicado
-    assert len(indexador.llamadas) == 2 and indexador.llamadas[1][1] == ["a.py", "b.py", "c.py"]
+    # El delta, la pasada completa del resumen y, tras el desfase, el índice completo.
+    assert len(indexador.llamadas) == 3 and indexador.llamadas[-1][1] == ["a.py", "b.py", "c.py"]
     assert "commit_anterior" not in servidor.cuerpos[-1]
 
 

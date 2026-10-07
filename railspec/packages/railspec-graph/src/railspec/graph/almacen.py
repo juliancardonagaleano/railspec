@@ -10,8 +10,11 @@
 - Una consulta con ``unidad`` ve canónico + superposición; sin ella, solo
   el canónico.
 - Al integrar una unidad su superposición se retiene (marcada con el commit
-  integrado) hasta que ``graph.index`` lleva el canónico a ese commit; sin
-  commit se descarta al momento.
+  integrado y con el instante) hasta que ``graph.index`` lleva el canónico a ese
+  commit; sin commit, o con un commit que el canónico ya cubrió, se descarta al
+  momento. Una retenida que ningún índice cubre caduca a los
+  ``RAILSPEC_GRAFO_RETENIDAS_DIAS`` (30; ``0`` = nunca), con aviso en ``graph.query``
+  desde la mitad del plazo, y ``retenidas`` las lista.
 - La comparación base contra snapshot (``impacto``) parte de lo que la
   superposición toca y recorre el canónico aguas arriba; el gate de código y
   el verbo ``impact`` de ``graph.query`` (1.4) la usan.
@@ -20,12 +23,15 @@
   repositorio que sobrevive a reindexados e integraciones (verbo ``trace``).
 - Lo abandonado se barre con ``limpiar_huerfanos``: la superposición de una
   unidad sin actividad (ni snapshot nuevo) desde hace N días y la preparación
-  de un índice sin lotes nuevos desde hace N horas. Las superposiciones
-  retenidas (``integrado``) no caducan por tiempo.
+  de un índice sin lotes nuevos desde hace N horas; las retenidas (``integrado``)
+  tienen su propio plazo, contado desde que se retuvieron.
 - Cada consulta dice qué tan al día está el canónico de los repositorios que toca
   (``GraphQuerySalida.frescura`` y ``avisos``): si nunca se indexó, el commit, el instante
   del último índice aplicado (``Meta.actualizado`` del canónico) y si superó
-  ``RAILSPEC_GRAFO_FRESCURA_HORAS`` (72; ``0`` = no avisa).
+  ``RAILSPEC_GRAFO_FRESCURA_HORAS`` (72; ``0`` = no avisa). Desde 1.10 también si el contenido
+  del canónico coincide con el resumen que CI calculó sobre el repositorio
+  (``contenido_verificado``, ``divergencias_total`` y ``rutas_divergentes``; lo calcula
+  ``IndexadorCanonico`` al aplicar el índice).
 - Grafo y vectores comparten grafo físico (el embedding es propiedad del
   nodo), así que borrar un repositorio por cualquiera de los dos borra ambos.
 """
@@ -33,6 +39,7 @@
 from __future__ import annotations
 
 import base64
+import math
 from collections import deque
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
@@ -55,7 +62,7 @@ from railspec.contracts.tools import (
 from .acceso import AccesoGrafo, Espacio
 from .analitica import RELACIONES_DEPENDENCIA, calcular_clusters, calcular_procesos, nivel_riesgo
 from .motor import AristaMotor, Cluster, Meta, Proceso, Traza
-from .plazos import plazo
+from .plazos import RETENIDAS_DIAS, VAR_RETENIDAS_DIAS, plazo
 
 #: Variable que fija tras cuántas horas sin índice nuevo un canónico se avisa como desactualizado
 #: (``0`` = nunca avisa); se lee al construir ``AlmacenGrafo``, y una inválida impide arrancar.
@@ -105,6 +112,7 @@ class Vista:
         self.commit = self.meta_canon.commit
         self.sup = sup if sup is not None and sup.existe() else None
         meta = self.sup.meta() if self.sup else Meta()
+        self.meta_sup = meta
         if self.sup and meta.commit:
             self.commit = meta.commit
         self.borrados = set(meta.borrados)
@@ -196,13 +204,28 @@ class Impacto:
 
 @dataclass
 class Huerfanos:
-    """Lo que ``limpiar_huerfanos`` borró: unidades (superposiciones) y commits (preparaciones)."""
+    """Lo que ``limpiar_huerfanos`` borró: unidades (superposiciones, y aparte las retenidas que
+    ningún índice cubrió en su plazo) y commits (preparaciones)."""
 
     superposiciones: list[str] = field(default_factory=list)
     indexados: list[str] = field(default_factory=list)
+    retenidas: list[str] = field(default_factory=list)
 
     def __bool__(self) -> bool:
-        return bool(self.superposiciones or self.indexados)
+        return bool(self.superposiciones or self.indexados or self.retenidas)
+
+
+@dataclass(frozen=True)
+class Retenida:
+    """Una superposición retenida de ``AlmacenGrafo.retenidas``: la de ``unidad``, integrada en ``integrado``.
+
+    ``desde`` es cuándo se retuvo (``None`` si se retuvo antes de que se guardara; el primer barrido
+    lo sella) y ``vence`` cuándo caduca (``None`` si no hay plazo o falta ``desde``)."""
+
+    unidad: str
+    integrado: str
+    desde: datetime | None
+    vence: datetime | None
 
 
 @dataclass(frozen=True)
@@ -258,14 +281,18 @@ class AlmacenGrafo:
         *,
         reloj: Callable[[], datetime] | None = None,
         frescura_horas: float | None = None,
+        retenidas_dias: float | None = None,
     ) -> None:
         """``frescura_horas`` (``0`` = no avisa) sustituye a ``RAILSPEC_GRAFO_FRESCURA_HORAS``; sin él se
-        lee aquí, al construir, y un valor inválido impide arrancar."""
+        lee aquí, al construir, y un valor inválido impide arrancar. Igual ``retenidas_dias``
+        (``0`` = sin plazo, sin aviso) con ``RAILSPEC_GRAFO_RETENIDAS_DIAS``: aquí solo sirve para avisar
+        y listar; el borrado lo hace ``limpiar_huerfanos`` con el plazo que le pasa ``IndexadorCanonico``."""
 
         self._acceso = acceso
         self._codificador = codificador
         self._reloj = reloj or (lambda: datetime.now(UTC))
         self._frescura = plazo(frescura_horas, VAR_FRESCURA_HORAS, FRESCURA_HORAS, "hours")
+        self._retenidas = plazo(retenidas_dias, VAR_RETENIDAS_DIAS, RETENIDAS_DIAS, "days")
 
     def ahora(self) -> datetime:
         """El instante con que se sella la actividad de una superposición o de un índice (UTC)."""
@@ -288,7 +315,8 @@ class AlmacenGrafo:
         e.upsert_simbolos([_props(s) for s in delta.simbolos_upsert])
         e.agregar_aristas([_arista(a) for a in delta.aristas_agregadas])
         e.fijar_embeddings({emb.simbolo: decodificar(emb.vector_b64) for emb in delta.embeddings})
-        e.fijar_meta(Meta(commit=commit, actualizado=self.ahora()))
+        # Los commits cubiertos por índices anteriores siguen cubiertos; el contenido no se compara.
+        e.fijar_meta(Meta(commit=commit, actualizado=self.ahora(), cubiertos=e.meta().cubiertos))
         self.recalcular_analitica(alcance)
 
     def _reconstruir_superposicion(
@@ -330,20 +358,39 @@ class AlmacenGrafo:
         """La unidad se integró en ``integrado``: su superposición sigue visible a las consultas
         con ``unidad`` hasta que el canónico alcance ese commit.
 
-        Devuelve si queda retenida. Si el canónico ya está en ``integrado`` la superposición
-        sobra y se borra al momento; si no tiene superposición no hay nada que retener. La
-        retira ``retirar_superposiciones`` cuando ``IndexadorCanonico`` aplica un índice."""
+        Devuelve si queda retenida. Si el canónico ya está en ``integrado``, o ya lo cubrió un índice
+        anterior (``Meta.cubiertos``), la superposición sobra y se borra al momento; si no tiene
+        superposición no hay nada que retener. La retira ``retirar_superposiciones`` cuando
+        ``IndexadorCanonico`` aplica un índice que lo cubre, o ``limpiar_huerfanos`` si ninguno lo
+        cubre en ``RAILSPEC_GRAFO_RETENIDAS_DIAS``. Sella ``retenido_en``, de donde cuenta ese plazo."""
 
         sup = self._acceso.espacio(alcance, unidad)
         if not sup.existe():
             return False
-        if self._acceso.espacio(alcance).meta().commit == integrado:
+        canon = self._acceso.espacio(alcance).meta()
+        if canon.commit == integrado or integrado in canon.cubiertos:
             sup.borrar()
             return False
         meta = sup.meta()
+        if meta.integrado != integrado or meta.retenido_en is None:
+            meta.retenido_en = self.ahora()
         meta.integrado = integrado
         sup.fijar_meta(meta)
         return True
+
+    def retenidas(self, alcance: AlcanceRepositorio) -> list[Retenida]:
+        """Las superposiciones retenidas del repositorio (las de unidades ya integradas que ningún índice
+        ha cubierto), por unidad: lo que hay que mirar si una quedó varada. Solo lee."""
+
+        salida = []
+        for unidad in self._acceso.superposiciones(alcance):
+            meta = self._acceso.espacio(alcance, unidad).meta()
+            if meta.integrado is None:
+                continue
+            desde = _utc(meta.retenido_en)
+            vence = desde + self._retenidas if desde is not None and self._retenidas is not None else None
+            salida.append(Retenida(unidad, meta.integrado, desde, vence))
+        return salida
 
     def retirar_superposiciones(
         self,
@@ -379,12 +426,17 @@ class AlmacenGrafo:
         alcance: AlcanceRepositorio,
         superposicion: timedelta | None,
         indexado: timedelta | None,
+        retenida: timedelta | None = None,
     ) -> Huerfanos:
         """Borra lo que nadie va a terminar: superposiciones y grafos de preparación abandonados.
 
         - Superposición de una unidad sin ``integrado`` y sin actividad desde hace ``superposicion``
-          (cada snapshot de ``unit.report`` la reconstruye y renueva su sello). Las retenidas, con
-          ``integrado``, no caducan por tiempo: salen por ``retirar_superposiciones``.
+          (cada snapshot de ``unit.report`` la reconstruye y renueva su sello). Una unidad en curso nunca
+          cae por el plazo de las retenidas.
+        - Superposición retenida (con ``integrado``) que lleva ``retenida`` sin que ningún índice cubra su
+          commit, contado desde ``retenido_en``. Lo normal es que salga antes por
+          ``retirar_superposiciones``; esto recoge las que quedaron varadas (el commit nunca llegó al
+          canónico). Se reporta aparte, en ``Huerfanos.retenidas``.
         - Preparación de ``graph.index`` sin lotes nuevos desde hace ``indexado`` (reenviar un lote ya
           recibido no cuenta). Un índice que nunca completa no la borra por sí solo.
 
@@ -396,13 +448,17 @@ class AlmacenGrafo:
 
         ahora = self.ahora()
         borrado = Huerfanos()
-        if superposicion is not None:
+        if superposicion is not None or retenida is not None:
             for unidad in self._acceso.superposiciones(alcance):
                 e = self._acceso.espacio(alcance, unidad)
                 meta = e.meta()
-                if meta.integrado is None and self._vencido(e, meta, ahora, superposicion):
+                if meta.integrado is None:
+                    if superposicion is not None and self._vencido(e, meta, ahora, superposicion):
+                        e.borrar()
+                        borrado.superposiciones.append(unidad)
+                elif retenida is not None and self._retencion_vencida(e, meta, ahora, retenida):
                     e.borrar()
-                    borrado.superposiciones.append(unidad)
+                    borrado.retenidas.append(unidad)
         if indexado is not None:
             for commit in self._acceso.indexados(alcance):
                 e = self._acceso.espacio_indexado(alcance, commit)
@@ -417,6 +473,18 @@ class AlmacenGrafo:
             e.sellar(ahora)
             return False
         return ahora - meta.actualizado >= plazo
+
+    @staticmethod
+    def _retencion_vencida(e: Espacio, meta: Meta, ahora: datetime, plazo: timedelta) -> bool:
+        desde = _utc(meta.retenido_en)
+        if desde is None:
+            # Retenida antes de que se guardara cuándo: el plazo cuenta desde este barrido. Reescribe la
+            # meta (no hay un sellado atómico de este campo) solo si la superposición sigue ahí.
+            if e.existe():
+                meta.retenido_en = ahora
+                e.fijar_meta(meta)
+            return False
+        return ahora - desde >= plazo
 
     def borrar_repositorio(self, alcance: AlcanceRepositorio) -> None:
         self._acceso.borrar_repositorio(alcance)
@@ -444,7 +512,11 @@ class AlmacenGrafo:
         Un repositorio sin índice canónico no está en ``vistas`` (o está solo por la superposición de
         la unidad) y una consulta sobre él devuelve vacío: el aviso lo dice, para que un vacío no se
         lea como "no existe". ``desactualizado`` compara el instante del último índice con el plazo
-        configurado; un índice sin instante (anterior a que se guardara) no se marca."""
+        configurado; un índice sin instante (anterior a que se guardara) no se marca. Si el último índice
+        trajo el resumen de CI y el contenido del canónico no coincide, lo dice (``contenido_verificado``,
+        ``divergencias_total``, ``rutas_divergentes``) y avisa. Y si la superposición de la unidad consultada
+        lleva retenida más de la mitad del plazo (``RAILSPEC_GRAFO_RETENIDAS_DIAS``), avisa de que la
+        retirarán por tiempo."""
 
         por_repo = {v.alcance.repositorio: v for v in vistas}
         ahora = self.ahora()
@@ -465,13 +537,18 @@ class AlmacenGrafo:
                         "el código no exista."
                     )
                 )
+                avisos.extend(self._aviso_retenida(slug, v, ahora))
                 continue
-            en = meta.actualizado
-            if en is not None and en.tzinfo is None:
-                en = en.replace(tzinfo=UTC)
+            en = _utc(meta.actualizado)
             viejo = en is not None and self._frescura is not None and ahora - en > self._frescura
             frescura[slug] = FrescuraGrafo(
-                indexado=True, commit=meta.commit, indexado_en=en, desactualizado=bool(viejo)
+                indexado=True,
+                commit=meta.commit,
+                indexado_en=en,
+                desactualizado=bool(viejo),
+                contenido_verificado=meta.contenido_verificado,
+                divergencias_total=meta.divergencias_total,
+                rutas_divergentes=list(meta.rutas_divergentes),
             )
             if viejo:
                 avisos.append(
@@ -479,7 +556,30 @@ class AlmacenGrafo:
                     f"{_horas(ahora - en)}, más que el plazo de {_horas(self._frescura)} "
                     f"({VAR_FRESCURA_HORAS}): puede no reflejar el código actual."
                 )
+            if meta.contenido_verificado is False:
+                avisos.append(_aviso_divergencia(slug, meta))
+            avisos.extend(self._aviso_retenida(slug, v, ahora))
         return frescura, avisos
+
+    def _aviso_retenida(self, slug: str, v: Vista | None, ahora: datetime) -> list[str]:
+        """Aviso de la superposición retenida de la unidad consultada si lleva más de la mitad del plazo."""
+
+        if v is None or v.sup is None or self._retenidas is None or v.meta_sup.integrado is None:
+            return []
+        desde = _utc(v.meta_sup.retenido_en)
+        if desde is None or ahora - desde < self._retenidas / 2:
+            return []
+        resta = desde + self._retenidas - ahora
+        cuando = (
+            f"faltan {_dias(resta)} para retirarla"
+            if resta > timedelta(0)
+            else "ya superó el plazo y la retira el próximo barrido"
+        )
+        return [
+            f"{slug}: la superposición de la unidad {v.sup.unidad} sigue retenida: se integró en "
+            f"{v.meta_sup.integrado[:12]} y ningún índice canónico lo cubre; {cuando} "
+            f"({VAR_RETENIDAS_DIAS}). Un índice que cubra ese commit la retira antes."
+        ]
 
     def consultar(self, consulta: GraphQueryEntrada, visibles: list[AlcanceRepositorio]) -> GraphQuerySalida:
         repos = self._acceso.visibles(consulta.alcance, visibles, list(consulta.repositorios))
@@ -686,6 +786,35 @@ class AlmacenGrafo:
         )
         workspace = vistas[0].alcance.workspace if vistas else None
         return [ResultadoGrafo(ref=RefCriterio(workspace=workspace, unidad=u, criterio=c)) for u, c in pares]
+
+
+def _utc(instante: datetime | None) -> datetime | None:
+    """El instante con zona (UTC si venía sin ella)."""
+
+    if instante is not None and instante.tzinfo is None:
+        return instante.replace(tzinfo=UTC)
+    return instante
+
+
+def _dias(delta: timedelta) -> str:
+    dias = math.ceil(delta.total_seconds() / 86400)
+    return "menos de un día" if dias <= 1 else f"{dias} días"
+
+
+#: Cuántas rutas divergentes nombra el aviso (``rutas_divergentes`` lleva hasta 20).
+_RUTAS_EN_AVISO = 5
+
+
+def _aviso_divergencia(slug: str, meta: Meta) -> str:
+    rutas = meta.rutas_divergentes[:_RUTAS_EN_AVISO]
+    mas = meta.divergencias_total - len(rutas)
+    nombradas = ", ".join(rutas) + (f" y {mas} más" if mas > 0 else "")
+    return (
+        f"{slug}: el contenido del índice canónico ({(meta.commit or '')[:12]}) no coincide con el que "
+        f"calculó CI sobre el repositorio en {meta.divergencias_total} ruta(s): {nombradas}. Los símbolos "
+        "de esas rutas pueden faltar, sobrar o estar desfasados; un índice `completo` "
+        "(`railspec-reindexar`) lo corrige."
+    )
 
 
 def _horas(delta: timedelta) -> str:

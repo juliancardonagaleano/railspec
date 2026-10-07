@@ -73,6 +73,22 @@ class Meta:
 
     En el grafo canónico ``actualizado`` es el instante en que se aplicó el último
     índice (``graph.index``): ``graph.query`` lo devuelve como frescura y nadie lo barre.
+
+    Lo que sigue (desde 1.10) lo lleva el motor en una propiedad aparte del nodo, igual que
+    ``actualizado``, para que una réplica anterior siga leyendo la meta:
+
+    - ``cubiertos``: solo el canónico. Los commits que cubren sus últimos índices (los más
+      recientes primero, a lo sumo ``MAX_COMMITS_CUBIERTOS``): con ellos
+      ``retener_superposicion`` retira al momento la de una unidad integrada en un commit que el
+      canónico ya pasó.
+    - ``contenido_verificado``, ``divergencias_total`` y ``rutas_divergentes`` (a lo sumo 20, en
+      orden alfabético): solo el canónico. Resultado de comparar su contenido con el resumen que CI
+      mandó con el último índice; ``contenido_verificado`` es ``None`` si ese índice no trajo resumen.
+    - ``resumen``: solo el grafo de preparación. ``(ruta, símbolos, huella)`` por archivo del
+      resumen de CI, guardado hasta que llegue el último lote y se aplique el índice.
+    - ``retenido_en``: solo una superposición retenida. El instante (UTC) en que se retuvo, del que
+      cuenta ``RAILSPEC_GRAFO_RETENIDAS_DIAS``; sin él (retenida antes de esta versión) el primer
+      barrido lo sella.
     """
 
     commit: str | None = None
@@ -84,6 +100,12 @@ class Meta:
     recibidos: list[int] = field(default_factory=list)
     integrado: str | None = None
     actualizado: datetime | None = None
+    cubiertos: list[str] = field(default_factory=list)
+    contenido_verificado: bool | None = None
+    divergencias_total: int = 0
+    rutas_divergentes: list[str] = field(default_factory=list)
+    resumen: list[tuple[str, int, str]] | None = None
+    retenido_en: datetime | None = None
 
 
 @runtime_checkable

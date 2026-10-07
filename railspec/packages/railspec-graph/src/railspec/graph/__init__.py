@@ -16,7 +16,7 @@ Capas, de abajo arriba:
 """
 
 from .acceso import AccesoGrafo, Espacio, FueraDeWorkspace, RepositorioNoVisible
-from .almacen import AlmacenGrafo, AlmacenVectores, CodificadorConsulta, Huerfanos, Impacto
+from .almacen import AlmacenGrafo, AlmacenVectores, CodificadorConsulta, Huerfanos, Impacto, Retenida
 from .indexado import IndexadorCanonico, IndiceDesfasado, IndiceRechazado
 from .ingesta import SnapshotRechazado, ingerir_snapshot
 from .memoria import MotorMemoria
@@ -41,6 +41,7 @@ __all__ = [
     "MotorMemoria",
     "RecuperadorContexto",
     "RepositorioNoVisible",
+    "Retenida",
     "SnapshotRechazado",
     "Traza",
     "ingerir_snapshot",

@@ -35,7 +35,7 @@
         "type": "string"
       },
       "version_contrato": {
-        "default": "1.9",
+        "default": "1.10",
         "enum": [
           "1.0",
           "1.1",
@@ -46,7 +46,8 @@
           "1.6",
           "1.7",
           "1.8",
-          "1.9"
+          "1.9",
+          "1.10"
         ],
         "title": "Version Contrato",
         "type": "string"
@@ -181,7 +182,7 @@
             "title": "Simbolo"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -192,7 +193,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -270,7 +272,7 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -281,7 +283,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -507,6 +510,57 @@
             "title": "Relacion",
             "type": "string"
           },
+          "ResumenArchivo": {
+            "additionalProperties": false,
+            "description": "Desde 1.10: huella de los símbolos que el indexador encontró en un archivo del commit.",
+            "properties": {
+              "huella": {
+                "description": "Primeros 16 hex de sha256 sobre las líneas `<id>\\t<sha256>` de los símbolos del archivo (id y sha256 tal como viajan en `Simbolo`), ordenadas por id y unidas con `\\n`.",
+                "pattern": "^[0-9a-f]{16}$",
+                "title": "Huella",
+                "type": "string"
+              },
+              "ruta": {
+                "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+                "maxLength": 1024,
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+                "title": "Ruta",
+                "type": "string"
+              },
+              "simbolos": {
+                "description": "Cuántos símbolos tiene el archivo en el índice.",
+                "minimum": 0,
+                "title": "Simbolos",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ruta",
+              "simbolos",
+              "huella"
+            ],
+            "title": "ResumenArchivo",
+            "type": "object"
+          },
+          "ResumenIndice": {
+            "additionalProperties": false,
+            "description": "Desde 1.10: lo que CI vio en el árbol completo del commit, para reconciliar el canónico.\n\nCI lo calcula sobre el índice completo del commit (no sobre el delta), con el mismo motor que\nproduce los lotes. El servidor lo compara, archivo por archivo, con lo que quedó en el canónico\ntras aplicar el índice, después de quitar de ambos lados las rutas que el vínculo excluye.",
+            "properties": {
+              "archivos": {
+                "items": {
+                  "$ref": "#/$defs/ResumenArchivo"
+                },
+                "maxItems": 20000,
+                "title": "Archivos",
+                "type": "array"
+              }
+            },
+            "required": [
+              "archivos"
+            ],
+            "title": "ResumenIndice",
+            "type": "object"
+          },
           "Simbolo": {
             "additionalProperties": false,
             "properties": {
@@ -642,8 +696,20 @@
             "title": "Rama",
             "type": "string"
           },
+          "resumen": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ResumenIndice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Desde 1.10: resumen del contenido del commit para que el servidor verifique el canónico tras aplicar el índice. Solo lo lleva el último lote (`lote == lotes`); en los demás debe faltar. Ausente = no se compara (clientes 1.9 y anteriores)."
+          },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -654,7 +720,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -693,7 +760,7 @@
             "type": "integer"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -704,7 +771,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1068,7 +1136,7 @@
             "title": "Unidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -1079,7 +1147,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1115,11 +1184,31 @@
                 "description": "Commit del canónico; None si nunca se indexó.",
                 "title": "Commit"
               },
+              "contenido_verificado": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.10: resultado de comparar el contenido del canónico con el resumen que CI calculó sobre el árbol del commit al subir el último índice (``GraphIndexEntrada.resumen``). True = coincide; False = hay rutas que difieren (ver ``rutas_divergentes``); None = el índice no trajo resumen (cliente anterior a 1.10) y el contenido no se comparó.",
+                "title": "Contenido Verificado"
+              },
               "desactualizado": {
                 "default": false,
                 "description": "True si ``indexado_en`` es más antiguo que el plazo del servidor (``RAILSPEC_GRAFO_FRESCURA_HORAS``; 0 = no avisa). Es un aviso de tiempo, no una comparación con el repositorio: ver ``avisos`` y el proxy local.",
                 "title": "Desactualizado",
                 "type": "boolean"
+              },
+              "divergencias_total": {
+                "default": 0,
+                "description": "Desde 1.10: cuántas rutas difieren entre el canónico y el resumen de CI.",
+                "minimum": 0,
+                "title": "Divergencias Total",
+                "type": "integer"
               },
               "indexado": {
                 "description": "False si el repositorio nunca recibió un índice canónico: sus consultas no devuelven nada de él (vacío no significa que el símbolo no exista).",
@@ -1139,6 +1228,18 @@
                 "default": null,
                 "description": "Instante en que se aplicó el último índice canónico. None si nunca se indexó o si el índice es anterior a que el servidor guardara este instante.",
                 "title": "Indexado En"
+              },
+              "rutas_divergentes": {
+                "description": "Desde 1.10: las primeras rutas que difieren, en orden alfabético (a lo sumo 20).",
+                "items": {
+                  "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+                  "maxLength": 1024,
+                  "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "title": "Rutas Divergentes",
+                "type": "array"
               }
             },
             "required": [
@@ -1522,7 +1623,7 @@
             "type": "boolean"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -1533,7 +1634,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1599,7 +1701,7 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -1610,7 +1712,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -1946,7 +2049,7 @@
                 "$ref": "#/$defs/VeredictoGateSalida"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -1957,7 +2060,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -2454,7 +2558,7 @@
             "$ref": "#/$defs/Insumo"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -2465,7 +2569,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -2560,7 +2665,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -2571,7 +2676,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -2951,7 +3057,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -2962,7 +3068,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -3234,7 +3341,7 @@
             "type": "integer"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -3245,7 +3352,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -3507,7 +3615,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -3518,7 +3626,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -3550,7 +3659,7 @@
             "type": "integer"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -3561,7 +3670,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -3644,7 +3754,7 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -3655,7 +3765,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -3771,7 +3882,7 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -3782,7 +3893,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -3862,7 +3974,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -3873,7 +3985,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -4407,11 +4520,31 @@
                 "description": "Commit del canónico; None si nunca se indexó.",
                 "title": "Commit"
               },
+              "contenido_verificado": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.10: resultado de comparar el contenido del canónico con el resumen que CI calculó sobre el árbol del commit al subir el último índice (``GraphIndexEntrada.resumen``). True = coincide; False = hay rutas que difieren (ver ``rutas_divergentes``); None = el índice no trajo resumen (cliente anterior a 1.10) y el contenido no se comparó.",
+                "title": "Contenido Verificado"
+              },
               "desactualizado": {
                 "default": false,
                 "description": "True si ``indexado_en`` es más antiguo que el plazo del servidor (``RAILSPEC_GRAFO_FRESCURA_HORAS``; 0 = no avisa). Es un aviso de tiempo, no una comparación con el repositorio: ver ``avisos`` y el proxy local.",
                 "title": "Desactualizado",
                 "type": "boolean"
+              },
+              "divergencias_total": {
+                "default": 0,
+                "description": "Desde 1.10: cuántas rutas difieren entre el canónico y el resumen de CI.",
+                "minimum": 0,
+                "title": "Divergencias Total",
+                "type": "integer"
               },
               "indexado": {
                 "description": "False si el repositorio nunca recibió un índice canónico: sus consultas no devuelven nada de él (vacío no significa que el símbolo no exista).",
@@ -4431,6 +4564,18 @@
                 "default": null,
                 "description": "Instante en que se aplicó el último índice canónico. None si nunca se indexó o si el índice es anterior a que el servidor guardara este instante.",
                 "title": "Indexado En"
+              },
+              "rutas_divergentes": {
+                "description": "Desde 1.10: las primeras rutas que difieren, en orden alfabético (a lo sumo 20).",
+                "items": {
+                  "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+                  "maxLength": 1024,
+                  "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "title": "Rutas Divergentes",
+                "type": "array"
               }
             },
             "required": [
@@ -4811,7 +4956,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -4822,7 +4967,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -4961,7 +5107,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -4972,7 +5118,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -5115,7 +5262,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -5126,7 +5273,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -5246,7 +5394,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -5257,7 +5405,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -5824,7 +5973,7 @@
             "title": "Avance"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -5835,7 +5984,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -5950,7 +6100,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -5961,7 +6111,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -6661,7 +6812,7 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -6672,7 +6823,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -7244,7 +7396,7 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -7255,7 +7407,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -7335,7 +7488,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -7346,7 +7499,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -7650,7 +7804,7 @@
                 "type": "string"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -7661,7 +7815,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -7701,7 +7856,7 @@
             "$ref": "#/$defs/PaqueteUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -7712,7 +7867,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -8062,7 +8218,7 @@
                 "type": "string"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -8073,7 +8229,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -8167,7 +8324,7 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -8178,7 +8335,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -8884,7 +9042,7 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -8895,7 +9053,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -9467,7 +9626,7 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -9478,7 +9637,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -9604,7 +9764,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -9615,7 +9775,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -10314,7 +10475,7 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -10325,7 +10486,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -10897,7 +11059,7 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -10908,7 +11070,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -11049,7 +11212,7 @@
             "title": "Repositorio"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -11060,7 +11223,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -11207,7 +11371,7 @@
             "type": "array"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -11218,7 +11382,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -11869,7 +12034,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -11880,7 +12045,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -12066,7 +12232,7 @@
             "default": null
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -12077,7 +12243,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -12113,7 +12280,7 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -12124,7 +12291,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -12228,7 +12396,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -12239,7 +12407,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -12945,7 +13114,7 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -12956,7 +13125,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -13528,7 +13698,7 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -13539,7 +13709,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -13755,7 +13926,7 @@
             "type": "string"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -13766,7 +13937,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -14473,7 +14645,7 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -14484,7 +14656,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -15056,7 +15229,7 @@
             "$ref": "#/$defs/EstadoUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -15067,7 +15240,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -15153,7 +15327,7 @@
             "$ref": "#/$defs/AlcanceUnidad"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -15164,7 +15338,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -16066,7 +16241,7 @@
                 "type": "integer"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -16077,7 +16252,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -16133,11 +16309,31 @@
                 "description": "Commit del canónico; None si nunca se indexó.",
                 "title": "Commit"
               },
+              "contenido_verificado": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Desde 1.10: resultado de comparar el contenido del canónico con el resumen que CI calculó sobre el árbol del commit al subir el último índice (``GraphIndexEntrada.resumen``). True = coincide; False = hay rutas que difieren (ver ``rutas_divergentes``); None = el índice no trajo resumen (cliente anterior a 1.10) y el contenido no se comparó.",
+                "title": "Contenido Verificado"
+              },
               "desactualizado": {
                 "default": false,
                 "description": "True si ``indexado_en`` es más antiguo que el plazo del servidor (``RAILSPEC_GRAFO_FRESCURA_HORAS``; 0 = no avisa). Es un aviso de tiempo, no una comparación con el repositorio: ver ``avisos`` y el proxy local.",
                 "title": "Desactualizado",
                 "type": "boolean"
+              },
+              "divergencias_total": {
+                "default": 0,
+                "description": "Desde 1.10: cuántas rutas difieren entre el canónico y el resumen de CI.",
+                "minimum": 0,
+                "title": "Divergencias Total",
+                "type": "integer"
               },
               "indexado": {
                 "description": "False si el repositorio nunca recibió un índice canónico: sus consultas no devuelven nada de él (vacío no significa que el símbolo no exista).",
@@ -16157,6 +16353,18 @@
                 "default": null,
                 "description": "Instante en que se aplicó el último índice canónico. None si nunca se indexó o si el índice es anterior a que el servidor guardara este instante.",
                 "title": "Indexado En"
+              },
+              "rutas_divergentes": {
+                "description": "Desde 1.10: las primeras rutas que difieren, en orden alfabético (a lo sumo 20).",
+                "items": {
+                  "description": "Ruta relativa a la raíz del repositorio, sin '..' ni '/' inicial.",
+                  "maxLength": 1024,
+                  "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "title": "Rutas Divergentes",
+                "type": "array"
               }
             },
             "required": [
@@ -16636,7 +16844,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -16647,7 +16855,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -16786,7 +16995,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -16797,7 +17006,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -16940,7 +17150,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -16951,7 +17161,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -17071,7 +17282,7 @@
                 "$ref": "#/$defs/AlcanceUnidad"
               },
               "version_contrato": {
-                "default": "1.9",
+                "default": "1.10",
                 "enum": [
                   "1.0",
                   "1.1",
@@ -17082,7 +17293,8 @@
                   "1.6",
                   "1.7",
                   "1.8",
-                  "1.9"
+                  "1.9",
+                  "1.10"
                 ],
                 "title": "Version Contrato",
                 "type": "string"
@@ -17897,7 +18109,7 @@
             "title": "Orden Vigente"
           },
           "version_contrato": {
-            "default": "1.9",
+            "default": "1.10",
             "enum": [
               "1.0",
               "1.1",
@@ -17908,7 +18120,8 @@
               "1.6",
               "1.7",
               "1.8",
-              "1.9"
+              "1.9",
+              "1.10"
             ],
             "title": "Version Contrato",
             "type": "string"
@@ -17932,5 +18145,5 @@
       ]
     }
   ],
-  "version_contrato": "1.9"
+  "version_contrato": "1.10"
 }

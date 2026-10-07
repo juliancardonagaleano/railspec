@@ -940,3 +940,29 @@ def test_contexto_armado_grafo_avisos_y_frescura_son_opcionales() -> None:
     contexto["grafo_avisos"] = ["x" * 1001]
     with pytest.raises(ValidationError):
         TypeAdapter(OrdenDeTrabajo).validate_python(orden)
+
+
+# --- Resumen del contenido de un índice (1.10) -----------------------------------------
+
+
+def test_resumen_es_estable_y_no_depende_del_orden() -> None:
+    from railspec.contracts.resumen import divergencias, resumir
+
+    a = [("s1", "src/a.py", "a" * 64), ("s2", "src/a.py", "b" * 64), ("s3", "src/b.py", "c" * 64)]
+    r = resumir(a)
+    assert [x.ruta for x in r.archivos] == ["src/a.py", "src/b.py"]
+    assert [x.simbolos for x in r.archivos] == [2, 1]
+    assert resumir(reversed(a)) == r
+    assert divergencias(r, resumir(reversed(a))) == []
+    # Un símbolo que cambió de contenido, uno que falta y un archivo que sobra.
+    otro = [("s1", "src/a.py", "d" * 64), ("s2", "src/a.py", "b" * 64), ("s4", "src/c.py", "e" * 64)]
+    assert divergencias(r, resumir(otro)) == ["src/a.py", "src/b.py", "src/c.py"]
+
+
+def test_resumen_solo_viaja_en_el_ultimo_lote() -> None:
+    from railspec.contracts.resumen import resumir
+
+    r = resumir([("s1", "src/a.py", "a" * 64)])
+    ok = _entrada_index(lote=2, lotes=2, resumen=r)
+    assert GraphIndexEntrada.model_validate(ok).resumen == r
+    _rechaza(GraphIndexEntrada, _entrada_index(lote=1, lotes=2, resumen=r), "último lote")
