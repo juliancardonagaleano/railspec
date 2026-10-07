@@ -215,6 +215,27 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         return await proxy().consultar_grafo(consulta, repositorios, unidad, limite)
 
     @_errores
+    async def code_search(
+        texto: str,
+        limite: int = 20,
+        tipos: list[str] | None = None,
+        ruta: str | None = None,
+        unidad: str | None = None,
+    ) -> dict[str, Any]:
+        """Busca texto en el código del clon (nombre, ruta y cuerpo de cada símbolo) con BM25,
+        sin red y sin modelo: complementa a `graph_query`, que responde por nombre. Devuelve símbolos
+        con su ruta, líneas y un fragmento con los términos marcados entre «»; para el código
+        completo, lee el archivo. `tipos` filtra por tipo de símbolo y `ruta` por prefijo de ruta.
+        Lee `avisos`: dicen si no hay índice (llama `code_index`) o si va por detrás de tu rama."""
+        return await proxy().buscar_codigo(texto, limite, tipos, ruta, unidad)
+
+    @_errores
+    async def code_index(unidad: str | None = None) -> dict[str, Any]:
+        """Construye el índice de texto de `code_search` con el indexador local (una vez por clon o
+        unidad; después se mantiene con cada `unit_report`). Todo queda en .railspec/ y no viaja."""
+        return await proxy().indexar_codigo(unidad)
+
+    @_errores
     async def insumo_pull(insumo: UUID, unidad: str | None = None) -> dict[str, Any]:
         """Trae un insumo del chat de la consola y lo escribe como Markdown en .railspec/insumos/
         del worktree de la unidad (o de la raíz si no hay unidad)."""
@@ -239,6 +260,8 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         (unit_status, nombre_mcp("unit.status"), lectura),
         (unit_list, nombre_mcp("unit.list"), lectura),
         (graph_query, nombre_mcp("graph.query"), lectura),
+        (code_search, "code_search", lectura),
+        (code_index, "code_index", escritura),
         (insumo_pull, "insumo_pull", escritura),
         (railspec_sync, "railspec_sync", escritura),
     ):

@@ -41,6 +41,8 @@ devuelva `cerrada`:
   busca por nombre de símbolo, no por significado. Lee `contexto.grafo_avisos` y los `avisos` de
   `graph_query`: si dicen que no hay grafo, que el repositorio no está indexado o que el índice
   está desactualizado, una rebanada vacía significa «no sé», no «no existe»: busca en el worktree.
+- Para buscar por lo que hace el código y no por su nombre, usa `code_search` (palabras del cuerpo,
+  sin red). Si dice que no hay índice, llama `code_index` una vez; lee sus `avisos`.
 
 ## Reportar
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,7 +60,7 @@ from railspec.contracts.tools import (
     UnitStatusSalida,
 )
 
-from . import git, insumos, validacion
+from . import busqueda, git, insumos, secretos, validacion
 from .almacen import EXCLUIR_DE_GIT, Almacen
 from .cliente import ClienteServidor
 from .config import Config
@@ -68,6 +69,8 @@ from .indice import Indexador
 from .politica import construir_snapshot
 from .rebase import rebasar_unidad
 from .rutas import coincide
+
+log = logging.getLogger(__name__)
 
 Json = dict[str, Any]
 
@@ -341,6 +344,7 @@ class ProxyLocal:
                 )
                 snapshot = construido.snapshot
                 avisos += construido.avisos
+                self._refrescar_busqueda(worktree, snapshot.delta_indice)
                 if construido.excluidos:
                     local["excluidos_del_snapshot"] = construido.excluidos
                 if completado and isinstance(orden, OrdenImplementar):
@@ -816,6 +820,109 @@ class ProxyLocal:
             "texto (salvo que tenga su propio codificador), así que los resultados pueden no ser por "
             "similitud. Busca por nombre (`resolve`) o con texto literal."
         ]
+
+    # --- búsqueda de texto local (FTS5) ---------------------------------------------
+
+    def _base_busqueda(self, unidad: str | None) -> Path:
+        """Dónde buscar: el worktree de la unidad; sin ``unidad``, el único que haya, o la raíz del clon."""
+
+        locales = self.unidades_locales()
+        if unidad is None:
+            return next(iter(locales.values())) if len(locales) == 1 else self.raiz
+        if unidad not in locales:
+            raise ErrorRailspec(f"No hay worktree local para la unidad {unidad}; arráncala con unit_start.")
+        return locales[unidad]
+
+    def _refrescar_busqueda(self, worktree: Path, delta: Any) -> None:
+        """Mantiene al día el índice de texto con el delta de un snapshot; nunca bloquea el reporte."""
+
+        if delta is None:
+            return
+        try:
+            busqueda.IndiceTexto.de(worktree).aplicar(worktree, delta, git.head(worktree))
+        except Exception as exc:  # noqa: BLE001 - sqlite, git o disco: el índice se reconstruye con code_index
+            log.warning("no se pudo actualizar el índice de texto: %s", exc)
+
+    async def indexar_codigo(self, unidad: str | None = None) -> Json:
+        """Construye el índice de texto completo del clon o de la unidad con el indexador local."""
+
+        if self.indexador is None:
+            raise ErrorRailspec(
+                "No hay indexador local (codebase-memory-mcp): sin él no hay símbolos que indexar. "
+                "Ejecuta `railspec doctor` para ver qué falta."
+            )
+        base = self._base_busqueda(unidad)
+        repositorio = self.config.repo.repositorio
+        indexador = self.indexador
+
+        def construir() -> Json:
+            patrones = secretos.exclusiones(base)
+            delta = indexador.delta(base, repositorio, git.arbol_vacio(base), git.archivos(base), patrones)
+            n = busqueda.IndiceTexto.de(base).reemplazar(
+                base,
+                delta.simbolos_upsert,
+                commit=git.head(base),
+                repositorio=repositorio,
+                motor=delta.motor.version,
+            )
+            return {"simbolos": n, "base": str(base), "commit": git.head(base)}
+
+        try:
+            return await asyncio.to_thread(construir)
+        except busqueda.BusquedaNoDisponible as exc:
+            raise ErrorRailspec(str(exc)) from exc
+
+    async def buscar_codigo(
+        self,
+        texto: str,
+        limite: int = 20,
+        tipos: list[str] | None = None,
+        ruta: str | None = None,
+        unidad: str | None = None,
+    ) -> Json:
+        base = self._base_busqueda(unidad)
+        indice = busqueda.IndiceTexto.de(base)
+        meta = indice.meta()
+        if meta.get("completo") != "1":
+            return {
+                "resultados": [],
+                "indice": None,
+                "avisos": [
+                    f"No hay índice de texto en {base}: llama code_index (o `railspec indice`) una vez; "
+                    "tarda lo que el indexador en recorrer el repositorio."
+                ],
+            }
+        try:
+            resultados = indice.buscar(texto, limite, tipos, ruta)
+        except busqueda.BusquedaNoDisponible as exc:
+            raise ErrorRailspec(str(exc)) from exc
+        avisos: list[str] = []
+        try:
+            actual = git.head(base)
+        except ErrorRailspec:
+            actual = None
+        vigente = meta.get("commit_actualizado") or meta.get("commit")
+        if actual and vigente and actual != vigente:
+            avisos.append(
+                f"El índice de texto es del commit {vigente[:12]} y tu rama va en {actual[:12]}: lo editado "
+                "desde entonces puede faltar o estar desplazado. Vuelve a llamar code_index si importa."
+            )
+        if not resultados:
+            avisos.append(
+                "Sin coincidencias. La búsqueda es por palabras (los nombres en camelCase y snake_case se "
+                "parten) y solo cubre lo que el indexador reconoce como símbolo; un texto suelto fuera de "
+                "una función o clase no está. Prueba con menos palabras o con `graph_query` (resolve)."
+            )
+        return {
+            "resultados": resultados,
+            "indice": {
+                "simbolos": int(meta.get("simbolos", 0)),
+                "commit": meta.get("commit"),
+                "construido": meta.get("construido"),
+                "actualizado": meta.get("actualizado"),
+            },
+            "avisos": avisos,
+        }
 
     async def traer_insumo(self, insumo_id: UUID, unidad: str | None = None) -> Json:
         """``railspec insumo pull``: escribe el insumo en el worktree de la unidad (o en la raíz)."""
