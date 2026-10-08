@@ -492,6 +492,11 @@ class EventoAuditoria(StrEnum):
     bloqueo_gate_salida = "bloqueo-gate-salida"
     importacion = "importacion"  # desde 1.4: unit.import
     cambio_modo = "cambio-modo"  # desde 1.7: unit.set_mode
+    cambio_mandato = (
+        "cambio-mandato"  # desde 1.11: propuesta, aprobación, parada o revocación (detalle.accion)
+    )
+    decision_delegada = "decision-delegada"  # desde 1.11: una decisión tomada bajo el mandato
+    revision_decision = "revision-decision"  # desde 1.11: un humano acepta o revierte una decisión
 
 
 class RegistroAuditoria(Mensaje):

@@ -463,6 +463,12 @@ def test_registro_de_tools() -> None:
         "sync.push",
         "unit.import",
         "unit.export",
+        "mandate.propose",
+        "mandate.approve",
+        "mandate.revoke",
+        "mandate.review",
+        "mandate.get",
+        "mandate.list",
     }
     assert all(t.efecto == Efecto.lectura for t in tools_para(Superficie.chat))
     assert [t.nombre for t in TOOLS.values() if Superficie.chat in t.superficies and t.nombre == "code.read"]

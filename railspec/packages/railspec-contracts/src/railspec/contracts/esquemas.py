@@ -19,6 +19,7 @@ from .chat import Conversacion, MensajeChat, RespuestaChat, VeredictoGateSalida
 from .estado import EstadoLocal, EstadoUnidad
 from .eventos import EventoSync
 from .insumo import Insumo
+from .mandato import Mandato
 from .orden import OrdenDeTrabajo
 from .portabilidad import PaqueteUnidad
 from .reporte import ReporteOrden
@@ -49,6 +50,7 @@ MENSAJES: dict[str, Any] = {
     "estado-local": EstadoLocal,
     "insumo": Insumo,
     "paquete-unidad": PaqueteUnidad,
+    "mandato": Mandato,
     "respuesta-chat": RespuestaChat,
     "veredicto-gate-salida": VeredictoGateSalida,
     "conversacion": Conversacion,

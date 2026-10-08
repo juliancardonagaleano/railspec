@@ -59,6 +59,15 @@ from railspec.contracts.estado import (
 )
 from railspec.contracts.eventos import Direccion, EventoSync, SnapshotSubido
 from railspec.contracts.insumo import Insumo, RepositorioInsumo
+from railspec.contracts.mandato import (
+    AprobacionMandato,
+    Delegacion,
+    EstadoMandato,
+    LimitesMandato,
+    Mandato,
+    MandatoContenido,
+    TipoDelegacion,
+)
 from railspec.contracts.orden import AlcanceArchivos, Artefacto, ContextoArmado, OrdenImplementar, Tarea
 from railspec.contracts.portabilidad import ArtefactosPaquete, GateImportado, OrigenPaquete, PaqueteUnidad
 from railspec.contracts.referencias import RefCriterio, RefSimbolo
@@ -557,6 +566,63 @@ def auditoria() -> RegistroAuditoria:
     )
 
 
+def mandato_contenido(modo: Modo = Modo.desatendido) -> MandatoContenido:
+    return MandatoContenido(
+        titulo="Migrar emisión de certificados a PDF/A",
+        objetivo="Dejar la emisión de certificados en PDF/A con firma, sin tocar el modelo de datos.",
+        modo=modo,
+        limites=LimitesMandato(
+            repositorios=["certificados-api"],
+            max_unidades=3,
+            rutas_permitidas=["src/pdf/**", "tests/pdf/**"],
+            presupuesto=Presupuesto(tokens_max=2_000_000, costo_usd_max=25.0),
+            reintentos_parada=1,
+            vigencia_horas=12,
+        ),
+        delegaciones=[
+            Delegacion(
+                id="D-1",
+                tipo=TipoDelegacion.pre_decidida,
+                texto="La biblioteca de PDF es la que ya usa el repositorio.",
+            ),
+            Delegacion(
+                id="D-2",
+                tipo=TipoDelegacion.con_criterio,
+                texto="Nombres de funciones nuevas: seguir el estilo del módulo vecino.",
+            ),
+            Delegacion(
+                id="D-3",
+                tipo=TipoDelegacion.reservada,
+                texto="Cualquier cambio de esquema de base de datos.",
+            ),
+        ],
+    )
+
+
+def mandato() -> Mandato:
+    contenido = mandato_contenido()
+    return Mandato(
+        alcance=ALCANCE_WS,
+        id="pdf-a",
+        version=2,
+        contenido=contenido,
+        estado=EstadoMandato.aprobado,
+        aprobaciones=[
+            AprobacionMandato(
+                actor=JULIAN_WEB,
+                en=T0,
+                caduca_en=T0 + timedelta(hours=12),
+                huella=contenido.huella(),
+                comentario="Esta noche, solo certificados-api.",
+            )
+        ],
+        creado_en=T0 - timedelta(hours=1),
+        creado_por=JULIAN_WEB,
+        actualizado_en=T0,
+        actualizado_por=JULIAN_WEB,
+    )
+
+
 def artefacto(tipo: Artefacto, contenido: str) -> ArtefactoRedactado:
     return ArtefactoRedactado(tipo=tipo, contenido=contenido, sha256=sha(contenido))
 
@@ -588,6 +654,7 @@ EJEMPLOS = {
     "estado-local": estado_local,
     "insumo": insumo,
     "paquete-unidad": paquete_unidad,
+    "mandato": mandato,
     "respuesta-chat": respuesta_chat,
     "veredicto-gate-salida": veredicto_permitido,
     "conversacion": conversacion,

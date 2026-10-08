@@ -9,6 +9,7 @@ from pydantic import UUID4, AwareDatetime, Field, model_validator
 
 from ._base import Contrato, Mensaje
 from .comun import AlcanceUnidad, Commit, Proveedor, Sha256, TareaId, ids_unicos
+from .mandato import MAX_DECISIONES_POR_REPORTE, DecisionPropuesta
 from .orden import Artefacto
 from .snapshot import Snapshot
 
@@ -69,6 +70,15 @@ class ReporteOrden(Mensaje):
         default=None, max_length=4000, description="Obligatorio si fallido o bloqueado."
     )
     uso_modelo: UsoModeloArnes | None = None
+    decisiones: list[DecisionPropuesta] = Field(
+        default_factory=list,
+        max_length=MAX_DECISIONES_POR_REPORTE,
+        description=(
+            "Desde 1.11: decisiones que el arnés tomó apoyándose en las delegaciones del mandato de la "
+            "unidad. El servidor las registra para revisión humana; una que cita una delegación "
+            "`reservada` o inexistente se rechaza (hay que reportar `bloqueado`)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _coherente(self) -> ReporteOrden:

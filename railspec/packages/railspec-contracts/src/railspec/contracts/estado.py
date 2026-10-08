@@ -43,6 +43,7 @@ from .comun import (
 )
 from .eventos import Direccion, EventoSync
 from .hallazgos import Hallazgo, bloqueantes
+from .mandato import CausaParada, DecisionDelegada
 from .orden import OrdenDeTrabajo
 
 
@@ -74,10 +75,20 @@ class ResultadoGate(Contrato):
     criticos: list[str] = Field(default_factory=list, description="Lentes del panel.")
     refutador: bool = False
     rehabilitado: Rehabilitacion | None = None
+    diferido: bool = Field(
+        default=False,
+        description=(
+            "Desde 1.11: en una unidad `desatendido`, el gate escaló y la unidad se difirió (kit: "
+            "`escalado: auto-deferred`): las demás unidades del mandato siguen y un humano la "
+            "rehabilita después."
+        ),
+    )
     cerrado_en: AwareDatetime
 
     @model_validator(mode="after")
     def _reglas(self) -> ResultadoGate:
+        if self.diferido and self.veredicto != Veredicto.escalado:
+            raise ValueError("solo un gate escalado puede diferirse")
         if self.veredicto == Veredicto.escalado:
             if self.causa is None:
                 raise ValueError("un gate escalado necesita causa")
@@ -137,6 +148,22 @@ class Checkpoint(Contrato):
     pregunta: str = Field(min_length=1, max_length=2000)
     artefacto_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     abierto_en: AwareDatetime
+    causa_parada: CausaParada | None = Field(
+        default=None,
+        description=(
+            "Desde 1.11: por qué se detuvo una unidad bajo mandato (solo en `parada` y `gate-escalado`). "
+            "None en una parada de una unidad sin mandato."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _causa(self) -> Checkpoint:
+        if self.causa_parada is not None and self.tipo not in (
+            TipoCheckpoint.parada,
+            TipoCheckpoint.gate_escalado,
+        ):
+            raise ValueError("causa_parada solo va en una parada o un gate escalado")
+        return self
 
 
 class ResolucionCheckpoint(Contrato):
@@ -271,6 +298,13 @@ class EstadoUnidad(Mensaje):
     depende_de: list[UnidadId] = Field(default_factory=list)
     presupuesto: Presupuesto = Field(default_factory=Presupuesto)
     consumo: Consumo = Field(default_factory=Consumo)
+    decisiones: list[DecisionDelegada] = Field(
+        default_factory=list,
+        description=(
+            "Desde 1.11: decisiones tomadas bajo el mandato de la unidad (`unidad.plan`), con su "
+            "revisión humana pendiente o hecha. Solo crece."
+        ),
+    )
     creado_en: AwareDatetime
     actualizado_en: AwareDatetime
     actualizado_por: Actor
@@ -278,6 +312,9 @@ class EstadoUnidad(Mensaje):
     @model_validator(mode="after")
     def _reglas(self) -> EstadoUnidad:
         ids_unicos([r.repositorio for r in self.repositorios], "repositorios")
+        ids_unicos([d.id for d in self.decisiones], "decisiones delegadas")
+        if self.decisiones and self.unidad.plan is None:
+            raise ValueError("solo una unidad de un mandato (unidad.plan) lleva decisiones delegadas")
         ids_unicos([str(r.checkpoint) for r in self.resoluciones], "resoluciones de checkpoint")
         _exigir_humano(self.dueno, "ser dueño de una unidad")
         if not any(r.rol == RolRepositorio.primario for r in self.repositorios):

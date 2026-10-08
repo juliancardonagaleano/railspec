@@ -167,6 +167,22 @@
       "title": "CausaEscalado",
       "type": "string"
     },
+    "CausaParada": {
+      "description": "Condiciones de parada tipificadas (kit SDD: ``.spec/PARADAS-SUPERVISADO.md``).\n\nLas cinco primeras detienen el mandato entero; las cuatro últimas, solo la unidad afectada\n(``gate-escalado`` es de ambas: en supervisado congela el mandato y en desatendido difiere la unidad).",
+      "enum": [
+        "gate-escalado",
+        "plan-incompleto",
+        "presupuesto-mandato",
+        "mandato-caducado",
+        "mandato-revocado",
+        "unidad-amparada-fallida",
+        "fuera-de-alcance",
+        "decision-reservada",
+        "reintentos-agotados"
+      ],
+      "title": "CausaParada",
+      "type": "string"
+    },
     "Checkpoint": {
       "additionalProperties": false,
       "description": "Decisión humana pendiente.\n\nSe resuelve por cualquier canal (elicitation en el arnés, ``unit.approve``\no la consola): gana la primera resolución que llegue y las siguientes se\nrechazan con ``checkpoint-ya-resuelto``.",
@@ -188,6 +204,18 @@
           ],
           "default": null,
           "title": "Artefacto Sha256"
+        },
+        "causa_parada": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CausaParada"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.11: por qué se detuvo una unidad bajo mandato (solo en `parada` y `gate-escalado`). None en una parada de una unidad sin mandato."
         },
         "fase": {
           "$ref": "#/$defs/Fase"
@@ -365,6 +393,93 @@
       ],
       "title": "Decision",
       "type": "string"
+    },
+    "DecisionDelegada": {
+      "additionalProperties": false,
+      "description": "Registro de una decisión tomada bajo el mandato; un humano la revisa después.",
+      "properties": {
+        "alternativas": {
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Alternativas",
+          "type": "array"
+        },
+        "delegacion": {
+          "description": "La delegación del mandato en que se apoya, o `reintento` (la aplica el servidor).",
+          "pattern": "^(D-[0-9]{1,3}|reintento)$",
+          "title": "Delegacion",
+          "type": "string"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "fase": {
+          "$ref": "#/$defs/Fase"
+        },
+        "id": {
+          "description": "Decisión delegada de una unidad, p. ej. DD-3; única dentro de la unidad.",
+          "pattern": "^DD-[0-9]{1,4}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "orden": {
+          "anyOf": [
+            {
+              "format": "uuid4",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "La orden durante la que se tomó.",
+          "title": "Orden"
+        },
+        "que": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Que",
+          "type": "string"
+        },
+        "revertir": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Revertir",
+          "type": "string"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RevisionDecision"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tomada_por": {
+          "$ref": "#/$defs/Actor"
+        }
+      },
+      "required": [
+        "id",
+        "delegacion",
+        "que",
+        "revertir",
+        "fase",
+        "tomada_por",
+        "en"
+      ],
+      "title": "DecisionDelegada",
+      "type": "object"
     },
     "Effort": {
       "enum": [
@@ -899,6 +1014,12 @@
           "title": "Criticos",
           "type": "array"
         },
+        "diferido": {
+          "default": false,
+          "description": "Desde 1.11: en una unidad `desatendido`, el gate escaló y la unidad se difirió (kit: `escalado: auto-deferred`): las demás unidades del mandato siguen y un humano la rehabilita después.",
+          "title": "Diferido",
+          "type": "boolean"
+        },
         "gobernanza_consultada": {
           "$ref": "#/$defs/GobernanzaConsultada"
         },
@@ -942,6 +1063,50 @@
         "cerrado_en"
       ],
       "title": "ResultadoGate",
+      "type": "object"
+    },
+    "ResultadoRevision": {
+      "enum": [
+        "aceptada",
+        "revertida"
+      ],
+      "title": "ResultadoRevision",
+      "type": "string"
+    },
+    "RevisionDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "comentario": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comentario"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "resultado": {
+          "$ref": "#/$defs/ResultadoRevision"
+        }
+      },
+      "required": [
+        "resultado",
+        "actor",
+        "en"
+      ],
+      "title": "RevisionDecision",
       "type": "object"
     },
     "Riesgo": {
@@ -1068,6 +1233,14 @@
       "format": "date-time",
       "title": "Creado En",
       "type": "string"
+    },
+    "decisiones": {
+      "description": "Desde 1.11: decisiones tomadas bajo el mandato de la unidad (`unidad.plan`), con su revisión humana pendiente o hecha. Solo crece.",
+      "items": {
+        "$ref": "#/$defs/DecisionDelegada"
+      },
+      "title": "Decisiones",
+      "type": "array"
     },
     "depende_de": {
       "items": {
@@ -1225,7 +1398,7 @@
       "type": "integer"
     },
     "version_contrato": {
-      "default": "1.10",
+      "default": "1.11",
       "enum": [
         "1.0",
         "1.1",
@@ -1237,7 +1410,8 @@
         "1.7",
         "1.8",
         "1.9",
-        "1.10"
+        "1.10",
+        "1.11"
       ],
       "title": "Version Contrato",
       "type": "string"

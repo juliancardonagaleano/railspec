@@ -38,5 +38,5 @@
   "rol": "primario",
   "url": "https://github.com/acme/certificados-api",
   "version": 2,
-  "version_contrato": "1.10"
+  "version_contrato": "1.11"
 }

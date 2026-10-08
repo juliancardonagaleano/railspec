@@ -187,6 +187,50 @@
       "title": "CambioArchivo",
       "type": "object"
     },
+    "DecisionPropuesta": {
+      "additionalProperties": false,
+      "description": "Una decisión que el arnés tomó apoyándose en una delegación del mandato y reporta.",
+      "properties": {
+        "alternativas": {
+          "description": "Las que consideró y descartó.",
+          "items": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Alternativas",
+          "type": "array"
+        },
+        "delegacion": {
+          "description": "Delegación del mandato, p. ej. D-2.",
+          "pattern": "^D-[0-9]{1,3}$",
+          "title": "Delegacion",
+          "type": "string"
+        },
+        "que": {
+          "description": "Qué decidió.",
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Que",
+          "type": "string"
+        },
+        "revertir": {
+          "description": "Cómo se revierte.",
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Revertir",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delegacion",
+        "que",
+        "revertir"
+      ],
+      "title": "DecisionPropuesta",
+      "type": "object"
+    },
     "DeltaIndice": {
       "additionalProperties": false,
       "description": "Delta del índice local entre el commit base y el árbol de trabajo.",
@@ -622,7 +666,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.10",
+          "default": "1.11",
           "enum": [
             "1.0",
             "1.1",
@@ -634,7 +678,8 @@
             "1.7",
             "1.8",
             "1.9",
-            "1.10"
+            "1.10",
+            "1.11"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -744,6 +789,15 @@
       "title": "Base Commit",
       "type": "string"
     },
+    "decisiones": {
+      "description": "Desde 1.11: decisiones que el arnés tomó apoyándose en las delegaciones del mandato de la unidad. El servidor las registra para revisión humana; una que cita una delegación `reservada` o inexistente se rechaza (hay que reportar `bloqueado`).",
+      "items": {
+        "$ref": "#/$defs/DecisionPropuesta"
+      },
+      "maxItems": 20,
+      "title": "Decisiones",
+      "type": "array"
+    },
     "motivo": {
       "anyOf": [
         {
@@ -822,7 +876,7 @@
       "default": null
     },
     "version_contrato": {
-      "default": "1.10",
+      "default": "1.11",
       "enum": [
         "1.0",
         "1.1",
@@ -834,7 +888,8 @@
         "1.7",
         "1.8",
         "1.9",
-        "1.10"
+        "1.10",
+        "1.11"
       ],
       "title": "Version Contrato",
       "type": "string"

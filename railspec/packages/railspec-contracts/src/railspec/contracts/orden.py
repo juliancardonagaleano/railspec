@@ -33,6 +33,7 @@ from .comun import (
 )
 from .hallazgos import Hallazgo
 from .insumo import InsumoResuelto
+from .mandato import MandatoEnOrden
 from .referencias import FrescuraGrafo
 from .snapshot import SimboloId, TipoSimbolo
 
@@ -145,6 +146,13 @@ class _OrdenBase(Mensaje):
     comando_validacion: str | None = Field(default=None, max_length=2000)
     presupuesto: Presupuesto = Field(default_factory=Presupuesto)
     reporte_requerido: ReporteRequerido = Field(default_factory=ReporteRequerido)
+    mandato: MandatoEnOrden | None = Field(
+        default=None,
+        description=(
+            "Desde 1.11: el mandato bajo el que corre la unidad (modo supervisado o desatendido): sus "
+            "delegaciones, las rutas permitidas y los reintentos. None en una unidad sin mandato."
+        ),
+    )
 
     @model_validator(mode="after")
     def _base(self) -> _OrdenBase:
