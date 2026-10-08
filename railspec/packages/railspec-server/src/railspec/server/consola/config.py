@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 #: Largo mínimo del secreto de sesión (``openssl rand -base64 48`` da 64).
@@ -77,6 +77,15 @@ def _limite_auth(crudo: str | None) -> int:
 class ConfigGithubApp:
     client_id: str
     client_secret: str
+    #: Identidad de la App como instalación (``RAILSPEC_GITHUB_APP_ID`` y su clave privada PEM): con ella
+    #: la consola abre PR en los repositorios vinculados (``contexto.yaml`` y ``.railspecignore``).
+    #: Sin ellas el login funciona igual y la edición de esos archivos queda en modo manual.
+    app_id: str | None = None
+    clave_privada: str | None = field(default=None, repr=False)
+
+    @property
+    def puede_instalar(self) -> bool:
+        return bool(self.app_id and self.clave_privada)
 
 
 @dataclass(frozen=True)
@@ -128,7 +137,18 @@ class ConfigConsola:
             secreto = env.get("RAILSPEC_GITHUB_APP_CLIENT_SECRET")
             if not secreto:
                 raise ValueError("RAILSPEC_GITHUB_APP_CLIENT_ID exige RAILSPEC_GITHUB_APP_CLIENT_SECRET")
-            app = ConfigGithubApp(env["RAILSPEC_GITHUB_APP_CLIENT_ID"], secreto)
+            app_id = env.get("RAILSPEC_GITHUB_APP_ID") or None
+            clave = (env.get("RAILSPEC_GITHUB_APP_CLAVE_PRIVADA") or "").replace("\\n", "\n").strip() or None
+            if bool(app_id) != bool(clave):
+                raise ValueError(
+                    "RAILSPEC_GITHUB_APP_ID y RAILSPEC_GITHUB_APP_CLAVE_PRIVADA van juntas: sin las dos la "
+                    "consola no puede abrir PR en los repositorios"
+                )
+            if app_id is not None and not app_id.isdigit():
+                raise ValueError("RAILSPEC_GITHUB_APP_ID espera el id numérico de la App")
+            app = ConfigGithubApp(env["RAILSPEC_GITHUB_APP_CLIENT_ID"], secreto, app_id, clave)
+        elif env.get("RAILSPEC_GITHUB_APP_ID") or env.get("RAILSPEC_GITHUB_APP_CLAVE_PRIVADA"):
+            raise ValueError("RAILSPEC_GITHUB_APP_ID exige RAILSPEC_GITHUB_APP_CLIENT_ID (la misma App)")
         admins = set()
         for crudo in filter(None, (p.strip() for p in env.get("RAILSPEC_CONSOLA_ADMINS", "").split(","))):
             if not crudo.isdigit():

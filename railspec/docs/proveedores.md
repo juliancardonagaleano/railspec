@@ -600,5 +600,6 @@ cubiertos solo con dobles.
 ## Pendiente
 
 - Probar el adaptador de Anthropic directo contra la API real.
-- `contexto.yaml` por repositorio para declarar herramientas de contexto
-  junto al código, además de la configuración de la consola.
+- Que algo lea `contexto.yaml` por repositorio (declarar herramientas de contexto junto al código,
+  además de la configuración de la consola). La consola ya lo edita y valida
+  ([consola.md](consola.md#archivos-del-repositorio)); nada lo consume todavía.

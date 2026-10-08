@@ -53,7 +53,7 @@ def _volver(valor: str | None) -> str:
 
 
 def crear_api(ctx: ContextoConsola) -> FastAPI:
-    from . import rutas_admin, rutas_config, rutas_exploracion, rutas_suscripciones
+    from . import rutas_admin, rutas_archivos, rutas_config, rutas_exploracion, rutas_suscripciones
 
     api = FastAPI(title="Railspec consola", docs_url=None, redoc_url=None, openapi_url=None)
     api.state.consola = ctx
@@ -266,6 +266,6 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         cuerpo = salida_tool(tool.nombre, r.cuerpo) if r.ok else r.cuerpo
         return JSONResponse(cuerpo, status_code=r.estado_http)
 
-    for modulo in (rutas_admin, rutas_config, rutas_exploracion, rutas_suscripciones):
+    for modulo in (rutas_admin, rutas_archivos, rutas_config, rutas_exploracion, rutas_suscripciones):
         api.include_router(modulo.router)
     return api
