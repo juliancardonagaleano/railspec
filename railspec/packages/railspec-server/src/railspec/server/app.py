@@ -99,7 +99,14 @@ def ensamblar(
 
         acceso = AccesoGrafo(motor_grafo)
         grafo = AlmacenGrafo(acceso)
-    nucleo = Nucleo(almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=grafo)
+    from .avisos.servicio import BARRIDO_INFORME_S, ServicioAvisos
+
+    avisos = ServicioAvisos(
+        datos_consola, almacen, config.cifrador, config.smtp, url_consola=config.consola.url_publica
+    )
+    nucleo = Nucleo(
+        almacen=almacen, proveedores=proveedores, gobernanza=gobernanza, grafo=grafo, avisos=avisos
+    )
     motor = Motor(nucleo, CheckpointsMongo(almacen.db))
     # ``validar_arranque`` ya impide tokens de desarrollo sin la bandera; se repite aquí para que ni
     # la identidad ni lo que anuncia /consola/api/auth/config dependan de esa llamada.
@@ -161,10 +168,10 @@ def ensamblar(
         config=ConfigChat(modelos={Proveedor.foundry: config.chat_modelo}),
     )
     sondas = _sondas(config, almacen, motor_grafo)
-    fondo = []
-    if grafo is not None:
-        from .api.fondo import TareaFondo
+    from .api.fondo import TareaFondo
 
+    fondo = [TareaFondo("informe-semanal", BARRIDO_INFORME_S, avisos.informe_semanal_pendiente)]
+    if grafo is not None:
         # Las retenidas caducan aunque a su repositorio no le llegue un índice (ver ``barrer_retenidas``).
         fondo.append(TareaFondo("grafo-retenidas", BARRIDO_RETENIDAS_S, grafo.barrer_retenidas))
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas, fondo=fondo)
@@ -188,6 +195,7 @@ def ensamblar(
         fuente_codigo=fuente_codigo,
         catalogo=catalogo,
         suscripciones=suscripciones,
+        avisos=avisos,
         abierto=config.modo_memoria,
     )
     montar_consola(app, consola)

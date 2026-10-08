@@ -80,3 +80,8 @@ services:
       # endpoint de métricas. Ver docs/despliegue.md#esquema-del-estado-y-métricas.
       - key: RAILSPEC_METRICAS_TOKEN
         sync: false
+      # Servidor de correo de los avisos y del informe semanal (opcional):
+      # smtp://usuario:clave@host:587?desde=railspec@empresa.com (smtps:// para TLS directo). Sin él no hay correo;
+      # Teams no lo necesita. Ver railspec/docs/consola.md#avisos-e-informes.
+      - key: RAILSPEC_SMTP_URL
+        sync: false

@@ -64,6 +64,7 @@ from railspec.contracts.repositorio import (
     Workspace,
 )
 from railspec.contracts.tools import TelemetryQueryEntrada, UnitListEntrada
+from railspec.server.avisos.modelo import ConfigAvisos
 from railspec.server.consola.almacen import AlmacenConsola
 from railspec.server.consola.revocados import RevocadosMongo
 from railspec.server.estado import CheckpointsMongo, nombre_workflow
@@ -82,6 +83,11 @@ OTRO_WS = "otro-workspace"
 #: Lo que no está aquí es ``ws``, así que una colección nueva nace con la regla más estricta.
 REGLA_COLECCION = {
     "cache_nodos": "org",
+    "avisos_config": "org",
+    "avisos_envios": "org",
+    "avisos_eventos": "org",
+    "avisos_historial": "org",
+    "avisos_secretos": "org",
     "catalogo": "org",
     "catalogo_estado": "org",
     "organizaciones": "org",
@@ -296,6 +302,9 @@ def _configuracion() -> dict[str, Any]:
             leido_en=AHORA,
             error=None,
         ),
+        "avisos": ConfigAvisos(
+            org=ORG, version=1, activo=True, destinatarios=["equipo@acme.com"], auditoria=_auditoria()
+        ),
         "auditoria": RegistroAuditoria(
             id=uuid.uuid4(),
             alcance=WS_ALCANCE,
@@ -339,6 +348,7 @@ def _poblar():
     consola = AlmacenConsola(almacen.db)
     consola.guardar_suscripcion(config["suscripcion"], None)
     consola.guardar_clave_suscripcion(ORG, "foundry-eu", "v1.00000000.cifrado")
+    consola.guardar_avisos_config(config["avisos"], None)
     almacen.guardar_nodo_en_cache(ORG, "hash", {"valor": 1}, AHORA + timedelta(days=1))
     almacen.registrar_telemetria(config["telemetria"])
     almacen.registrar_auditoria(config["auditoria"])
@@ -603,6 +613,38 @@ def _recetas() -> dict[str, tuple[Any, str]]:
             lambda c: k(c).borrar_clave_suscripcion(ORG, "foundry-eu"),
             "org",
         ),
+        "AlmacenConsola.avisos_config": (lambda c: k(c).avisos_config(ORG), "org"),
+        "AlmacenConsola.guardar_avisos_config": (
+            lambda c: k(c).guardar_avisos_config(c.config["avisos"], 1),
+            "org",
+        ),
+        # Recorre todas las organizaciones a propósito: lo barre el fondo.
+        "AlmacenConsola.avisos_con_informe": (lambda c: k(c).avisos_con_informe(), "global"),
+        "AlmacenConsola.secreto_aviso": (lambda c: k(c).secreto_aviso(ORG, "teams"), "org"),
+        "AlmacenConsola.guardar_secreto_aviso": (
+            lambda c: k(c).guardar_secreto_aviso(ORG, "teams", "v1.00000000.otro"),
+            "org",
+        ),
+        "AlmacenConsola.borrar_secreto_aviso": (lambda c: k(c).borrar_secreto_aviso(ORG, "teams"), "org"),
+        "AlmacenConsola.registrar_evento_aviso": (
+            lambda c: k(c).registrar_evento_aviso(ORG, "clave-nueva", {"tipo": "gate-escalado"}, AHORA),
+            "org",
+        ),
+        "AlmacenConsola.eventos_aviso": (
+            lambda c: k(c).eventos_aviso(ORG, AHORA - timedelta(days=7), AHORA),
+            "org",
+        ),
+        "AlmacenConsola.reservar_envio": (
+            lambda c: k(c).reservar_envio(ORG, "clave", "correo", AHORA),
+            "org",
+        ),
+        "AlmacenConsola.liberar_envio": (lambda c: k(c).liberar_envio(ORG, "clave", "correo"), "org"),
+        "AlmacenConsola.envios_desde": (lambda c: k(c).envios_desde(ORG, AHORA - timedelta(hours=1)), "org"),
+        "AlmacenConsola.registrar_historial_aviso": (
+            lambda c: k(c).registrar_historial_aviso(ORG, {"tipo": "prueba"}, AHORA),
+            "org",
+        ),
+        "AlmacenConsola.historial_avisos": (lambda c: k(c).historial_avisos(ORG), "org"),
         "AlmacenConsola.registrar_auditoria": (
             lambda c: k(c).registrar_auditoria(nuevo(c.config["auditoria"])),
             "ws",
@@ -678,6 +720,9 @@ SIN_CONSULTA = {
     "AlmacenMongo.registrar_entrada",
     "AlmacenMongo.registrar_telemetria",
     "AlmacenConsola.registrar_auditoria",
+    "AlmacenConsola.registrar_evento_aviso",
+    "AlmacenConsola.reservar_envio",
+    "AlmacenConsola.registrar_historial_aviso",
 }
 
 

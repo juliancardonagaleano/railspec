@@ -656,6 +656,7 @@ class Gate(Nodo):
             cerrado_en=self.n.reloj(),
         )
         self.cerrar_gate(fase, resultado)
+        self.n.avisar_escalado(self.alcance, fase, causa.value, motivo)
         await ctx.send_message(GateEscalado(fase=fase, motivo=motivo[:1500]), target_id="decision")
 
     def impacto_grafo(self, estado, extraido=None) -> str:

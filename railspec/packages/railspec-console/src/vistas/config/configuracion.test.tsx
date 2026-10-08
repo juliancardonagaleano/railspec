@@ -9,6 +9,7 @@ import { ConfiguracionOrg, ConfiguracionWorkspace } from "./Configuracion";
 // puede editar según el rol. Autoriza el servidor; aquí se comprueba que la SPA no ofrece lo que no toca.
 
 const PESTANAS = ["Perfiles", "Presupuestos", "Proveedores de contexto", "Suscripciones", "Catálogo de modelos"];
+const PESTANA_AVISOS = "Avisos e informes";
 
 function servidor(rolOrg: Rol | null, rolWs?: Rol) {
   return servidorFalso({
@@ -20,6 +21,27 @@ function servidor(rolOrg: Rol | null, rolWs?: Rol) {
       cifrado: { disponible: true, variable: "RAILSPEC_CLAVE_MAESTRA" },
       suscripciones: [],
     }),
+    "GET /orgs/acme/avisos": () => ({
+      cifrado: { disponible: true, variable: "RAILSPEC_CLAVE_MAESTRA" },
+      canales: { teams: { disponible: true }, correo: { disponible: true } },
+      hosts_teams: [],
+      config: {
+        version: null,
+        activo: false,
+        teams: { configurado: false, host: null },
+        correo: { destinatarios: [] },
+        eventos: { gate_escalado: true, presupuesto_agotado: true },
+        informe: { activo: false, dia_semana: 0, hora_utc: 8 },
+      },
+      ultimos: [],
+    }),
+    "GET /orgs/acme/informe-semanal": () => ({
+      desde: "2026-10-01T00:00:00Z",
+      hasta: "2026-10-08T00:00:00Z",
+      totales: { unidades_cerradas: 0, gates_escalados: 0, costo_usd: 0, llamadas: 0 },
+      por_tier: [],
+      por_workspace: [],
+    }),
     "GET /orgs/acme/catalogo": () => [],
     "GET /orgs/acme/catalogo/estado": () => ({ sincronizable: true, proveedores: [] }),
   });
@@ -30,13 +52,13 @@ const abrir = async (nombre: string) => userEvent.click(await screen.findByRole(
 describe("Configuración de la organización", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("un admin. de organización ve las cinco pestañas, Perfiles primero, y puede editar", async () => {
+  it("un admin. de organización ve las seis pestañas, Perfiles primero, y puede editar", async () => {
     const s = servidor("org-admin");
     montarEnRuta(ConfiguracionOrg, "/$org/configuracion", "/acme/configuracion");
 
     expect(await screen.findByText("Valores por defecto para todos los workspaces.")).toBeInTheDocument();
     const pestanas = within(screen.getByRole("tablist", { name: "Configuración" })).getAllByRole("tab");
-    expect(pestanas.map((p) => p.textContent)).toEqual(PESTANAS);
+    expect(pestanas.map((p) => p.textContent)).toEqual([...PESTANAS, PESTANA_AVISOS]);
     expect(screen.getByRole("tab", { name: "Perfiles" })).toHaveAttribute("aria-selected", "true");
 
     await abrir("Suscripciones");
@@ -45,6 +67,9 @@ describe("Configuración de la organización", () => {
 
     await abrir("Catálogo de modelos");
     expect(await screen.findByRole("button", { name: "Sincronizar todos" })).toBeInTheDocument();
+
+    await abrir(PESTANA_AVISOS);
+    expect(await screen.findByRole("button", { name: "Enviar aviso de prueba" })).toBeInTheDocument();
     expect(s.noSimuladas).toEqual([]);
   });
 
@@ -61,6 +86,9 @@ describe("Configuración de la organización", () => {
     expect(await screen.findByText("El catálogo está vacío")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sincronizar todos" })).not.toBeInTheDocument();
     expect(s.de("PUT", "/orgs/acme/perfiles/estandar")).toHaveLength(0);
+    // Avisos e informes es solo de admin. de organización: ni la pestaña ni su consulta.
+    expect(screen.queryByRole("tab", { name: PESTANA_AVISOS })).not.toBeInTheDocument();
+    expect(s.de("GET", "/orgs/acme/avisos")).toHaveLength(0);
   });
 
   it("solo la pestaña abierta pide sus datos (presupuestos y proveedores esperan a abrirse)", async () => {
