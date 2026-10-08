@@ -104,15 +104,19 @@ class Cifrador:
         return cls(claves)
 
     @staticmethod
-    def _aad(org: str, suscripcion: str) -> bytes:
-        return f"railspec/suscripcion/{org}/{suscripcion}".encode()
+    def _aad(org: str, suscripcion: str, dominio: str = "suscripcion") -> bytes:
+        return f"railspec/{dominio}/{org}/{suscripcion}".encode()
 
-    def cifrar(self, secreto: str, org: str, suscripcion: str) -> str:
+    def cifrar(self, secreto: str, org: str, suscripcion: str, dominio: str = "suscripcion") -> str:
+        """``dominio`` separa los usos de la clave: un valor cifrado para otro uso no descifra aquí."""
+
         nonce = os.urandom(_NONCE)
-        cifrado = self._claves[self._actual].encrypt(nonce, secreto.encode(), self._aad(org, suscripcion))
+        cifrado = self._claves[self._actual].encrypt(
+            nonce, secreto.encode(), self._aad(org, suscripcion, dominio)
+        )
         return f"{_VERSION}.{self._actual}.{base64.urlsafe_b64encode(nonce + cifrado).decode()}"
 
-    def descifrar(self, valor: str, org: str, suscripcion: str) -> str:
+    def descifrar(self, valor: str, org: str, suscripcion: str, dominio: str = "suscripcion") -> str:
         m = _FORMA.match(valor or "")
         if m is None:
             raise ErrorCifrado("cifrado-ilegible", "la clave guardada no tiene el formato cifrado esperado")
@@ -126,7 +130,9 @@ class Cifrador:
             )
         try:
             crudo = base64.urlsafe_b64decode(m.group(2))
-            return clave.decrypt(crudo[:_NONCE], crudo[_NONCE:], self._aad(org, suscripcion)).decode()
+            return clave.decrypt(
+                crudo[:_NONCE], crudo[_NONCE:], self._aad(org, suscripcion, dominio)
+            ).decode()
         except (InvalidTag, binascii.Error, ValueError):
             raise ErrorCifrado(
                 "cifrado-ilegible",

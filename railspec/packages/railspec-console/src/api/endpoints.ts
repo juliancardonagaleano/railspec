@@ -5,6 +5,11 @@ import type {
   AsignacionRol,
   CommitIntegrable,
   ConfigAuth,
+  EscrituraAvisos,
+  EstadoAvisos,
+  InformeSemanal,
+  ConfigAvisos,
+  ResultadoPruebaAvisos,
   DeclaracionModelo,
   Decision,
   DetalleUnidad,
@@ -191,6 +196,15 @@ export const suscripciones = {
     pedir<Suscripcion>(`/orgs/${c(org)}/suscripciones/${c(id)}/modelos/${c(clave)}`, { metodo: "DELETE", consulta: { version } }),
 };
 
+export const avisos = {
+  leer: (org: string) => pedir<EstadoAvisos>(`/orgs/${c(org)}/avisos`),
+  /** Sin `version` crea; con ella edita. El URL del webhook nunca vuelve en la respuesta. */
+  guardar: (org: string, datos: EscrituraAvisos) => pedir<ConfigAvisos>(`/orgs/${c(org)}/avisos`, { metodo: "PUT", cuerpo: datos }),
+  prueba: (org: string, que: "aviso" | "informe") =>
+    pedir<ResultadoPruebaAvisos>(`/orgs/${c(org)}/avisos/prueba`, { metodo: "POST", cuerpo: { que } }),
+  informeSemanal: (org: string) => pedir<InformeSemanal>(`/orgs/${c(org)}/informe-semanal`),
+};
+
 export const perfiles = {
   listar: (org: string, ws?: string) =>
     pedir<PerfilConfig[]>(`/orgs/${c(org)}/perfiles`, { consulta: { workspace: ws } }),
@@ -247,6 +261,8 @@ export const claves = {
   catalogo: (org: string) => ["catalogo", org] as const,
   catalogoEstado: (org: string) => ["catalogo", org, "estado"] as const,
   suscripciones: (org: string) => ["suscripciones", org] as const,
+  avisos: (org: string) => ["avisos", org] as const,
+  informeSemanal: (org: string) => ["informe-semanal", org] as const,
   perfiles: (org: string, ws?: string) => ["perfiles", org, ws ?? null] as const,
   presupuestos: (org: string, ws?: string) => ["presupuestos", org, ws ?? null] as const,
   proveedores: (org: string, ws?: string) => ["proveedores-contexto", org, ws ?? null] as const,

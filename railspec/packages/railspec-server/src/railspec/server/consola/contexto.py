@@ -58,6 +58,8 @@ class ContextoConsola:
     catalogo: Any | None = None
     #: ``ServicioSuscripciones`` (conexiones a Foundry/Anthropic registradas desde la consola, contrato 1.6).
     suscripciones: Any | None = None
+    #: ``ServicioAvisos`` (Teams, correo e informe semanal por organización); ``None`` sin él.
+    avisos: Any | None = None
     #: Sin Mongo (solo desarrollo): toda persona sin asignaciones es ``desarrollador``.
     abierto: bool = False
     reloj: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))

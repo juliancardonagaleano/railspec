@@ -20,6 +20,7 @@ from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.tools import Superficie
 
 from ..api.identidad import TokenInvalido
+from ..avisos.servicio import ErrorAvisos
 from ..proveedores.suscripciones import ErrorSuscripcion
 from .contexto import CABECERA_CSRF, AutorizadorConsola, ContextoConsola
 from .github import ErrorGithub
@@ -53,7 +54,14 @@ def _volver(valor: str | None) -> str:
 
 
 def crear_api(ctx: ContextoConsola) -> FastAPI:
-    from . import rutas_admin, rutas_archivos, rutas_config, rutas_exploracion, rutas_suscripciones
+    from . import (
+        rutas_admin,
+        rutas_archivos,
+        rutas_avisos,
+        rutas_config,
+        rutas_exploracion,
+        rutas_suscripciones,
+    )
 
     api = FastAPI(title="Railspec consola", docs_url=None, redoc_url=None, openapi_url=None)
     api.state.consola = ctx
@@ -70,6 +78,10 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
 
     @api.exception_handler(ErrorSuscripcion)
     async def _suscripcion(request: Request, exc: ErrorSuscripcion) -> JSONResponse:
+        return JSONResponse({"detalle": exc.detalle, "codigo": exc.codigo}, status_code=exc.estado)
+
+    @api.exception_handler(ErrorAvisos)
+    async def _avisos(request: Request, exc: ErrorAvisos) -> JSONResponse:
         return JSONResponse({"detalle": exc.detalle, "codigo": exc.codigo}, status_code=exc.estado)
 
     @api.exception_handler(ConflictoVersion)
@@ -266,6 +278,13 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         cuerpo = salida_tool(tool.nombre, r.cuerpo) if r.ok else r.cuerpo
         return JSONResponse(cuerpo, status_code=r.estado_http)
 
-    for modulo in (rutas_admin, rutas_archivos, rutas_config, rutas_exploracion, rutas_suscripciones):
+    for modulo in (
+        rutas_admin,
+        rutas_archivos,
+        rutas_avisos,
+        rutas_config,
+        rutas_exploracion,
+        rutas_suscripciones,
+    ):
         api.include_router(modulo.router)
     return api

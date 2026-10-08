@@ -16,6 +16,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from .avisos.canales import ConfigSmtp, ErrorSmtp
 from .consola.config import ConfigConsola
 from .proveedores.cifrado import Cifrador, ErrorCifrado
 
@@ -105,6 +106,8 @@ class Configuracion:
     puerto: int = 8080
     #: ``RAILSPEC_METRICAS_TOKEN``: Bearer de ``GET /metrics`` (ver ``metricas.py``). Sin él no hay endpoint.
     metricas_token: str | None = field(default=None, repr=False)
+    #: ``RAILSPEC_SMTP_URL``: servidor de correo de los avisos (``avisos.canales``); sin él no hay correo.
+    smtp: ConfigSmtp | None = field(default=None, repr=False)
     #: Consola web (``RAILSPEC_CONSOLA_*`` y GitHub App); ver ``railspec/docs/consola.md``.
     consola: ConfigConsola = field(default_factory=ConfigConsola)
 
@@ -164,8 +167,16 @@ class Configuracion:
             host=env.get("RAILSPEC_HOST", "0.0.0.0"),
             puerto=int(env.get("RAILSPEC_PUERTO", "8080")),
             metricas_token=_token_metricas(env),
+            smtp=_smtp(env),
             consola=ConfigConsola.desde_entorno(env),
         )
+
+
+def _smtp(env: Mapping[str, str]) -> ConfigSmtp | None:
+    try:
+        return ConfigSmtp.desde_entorno(env)
+    except ErrorSmtp as exc:
+        raise ErrorConfiguracion(str(exc)) from None
 
 
 def validar_arranque(config: Configuracion) -> None:

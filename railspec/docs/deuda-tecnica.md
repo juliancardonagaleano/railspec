@@ -1,7 +1,7 @@
 # Deuda técnica
 
 Lo que se sabe que falta y se decidió no hacer todavía. Cada entrada dice qué hay hoy, qué falta y
-cómo se sabrá que está resuelta. Se verificó contra `master` el 2026-10-07.
+cómo se sabrá que está resuelta. Se verificó contra `master` el 2026-10-07 (la sección de avisos, el 2026-10-08).
 
 ## GitHub Actions no ejecuta ningún job de CI
 
@@ -12,6 +12,34 @@ es local y cada PR lo dice.
 
 **Resuelta cuando.** Un run de `railspec-ci` en `master` llega a ejecutar sus pasos. El primer fallo
 real que cabe esperar entonces son las pruebas que no se han visto en CI (FalkorDB real, `humo.mjs`).
+
+## Avisos e informes: sin probar contra un Teams ni un SMTP reales
+
+**Qué hay hoy (2026-10-08).** Un gate que escala o un presupuesto que se agota avisan por Teams (webhook
+entrante cifrado por organización) y por correo (SMTP de la plataforma, `RAILSPEC_SMTP_URL`), y cada semana sale un
+informe de unidades cerradas, gates escalados y gasto por tier ([consola.md](consola.md#avisos-e-informes)). Las
+pruebas cubren los canales con transportes y SMTP simulados, el cifrado, las reservas, el tope por hora, el
+informe y la API; el contrato no cambió. «Informes» no estaba definido: lo mínimo útil es este resumen semanal, no
+un generador de informes.
+
+**Qué falta.**
+
+- **Probarlo de verdad** (solo lo puede hacer quien administra Teams y el correo): crear el flujo de Teams, definir
+  `RAILSPEC_SMTP_URL` en Render y usar «Enviar aviso de prueba» e «Enviar informe ahora» en la consola. Hasta
+  entonces el formato de la tarjeta (Adaptive Card en un mensaje de Flujos de trabajo) no está verificado contra Teams.
+- **Hosts de Teams.** La lista de hosts admitidos es fija (nube comercial de Microsoft). Para nubes soberanas o un
+  relé propio haría falta una variable de plataforma, como `RAILSPEC_PROVEEDORES_HOSTS`.
+- **Umbrales previos.** Solo avisa al agotarse un tope, no al acercarse (80 %). Tampoco avisa de aprobaciones
+  pendientes, de unidades varadas ni del tope del chat (que no se comprueba, [motor.md](motor.md#presupuestos-y-telemetría)).
+- **Historia del informe.** Cuenta los escalados desde que existen los avisos (el registro dura 120 días) y fecha el
+  cierre de una unidad por su último cambio, que integrarla mueve; las unidades se recorren por workspace (hasta
+  20 000 por barrido). Sin entrega garantizada: un canal caído deja el intento en «Últimos avisos» y reintenta solo
+  el informe.
+- **Rotar la clave maestra.** El webhook se cifra con `RAILSPEC_CLAVE_MAESTRA`; tras rotarla sigue legible con
+  `RAILSPEC_CLAVE_MAESTRA_ANTERIOR`, pero se reescribe con la nueva solo al volver a guardarlo en la pantalla.
+
+**Resuelta cuando.** Una organización recibe en Teams y en el correo el aviso de prueba, el de un escalado real y el
+informe de un lunes, y se confirmó el formato y los destinos.
 
 ## Métricas de operación: sin scraper ni alertas en marcha (`/metrics`)
 

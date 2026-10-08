@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pymongo import ASCENDING, DESCENDING
@@ -49,6 +51,7 @@ from railspec.contracts.repositorio import (
 )
 from railspec.contracts.snapshot import Snapshot
 
+from ..avisos.modelo import ConfigAvisos
 from ..estado.mongo import clave_perfil, clave_presupuesto, clave_proveedor_contexto, filtro_sujetos
 
 #: Workspace reservado para auditar cambios a nivel organización.
@@ -78,6 +81,8 @@ class AlmacenConsola:
         db.roles.create_index([("org", ASCENDING), ("workspace", ASCENDING)])
         db.reportes.create_index([("_clave", ASCENDING)])
         db.catalogo_estado.create_index([("org", ASCENDING)])
+        for coleccion in ("avisos_eventos", "avisos_envios", "avisos_historial"):
+            db[coleccion].create_index("_expira", expireAfterSeconds=0)
 
     # --- escritura con bloqueo optimista ---------------------------------------------------------
 
@@ -305,6 +310,82 @@ class AlmacenConsola:
 
     def borrar_clave_suscripcion(self, org: str, id_: str) -> None:
         self.db.suscripciones_claves.delete_one({"org": org, "_id": f"{org}/{id_}"})
+
+    # --- avisos e informes (estado del servidor, no contrato) --------------------------------------
+    # Todo cuelga de la organización. ``avisos_secretos`` guarda el URL del webhook de Teams **cifrado**.
+
+    def avisos_config(self, org: str) -> ConfigAvisos | None:
+        return self._uno("avisos_config", {"org": org}, ConfigAvisos)
+
+    def guardar_avisos_config(self, c: ConfigAvisos, version_esperada: int | None) -> ConfigAvisos:
+        return self._guardar("avisos_config", {"org": c.org, "_id": c.org}, c, version_esperada)
+
+    def avisos_con_informe(self) -> list[ConfigAvisos]:
+        """Configuraciones activas con informe semanal, de todas las organizaciones (las barre el fondo)."""
+
+        filtro = {"activo": True, "informe.activo": True}
+        return self._varios("avisos_config", filtro, ConfigAvisos, [("org", ASCENDING)])
+
+    def secreto_aviso(self, org: str, nombre: str) -> str | None:
+        doc = self.db.avisos_secretos.find_one({"org": org, "_id": f"{org}/{nombre}"})
+        return str(doc["cifrado"]) if doc else None
+
+    def guardar_secreto_aviso(self, org: str, nombre: str, cifrado: str) -> None:
+        clave = f"{org}/{nombre}"
+        doc = {"_id": clave, "org": org, "nombre": nombre, "cifrado": cifrado}
+        self.db.avisos_secretos.replace_one({"org": org, "_id": clave}, doc, upsert=True)
+
+    def borrar_secreto_aviso(self, org: str, nombre: str) -> None:
+        self.db.avisos_secretos.delete_one({"org": org, "_id": f"{org}/{nombre}"})
+
+    def registrar_evento_aviso(self, org: str, clave: str, doc: dict[str, Any], ahora: datetime) -> bool:
+        """Guarda un escalado; ``False`` si esa clave ya estaba (otra réplica o un reintento lo contó)."""
+
+        en = ahora.astimezone(UTC)
+        try:
+            self.db.avisos_eventos.insert_one(
+                {**doc, "_id": f"{org}/{clave}", "org": org, "en": en, "_expira": en + timedelta(days=120)}
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+    def eventos_aviso(self, org: str, desde: datetime, hasta: datetime) -> list[dict[str, Any]]:
+        rango = {"$gte": desde.astimezone(UTC), "$lt": hasta.astimezone(UTC)}
+        return [_limpio(d) for d in self.db.avisos_eventos.find({"org": org, "en": rango})]
+
+    def reservar_envio(self, org: str, clave: str, canal: str, ahora: datetime) -> bool:
+        """Reserva el envío ``clave`` por ``canal``; ``False`` si otro ya lo tiene (no se envía dos veces)."""
+
+        en = ahora.astimezone(UTC)
+        try:
+            self.db.avisos_envios.insert_one(
+                {
+                    "_id": f"{org}/{clave}/{canal}",
+                    "org": org,
+                    "en": en,
+                    "_expira": en + timedelta(days=40),
+                }
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+    def liberar_envio(self, org: str, clave: str, canal: str) -> None:
+        self.db.avisos_envios.delete_one({"org": org, "_id": f"{org}/{clave}/{canal}"})
+
+    def envios_desde(self, org: str, desde: datetime) -> int:
+        return self.db.avisos_envios.count_documents({"org": org, "en": {"$gte": desde.astimezone(UTC)}})
+
+    def registrar_historial_aviso(self, org: str, doc: dict[str, Any], ahora: datetime) -> None:
+        en = ahora.astimezone(UTC)
+        self.db.avisos_historial.insert_one(
+            {**doc, "_id": str(uuid.uuid4()), "org": org, "en": en, "_expira": en + timedelta(days=30)}
+        )
+
+    def historial_avisos(self, org: str, limite: int = 20) -> list[dict[str, Any]]:
+        cursor = self.db.avisos_historial.find({"org": org}).sort([("en", DESCENDING)]).limit(limite)
+        return [_limpio(d) for d in cursor]
 
     # --- auditoría -------------------------------------------------------------------------------
 

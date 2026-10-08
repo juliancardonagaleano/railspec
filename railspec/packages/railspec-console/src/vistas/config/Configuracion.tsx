@@ -3,6 +3,7 @@ import { Encabezado } from "../../componentes/Estados";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../componentes/ui/tabs";
 import { alcanza } from "../../lib/roles";
 import { useOrg, useRol, useWorkspace } from "../../lib/sesion";
+import { Avisos } from "./Avisos";
 import { Catalogo } from "./Catalogo";
 import { Perfiles } from "./Perfiles";
 import { Presupuestos } from "./Presupuestos";
@@ -20,6 +21,7 @@ function PestanasConfig({ org, ws, editable, orgAdmin }: { org: string; ws?: str
         <TabsTrigger valor="proveedores">Proveedores de contexto</TabsTrigger>
         <TabsTrigger valor="suscripciones">Suscripciones</TabsTrigger>
         <TabsTrigger valor="catalogo">Catálogo de modelos</TabsTrigger>
+        {orgAdmin ? <TabsTrigger valor="avisos">Avisos e informes</TabsTrigger> : null}
       </TabsList>
       <TabsContent valor="perfiles">
         <Perfiles org={org} {...conWs} editable={editable} />
@@ -36,6 +38,11 @@ function PestanasConfig({ org, ws, editable, orgAdmin }: { org: string; ws?: str
       <TabsContent valor="catalogo">
         <Catalogo org={org} puedeSincronizar={orgAdmin} />
       </TabsContent>
+      {orgAdmin ? (
+        <TabsContent valor="avisos">
+          <Avisos org={org} />
+        </TabsContent>
+      ) : null}
     </Tabs>
   );
 }

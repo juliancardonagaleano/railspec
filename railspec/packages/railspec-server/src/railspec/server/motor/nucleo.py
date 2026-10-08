@@ -21,6 +21,7 @@ from railspec.contracts.comun import (
     AlcanceRepositorio,
     AlcanceUnidad,
     AlcanceWorkspace,
+    CausaEscalado,
     Fase,
     GateFase,
     NivelCodigo,
@@ -76,6 +77,8 @@ class Nucleo:
     oyentes: list[Callable[[EventoSync], None]] = field(default_factory=list)
     #: Insumos del chat (``chat.resolucion.ResolutorInsumos``); sin él, ``unit.start`` no acepta insumos.
     insumos: Any | None = None
+    #: ``avisos.servicio.ServicioAvisos``: avisa por Teams o correo cuando un gate escala. Sin él, nada.
+    avisos: Any | None = None
 
     # --- estado -------------------------------------------------------------------
 
@@ -395,6 +398,37 @@ class Nucleo:
         """Qué tope del presupuesto (unidad, fase o mes) impide otra llamada de ``gate``, o ``None``."""
 
         return presupuesto.agotado(self.almacen, self.reloj(), estado, gate, fase, gastado)
+
+    def avisar_escalado(self, alcance: AlcanceUnidad, fase: GateFase, causa: str, motivo: str) -> None:
+        """Avisa (Teams o correo) que un gate escaló. Nunca lanza ni espera a la red.
+
+        Solo salen identificadores, la causa y, si es el presupuesto, el tope y el consumo en números: el
+        ``motivo`` completo puede traer texto de hallazgos y no se manda.
+        """
+
+        if self.avisos is None:
+            return
+        try:
+            from ..avisos.modelo import EventoAviso, TipoAviso
+            from ..avisos.servicio import tope_de_motivo
+
+            presupuesto_agotado = causa == CausaEscalado.presupuesto_agotado.value
+            tope, consumo = tope_de_motivo(motivo) if presupuesto_agotado else (None, None)
+            self.avisos.notificar(
+                EventoAviso(
+                    tipo=TipoAviso.presupuesto_agotado if presupuesto_agotado else TipoAviso.gate_escalado,
+                    org=alcance.org,
+                    workspace=alcance.workspace,
+                    unidad=alcance.unidad,
+                    fase=fase.value,
+                    causa=causa,
+                    tope=tope,
+                    consumo=consumo,
+                    en=self.reloj(),
+                )
+            )
+        except Exception:  # un aviso nunca frena un gate
+            log.exception("no se pudo avisar del escalado de %s", alcance.unidad)
 
 
 def primario(estado: EstadoUnidad) -> str:
