@@ -324,6 +324,7 @@ está en [despliegue.md](despliegue.md#variables-de-los-manifiestos).
 | `RAILSPEC_CLAVE_MAESTRA` | Cifra las claves de las suscripciones de modelos que se registran en la consola ([proveedores.md](proveedores.md#suscripciones-de-modelos)) |
 | `RAILSPEC_ANTHROPIC_HABILITADO`, `RAILSPEC_ANTHROPIC_API_KEY` | Adaptador de Anthropic tras bandera |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Identidad: inicio de sesión de la consola y comprobación de que cada token de GitHub lo emitió la App |
+| `RAILSPEC_GITHUB_APP_ID`, `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` | Opcionales, juntas: la App como instalación, para que la consola abra PR con `contexto.yaml` y `.railspecignore` |
 | `RAILSPEC_PCE_URL`, `RAILSPEC_PCE_API_KEY` | Proveedor de gobernanza |
 
 ## Lo que queda abierto

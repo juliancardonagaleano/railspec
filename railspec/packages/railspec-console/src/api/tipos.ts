@@ -866,6 +866,43 @@ export interface EscrituraVinculo {
   motivo?: string;
 }
 
+// ---------------------------------------------------------------- archivos del repositorio
+
+/** Archivos de configuración que viven en el repositorio y que la consola propone cambiar por PR. */
+export type ArchivoRepo = "contexto" | "ignore";
+
+export interface LecturaArchivoRepo {
+  archivo: ArchivoRepo;
+  /** Ruta dentro del repositorio (`contexto.yaml`, `.railspecignore`). */
+  ruta: string;
+  /** `owner/repo` de GitHub. */
+  repositorio: string;
+  rama: string;
+  /** `null`: no se pudo leer (modo manual sin lectura). */
+  existe: boolean | null;
+  contenido: string;
+  /** Hash del archivo en la rama; hay que devolverlo al proponer. `null` si no existe o no se leyó. */
+  sha: string | null;
+  plantilla: string;
+  modo: "pr" | "manual";
+  motivo_manual: string | null;
+}
+
+export interface HallazgoArchivo {
+  linea: number | null;
+  mensaje: string;
+}
+
+export interface ValidacionArchivo {
+  ok: boolean;
+  errores: HallazgoArchivo[];
+  avisos: HallazgoArchivo[];
+}
+
+export type PropuestaArchivo =
+  | { modo: "pr"; pr_url: string; numero: number; rama: string; diff: string | null }
+  | { modo: "manual"; motivo_manual: string; diff: string | null; contenido: string; ruta: string };
+
 // ---------------------------------------------------------------- configuración
 
 export interface ModeloCatalogo {

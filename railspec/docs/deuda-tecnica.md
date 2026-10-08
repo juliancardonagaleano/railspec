@@ -175,3 +175,34 @@ mandato caducado, parado, revocado o sin presupuesto retiene las unidades; aprob
 
 **Resuelta cuando.** Una unidad desatendida se detiene de noche y avisa por un canal que alguien lee, y un
 mandato real de varias unidades corre de punta a punta con un arnés real.
+
+## `contexto.yaml`: la consola lo edita, pero nada lo lee; falta probar el PR contra GitHub real
+
+**Qué hay hoy (2026-10-08).** La consola edita `contexto.yaml` y `.railspecignore` de un repositorio
+vinculado (botón «Archivos» en «Repositorios vinculados»): los lee de la rama del vínculo con la
+GitHub App como instalación, los valida y propone el cambio como PR, nunca como commit directo
+([consola.md](consola.md#archivos-del-repositorio)). Sin las credenciales de instalación o sin
+permisos de escritura, entrega el diff para aplicarlo a mano. Las pruebas usan un GitHub simulado
+(`httpx.MockTransport`) y firman el JWT de la App con una clave RSA de prueba. El formato de
+`contexto.yaml` lo fijó este cambio (`version: 1` y `proveedores`, la forma de `ProveedorContexto`
+sin `org` ni `workspace`); no cambia el contrato.
+
+**Qué falta.**
+
+- **Que algo lea `contexto.yaml`.** Ni el motor, ni el proxy local, ni el gate lo consumen: el
+  archivo se versiona y se valida, y los proveedores de contexto siguen saliendo de la configuración
+  de la consola. Cuando se lea, tendrá que decidir qué gana si declaran lo mismo
+  (la configuración de la organización o el archivo), y no deberá dejar que un repositorio fije
+  `url` o `credencial_ref` fuera de la allowlist (hoy la consola solo lo avisa, no lo impide).
+- **Probar el PR contra GitHub real.** Está sin probar con una App real: el JWT, el token de
+  instalación acotado a un repositorio, la rama, el commit y el PR salen de la documentación de la
+  API. Quien administra la App tiene que crear su clave privada, ponerle *Contents* y *Pull
+  requests* en lectura y escritura, instalarla en los repositorios vinculados y definir
+  `RAILSPEC_GITHUB_APP_ID` y `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA`.
+- **`.railspecignore` no se revalida al indexar.** El PR puede fusionarse con un patrón que el
+  proxy interprete distinto de lo avisado; el servidor solo conoce el subconjunto de gitignore que
+  documenta el proxy.
+- La consola no ve si el PR se fusionó ni lo vigila: la lectura siguiente muestra la rama.
+
+**Resuelta cuando.** Con una App real instalada, una edición desde la consola abre un PR que se
+fusiona, y la lectura siguiente trae el contenido nuevo; y algún componente consume `contexto.yaml`.

@@ -49,6 +49,11 @@ GitHub Apps):
   roles por equipo). Sin ese permiso la consola y el arnés funcionan, pero solo
   resuelven roles asignados a personas.
 - Instalarla en la organización de GitHub cuyos equipos se usen en roles.
+- **Opcional, para editar `contexto.yaml` y `.railspecignore` desde la consola**: Repository →
+  Contents: *Read and write* y Pull requests: *Read and write*, la App instalada en los
+  repositorios vinculados, y `RAILSPEC_GITHUB_APP_ID` y `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` en el
+  servidor ([Archivos del repositorio](#archivos-del-repositorio)). Sin esos permisos, la
+  edición sigue funcionando en modo manual.
 
 En el inicio de sesión, el token de usuario de GitHub solo se usa dentro del
 callback (leer el usuario y sus equipos); no se guarda y al terminar se revoca
@@ -66,6 +71,7 @@ Las que Julian debe suministrar:
 | --- | --- | --- |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID` | Secret | Client ID de la GitHub App. Sin ella no hay botón "Entrar con GitHub". |
 | `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | Secret | Client secret de la App. |
+| `RAILSPEC_GITHUB_APP_ID` y `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` | Secret | Opcionales y van juntas: id numérico de la App y su clave privada PEM (también vale con `\n` literales). Con ellas la consola edita `contexto.yaml` y `.railspecignore` abriendo un PR ([Archivos del repositorio](#archivos-del-repositorio)). |
 | `RAILSPEC_CONSOLA_SECRETO` | Secret | Clave HMAC de sesiones y tokens (p. ej. `openssl rand -base64 48`), **mínimo 32 caracteres**. Obligatoria con URL pública https o con GitHub App: sin ella, o con una más corta, el servidor no arranca (el `state` de OAuth que entrega `/auth/github/inicio` es texto conocido más su MAC: una clave débil se rompe sin conexión y permite forjar sesiones). Solo en desarrollo (URL http local, sin GitHub App) se puede omitir: clave efímera con aviso, que no sobrevive a un reinicio ni se comparte entre réplicas. |
 | `RAILSPEC_CONSOLA_ADMINS` | ConfigMap (`renderizar.py`) | `github_id` numéricos, separados por coma, que administran la plataforma: crean organizaciones y son `org-admin` en todas (p. ej. `1234567`; el id numérico de tu usuario sale de `GET https://api.github.com/users/<login>`). |
 | `RAILSPEC_CONSOLA_URL` | ConfigMap (lo deriva el render de `RAILSPEC_DOMINIO`) | URL pública: base de la redirección de OAuth y cookie `Secure`. Obligatoria con GitHub App. |
@@ -365,6 +371,57 @@ ya describe [proveedores.md](proveedores.md#catálogo-de-modelos).
   `github_org` al leer código (solo se descartan los de forma inválida). Conviene
   revisar `GET …/repositorios` de cada organización al desplegar.
 
+## Archivos del repositorio
+
+`contexto.yaml` y `.railspecignore` viven en la raíz de cada repositorio, así que el servidor
+no puede escribirlos sin tocar el repositorio. En «Repositorios vinculados» el botón **Archivos**
+(`workspace-admin`) abre un editor de los dos: lee el archivo de la rama por defecto del vínculo,
+lo valida y **propone el cambio como un PR**; la consola nunca hace commit en la rama principal
+ni fusiona.
+
+- **Cómo se propone.** La App, como instalación, crea la rama `railspec/<archivo>-<hash>` desde
+  la punta de la rama del vínculo, sube un commit con el archivo y abre el PR hacia esa rama. El
+  PR dice quién lo pidió y el motivo. Un token de instalación acotado a ese repositorio y de una
+  hora (`contents` y `pull_requests`; `contents: read` al leer) se pide en cada operación y no se
+  guarda. Si el archivo cambió en la rama desde que se abrió el editor, responde 409 y la SPA
+  ofrece recargarlo; proponer dos veces el mismo contenido no duplica la rama.
+- **Modo manual.** Si el servidor no tiene `RAILSPEC_GITHUB_APP_ID`/`_CLAVE_PRIVADA`, la App no
+  está instalada en ese repositorio o su instalación no concede *contents: write* y *pull
+  requests: write*, el editor lo dice y «Proponer» devuelve el diff (y el archivo para copiar) en
+  vez de abrir el PR; se aplica a mano. Si tampoco puede leer, el editor parte de una plantilla.
+- **`.railspecignore`** — patrones de gitignore (subconjunto del proxy: `*`, `?`, `**`, barra
+  final de directorio). Es error la negación `!`, `..` y los caracteres de control; avisos: las
+  clases `[...]` y `\` (se toman literales) y un patrón que excluye todo. Máximo 1000 patrones.
+- **`contexto.yaml`** — herramientas de contexto que el repositorio declara junto al código, con
+  la forma de un proveedor de contexto ([proveedores.md](proveedores.md#herramientas-de-contexto))
+  sin `org` ni `workspace`:
+
+  ```yaml
+  version: 1
+  proveedores:
+    - nombre: documentacion-interna
+      rol: documentacion            # gobernanza | grafo-de-codigo | memoria | documentacion
+      url: https://docs.ejemplo.com/mcp
+      credencial_ref: secret://mi-org--docs/api-key   # opcional; nunca el valor
+      politica_fallo: blanda        # estricta | blanda (gobernanza, siempre estricta)
+      fases: [spec, plan]           # opcional
+      presupuesto_tokens: 4000      # opcional
+  ```
+
+  Se rechaza (error) un YAML mal formado, con anclas o alias, con claves repetidas o desconocidas,
+  una `version` distinta de 1, una `url` que no sea https, una pareja `rol`/`nombre` repetida y
+  más de 20 proveedores. Es **aviso**, no error, que el host no esté en
+  `RAILSPEC_PROVEEDORES_HOSTS` o que la `credencial_ref` no sea del namespace de la organización.
+  **Hoy ningún componente lee este archivo**: la consola solo garantiza que lo que se versiona es
+  válido ([deuda-tecnica.md](deuda-tecnica.md)).
+- **Datos.** Son dos archivos de configuración de ruta fija (no se puede pedir otro) de hasta 64 KiB.
+  No viajan a ningún modelo ni se escriben en el log; la auditoría (`cambio-configuracion`,
+  `entidad: archivo-repositorio`, `accion: proponer`) guarda el repositorio, el archivo, el PR, el
+  motivo y una huella del contenido (16 hex), no el contenido, porque los patrones pueden nombrar
+  rutas que el repositorio prefiere no exponer. El modo manual no cambia nada y no se audita.
+- **Sin cambio de contrato.** Son rutas de la API de la consola, que no forma parte del contrato
+  de las tools.
+
 ## Aprobaciones e integración (R7)
 
 Aprobar un checkpoint desde la consola es opcional y nunca bloquea al
@@ -514,6 +571,9 @@ registro mientras tanto, el diálogo se cierra.
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar (409), salvo por quien administra la plataforma. |
 | `GET /orgs/{org}/workspaces/{ws}/repositorios`, `PUT …/repositorios/{repo}`, `DELETE …/repositorios/{repo}?motivo=` | Vínculos. Sin `chat_contexto_codigo` se usa la política por defecto del nivel. La URL es `https://github.com/<owner>/<repo>` del `github_org` de la organización (422 si no). |
+| `GET …/repositorios/{repo}/archivos/{archivo}` | `archivo` = `contexto` (`contexto.yaml`) o `ignore` (`.railspecignore`). Lee el archivo de la rama del vínculo: `existe`, `contenido`, `sha`, `plantilla`, `modo` (`pr` o `manual`) y `motivo_manual`. `workspace-admin`; 404 si el archivo no es uno de los dos o el repositorio no está vinculado; 502 si GitHub falla. |
+| `POST …/repositorios/{repo}/archivos/{archivo}/validar` `{contenido}` | `{ok, errores[], avisos[]}` con la línea de cada hallazgo; no toca GitHub. |
+| `POST …/repositorios/{repo}/archivos/{archivo}/proponer` `{contenido, sha_base, motivo?}` | Valida (422 con `errores`), comprueba que `sha_base` siga siendo el de la rama (409) y abre el PR: `{modo: "pr", pr_url, numero, rama, diff}`. Si la App no puede, `{modo: "manual", motivo_manual, diff, contenido, ruta}`. Ver «Archivos del repositorio». |
 | `GET /orgs/{org}/suscripciones` | Suscripciones de la organización, sin claves, y si el cifrado está disponible (`cifrado.disponible`). Cualquier rol de la organización. |
 | `GET/PUT/DELETE /orgs/{org}/suscripciones/{id}` | Una suscripción. `PUT` crea (sin `version`) o edita (con `version`); la clave va en `clave` y nunca se devuelve; 409 por versión o si hay perfiles que la usan al borrar. `org-admin`. |
 | `POST /orgs/{org}/suscripciones/{id}/descubrir` | Lee los modelos del proveedor. 200 con la suscripción actualizada, o 502 con `codigo` y `detalle` si el proveedor falla. `org-admin`. |
@@ -641,8 +701,8 @@ npm --prefix railspec/packages/railspec-console run humo     # capturas en humo/
 
 ## Pendiente
 
-- Editar `contexto.yaml` y `.railspecignore` por repositorio (viven en el
-  repositorio; hoy la consola edita las `exclusiones` del vínculo).
+- Que algo lea `contexto.yaml` (hoy la consola solo lo edita y valida; ver
+  [deuda-tecnica.md](deuda-tecnica.md)).
 - Notificaciones de gates escalados y presupuestos (Teams o correo).
 - Un flujo de eventos por workspace (SSE) para el tablero, que hoy sondea cada
   15 s: sería una ruta nueva del servidor.

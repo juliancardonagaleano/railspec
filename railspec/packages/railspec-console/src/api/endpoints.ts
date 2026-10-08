@@ -2,6 +2,7 @@ import { invocarTool, pedir } from "./cliente";
 import type {
   AlcanceUnidad,
   AlcanceWorkspace,
+  ArchivoRepo,
   AsignacionRol,
   CommitIntegrable,
   ConfigAuth,
@@ -17,6 +18,7 @@ import type {
   FiltrosAuditoria,
   GraphQueryEntrada,
   GraphQuerySalida,
+  LecturaArchivoRepo,
   LineaDeTiempo,
   ListaSuscripciones,
   MandateApproveEntrada,
@@ -35,6 +37,7 @@ import type {
   PerfilConfig,
   Presupuesto,
   PresupuestoConfig,
+  PropuestaArchivo,
   Proveedor,
   ProveedorContexto,
   RepositorioGrafo,
@@ -54,6 +57,7 @@ import type {
   UnitListSalida,
   UnitStartEntrada,
   UnitStartSalida,
+  ValidacionArchivo,
   VinculoRepositorio,
   Workspace,
   Yo,
@@ -168,6 +172,20 @@ export const repositorios = {
     pedir<null>(`${rutaWs(org, ws)}/repositorios/${c(repo)}`, { metodo: "DELETE", consulta: { motivo } }),
 };
 
+/** `contexto.yaml` y `.railspecignore`: viven en el repositorio, así que el servidor los lee y propone el cambio como PR. */
+const rutaArchivo = (org: string, ws: string, repo: string, archivo: ArchivoRepo) =>
+  `${rutaWs(org, ws)}/repositorios/${c(repo)}/archivos/${c(archivo)}`;
+
+export const archivosRepo = {
+  leer: (org: string, ws: string, repo: string, archivo: ArchivoRepo) =>
+    pedir<LecturaArchivoRepo>(rutaArchivo(org, ws, repo, archivo)),
+  validar: (org: string, ws: string, repo: string, archivo: ArchivoRepo, contenido: string) =>
+    pedir<ValidacionArchivo>(`${rutaArchivo(org, ws, repo, archivo)}/validar`, { metodo: "POST", cuerpo: { contenido } }),
+  /** 409 si el archivo cambió en la rama desde que se leyó; 422 con `errores` si no es válido. */
+  proponer: (org: string, ws: string, repo: string, archivo: ArchivoRepo, datos: { contenido: string; sha_base: string | null; motivo?: string }) =>
+    pedir<PropuestaArchivo>(`${rutaArchivo(org, ws, repo, archivo)}/proponer`, { metodo: "POST", cuerpo: datos }),
+};
+
 // ---------------------------------------------------------------- configuración
 
 export const catalogo = {
@@ -250,6 +268,7 @@ export const claves = {
   workspaces: (org: string) => ["workspaces", org] as const,
   roles: (org: string, ws?: string) => ["roles", org, ws ?? null] as const,
   repositorios: (org: string, ws: string) => ["repositorios", org, ws] as const,
+  archivoRepo: (org: string, ws: string, repo: string, archivo: ArchivoRepo) => ["archivo-repo", org, ws, repo, archivo] as const,
   catalogo: (org: string) => ["catalogo", org] as const,
   catalogoEstado: (org: string) => ["catalogo", org, "estado"] as const,
   suscripciones: (org: string) => ["suscripciones", org] as const,

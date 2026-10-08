@@ -714,6 +714,8 @@ CLAVES_DEL_SECRET = {
     "RAILSPEC_METRICAS_TOKEN",
     "RAILSPEC_GITHUB_APP_CLIENT_ID",
     "RAILSPEC_GITHUB_APP_CLIENT_SECRET",
+    "RAILSPEC_GITHUB_APP_ID",
+    "RAILSPEC_GITHUB_APP_CLAVE_PRIVADA",
 }
 #: Las que el servidor lee y el despliegue no pasa por el ConfigMap, a propósito.
 FUERA_DEL_CONFIGMAP = {
