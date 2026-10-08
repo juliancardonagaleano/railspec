@@ -29,6 +29,8 @@ motor = [
   "uvicorn>=0.30",
   # Tokens OIDC de GitHub Actions (actor de servicio de graph.index).
   "pyjwt[crypto]>=2.8,<3",
+  # contexto.yaml: la consola lo valida antes de proponerlo como PR.
+  "pyyaml>=6",
 ]
 # Grafo central (FalkorDB) para el impacto en el gate de código.
 grafo = ["railspec-graph==0.1.0"]
@@ -41,6 +43,7 @@ test-motor = [
   "pymongo>=4.8,<5",
   "psycopg[binary,pool]>=3.2,<4",
   "pyjwt[crypto]>=2.8,<3",
+  "pyyaml>=6",
   "railspec-graph==0.1.0",
 ]
 

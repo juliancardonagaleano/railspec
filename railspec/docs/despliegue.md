@@ -60,7 +60,9 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
      --from-literal=RAILSPEC_CLAVE_MAESTRA="$(openssl rand -base64 32)" \
      --from-literal=RAILSPEC_METRICAS_TOKEN="$(openssl rand -base64 24)" \
      --from-literal=RAILSPEC_GITHUB_APP_CLIENT_ID='Iv1.…' \
-     --from-literal=RAILSPEC_GITHUB_APP_CLIENT_SECRET='…'
+     --from-literal=RAILSPEC_GITHUB_APP_CLIENT_SECRET='…' \
+     --from-literal=RAILSPEC_GITHUB_APP_ID='123456' \
+     --from-file=RAILSPEC_GITHUB_APP_CLAVE_PRIVADA=./clave-privada-de-la-app.pem
    ```
 
    | Clave | Obligatoria | Uso |
@@ -76,6 +78,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_SMTP_URL` | no | Servidor de correo de los avisos y del informe semanal: `smtp://usuario:clave@host:587?desde=railspec@empresa.com` (usuario y clave codificados como en un URL; `smtps://` para TLS directo; `seguridad=ninguna` solo para un relé interno sin credenciales). Lleva la contraseña: va en el Secret. Sin ella no hay correo (Teams funciona igual). Una URL mal formada impide arrancar. Ver [consola.md](consola.md#avisos-e-informes). |
    | `RAILSPEC_METRICAS_TOKEN` | no | Activa `GET /metrics` (texto de Prometheus) y es su Bearer: el scraper envía `Authorization: Bearer <token>`. 16 caracteres o más (`openssl rand -base64 24`); con uno más corto el servidor no arranca. Sin esta clave no existe el endpoint. Ver [Esquema del estado y métricas](#esquema-del-estado-y-métricas). |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
+   | `RAILSPEC_GITHUB_APP_ID` y `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` | no, juntas | Identidad de la misma App como instalación (id numérico y clave privada PEM). Con ellas la consola lee `contexto.yaml` y `.railspecignore` de los repositorios vinculados y abre un PR para cambiarlos (la App necesita contenido:escritura y pull requests:escritura); sin ellas esa edición queda en modo manual (la consola da el diff). Ver [consola.md](consola.md#archivos-del-repositorio). |
 
 **Modo desarrollo apagado.** `RAILSPEC_TOKENS_DESARROLLO` y
 `RAILSPEC_PERMITIR_DESARROLLO` no son variables del despliegue: el Deployment

@@ -54,6 +54,7 @@ def ensamblar(
     from .consola.almacen import AlmacenConsola
     from .consola.contexto import ContextoConsola
     from .consola.github import ClienteGithub
+    from .consola.repo_github import RepoGithub
     from .consola.sesion import Firmador, IdentidadConConsola
 
     # Antes de abrir ninguna base: la configuración insegura no arranca (M4, B11).
@@ -193,6 +194,7 @@ def ensamblar(
         grafo=grafo,
         acceso_grafo=acceso,
         fuente_codigo=fuente_codigo,
+        repo_github=RepoGithub(config.consola.github_app, cliente_github),
         catalogo=catalogo,
         suscripciones=suscripciones,
         avisos=avisos,
