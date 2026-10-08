@@ -3330,6 +3330,12 @@
         },
         "additionalProperties": false,
         "properties": {
+          "huella": {
+            "description": "Huella del contenido vigente: la que `mandate.approve` devuelve.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Huella",
+            "type": "string"
+          },
           "mandato": {
             "$ref": "#/$defs/Mandato"
           },
@@ -3354,7 +3360,8 @@
           }
         },
         "required": [
-          "mandato"
+          "mandato",
+          "huella"
         ],
         "title": "MandateSalida",
         "type": "object"
@@ -4352,6 +4359,12 @@
             "title": "Decisiones",
             "type": "array"
           },
+          "huella": {
+            "description": "Huella del contenido vigente: la que `mandate.approve` devuelve.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Huella",
+            "type": "string"
+          },
           "mandato": {
             "$ref": "#/$defs/Mandato"
           },
@@ -4400,6 +4413,7 @@
         },
         "required": [
           "mandato",
+          "huella",
           "vigente",
           "unidades",
           "consumo",
@@ -5602,6 +5616,12 @@
         },
         "additionalProperties": false,
         "properties": {
+          "huella": {
+            "description": "Huella del contenido vigente: la que `mandate.approve` devuelve.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Huella",
+            "type": "string"
+          },
           "mandato": {
             "$ref": "#/$defs/Mandato"
           },
@@ -5626,7 +5646,8 @@
           }
         },
         "required": [
-          "mandato"
+          "mandato",
+          "huella"
         ],
         "title": "MandateSalida",
         "type": "object"
@@ -7954,6 +7975,12 @@
         },
         "additionalProperties": false,
         "properties": {
+          "huella": {
+            "description": "Huella del contenido vigente: la que `mandate.approve` devuelve.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Huella",
+            "type": "string"
+          },
           "mandato": {
             "$ref": "#/$defs/Mandato"
           },
@@ -7978,7 +8005,8 @@
           }
         },
         "required": [
-          "mandato"
+          "mandato",
+          "huella"
         ],
         "title": "MandateSalida",
         "type": "object"

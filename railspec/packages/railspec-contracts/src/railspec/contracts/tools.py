@@ -397,6 +397,7 @@ class MandateRevokeEntrada(Mensaje):
 
 class MandateSalida(Mensaje):
     mandato: Mandato
+    huella: Sha256 = Field(description="Huella del contenido vigente: la que `mandate.approve` devuelve.")
 
 
 class MandateGetEntrada(Mensaje):
@@ -429,6 +430,7 @@ MAX_DECISIONES_EN_MANDATO = 500
 
 class MandateGetSalida(Mensaje):
     mandato: Mandato
+    huella: Sha256 = Field(description="Huella del contenido vigente: la que `mandate.approve` devuelve.")
     vigente: bool
     motivo_no_vigente: str | None = None
     unidades: list[UnidadDeMandato]
