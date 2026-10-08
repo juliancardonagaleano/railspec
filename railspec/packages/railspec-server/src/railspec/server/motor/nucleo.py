@@ -13,10 +13,11 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from railspec.contracts.almacen import ConflictoVersion, GraphStore
 from railspec.contracts.comun import (
+    MODOS_CON_MANDATO,
     Actor,
     AlcanceRepositorio,
     AlcanceUnidad,
@@ -46,6 +47,9 @@ from . import presupuesto
 from .gate import Llamada, LlamadaFallida, requisitos_del_gate
 from .gobernanza import GobernanzaNoConfigurada, ProveedorGobernanza
 from .perfiles import ACTOR_SERVIDOR, perfil_por_defecto, tope_gate
+
+if TYPE_CHECKING:
+    from .mandatos import Mandatos
 
 log = logging.getLogger("railspec.motor")
 
@@ -77,6 +81,18 @@ class Nucleo:
     oyentes: list[Callable[[EventoSync], None]] = field(default_factory=list)
     #: Insumos del chat (``chat.resolucion.ResolutorInsumos``); sin él, ``unit.start`` no acepta insumos.
     insumos: Any | None = None
+    _mandatos: Any = field(default=None, init=False, repr=False, compare=False)
+
+    @property
+    def mandatos(self) -> Mandatos:
+        """Servicio del mandato (1.11); nace con el primer uso porque ``mandatos`` importa al motor."""
+
+        if self._mandatos is None:
+            from .mandatos import Mandatos
+
+            self._mandatos = Mandatos(self)
+        return self._mandatos
+
     #: ``avisos.servicio.ServicioAvisos``: avisa por Teams o correo cuando un gate escala. Sin él, nada.
     avisos: Any | None = None
 
@@ -389,15 +405,21 @@ class Nucleo:
                 )
             )
             if not ll.desde_cache:
-                consumo = presupuesto.con_uso(consumo, r.uso)
+                consumo = presupuesto.con_uso(consumo, r.uso + Uso(llamadas=1))
         return {"modelo_ejecucion": ejecuciones, "consumo": consumo}
 
     def presupuesto_agotado(
         self, estado: EstadoUnidad, gate: GateFase, fase: Fase, gastado: Uso = presupuesto.SIN_GASTO
     ) -> str | None:
-        """Qué tope del presupuesto (unidad, fase o mes) impide otra llamada de ``gate``, o ``None``."""
+        """Qué tope del presupuesto (unidad, fase, mes o mandato) impide otra llamada de ``gate``, o ``None``.
 
-        return presupuesto.agotado(self.almacen, self.reloj(), estado, gate, fase, gastado)
+        El del mandato (``por_mandato``, 1.11) solo rige para una unidad supervisada o desatendida.
+        """
+
+        motivo = presupuesto.agotado(self.almacen, self.reloj(), estado, gate, fase, gastado)
+        if motivo is None and estado.modo in MODOS_CON_MANDATO:
+            motivo = self.mandatos.presupuesto_agotado(estado, gastado)
+        return motivo
 
     def avisar_escalado(self, alcance: AlcanceUnidad, fase: GateFase, causa: str, motivo: str) -> None:
         """Avisa (Teams o correo) que un gate escaló. Nunca lanza ni espera a la red.

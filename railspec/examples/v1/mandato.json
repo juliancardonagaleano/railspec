@@ -1,0 +1,79 @@
+{
+  "actualizado_en": "2026-09-30T18:00:00Z",
+  "actualizado_por": {
+    "canal": "consola",
+    "github_id": 83125327,
+    "login": "juliancardonagaleano",
+    "proveedor_identidad": "github",
+    "tipo": "humano"
+  },
+  "alcance": {
+    "org": "acme",
+    "workspace": "certificados"
+  },
+  "aprobaciones": [
+    {
+      "actor": {
+        "canal": "consola",
+        "github_id": 83125327,
+        "login": "juliancardonagaleano",
+        "proveedor_identidad": "github",
+        "tipo": "humano"
+      },
+      "caduca_en": "2026-10-01T06:00:00Z",
+      "comentario": "Esta noche, solo certificados-api.",
+      "en": "2026-09-30T18:00:00Z",
+      "huella": "6b33392867f8f8696fd0c72f7e57e17258c6d49cd9ffeb891a19d384ff7de460"
+    }
+  ],
+  "contenido": {
+    "delegaciones": [
+      {
+        "id": "D-1",
+        "texto": "La biblioteca de PDF es la que ya usa el repositorio.",
+        "tipo": "pre-decidida"
+      },
+      {
+        "id": "D-2",
+        "texto": "Nombres de funciones nuevas: seguir el estilo del módulo vecino.",
+        "tipo": "con-criterio"
+      },
+      {
+        "id": "D-3",
+        "texto": "Cualquier cambio de esquema de base de datos.",
+        "tipo": "reservada"
+      }
+    ],
+    "limites": {
+      "max_unidades": 3,
+      "presupuesto": {
+        "costo_usd_max": 25.0,
+        "tokens_max": 2000000
+      },
+      "reintentos_parada": 1,
+      "repositorios": [
+        "certificados-api"
+      ],
+      "rutas_permitidas": [
+        "src/pdf/**",
+        "tests/pdf/**"
+      ],
+      "vigencia_horas": 12
+    },
+    "modo": "desatendido",
+    "objetivo": "Dejar la emisión de certificados en PDF/A con firma, sin tocar el modelo de datos.",
+    "titulo": "Migrar emisión de certificados a PDF/A"
+  },
+  "creado_en": "2026-09-30T17:00:00Z",
+  "creado_por": {
+    "canal": "consola",
+    "github_id": 83125327,
+    "login": "juliancardonagaleano",
+    "proveedor_identidad": "github",
+    "tipo": "humano"
+  },
+  "estado": "aprobado",
+  "id": "pdf-a",
+  "version": 2,
+  "version_contrato": "1.11"
+}

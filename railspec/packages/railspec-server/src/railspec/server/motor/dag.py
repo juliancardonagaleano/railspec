@@ -62,6 +62,7 @@ from railspec.contracts.estado import (
 )
 from railspec.contracts.eventos import CheckpointSolicitado, OrdenEmitida, VeredictoEmitido
 from railspec.contracts.hallazgos import Cita, Hallazgo, bloqueantes
+from railspec.contracts.mandato import CausaParada
 from railspec.contracts.orden import (
     Artefacto,
     ContextoArmado,
@@ -79,6 +80,7 @@ from .artefactos import Extraido, GrupoPlan, hallazgos_estructura, validar
 from .contexto_grafo import Rebanada, rebanada
 from .gate import Accion, EntradaGate, EvaluacionPanel, Guardia, decidir, evaluar_panel
 from .gate import Decision as DecisionGate
+from .mandatos import AccionParada
 from .nucleo import Nucleo
 from .perfiles import ACTOR_SERVIDOR, tope_gate
 
@@ -134,6 +136,8 @@ class GateSuperado(BaseModel):
 class GateEscalado(BaseModel):
     fase: GateFase
     motivo: str
+    #: Desde 1.11: la parada tipificada que decidió el mandato (``None`` sin mandato).
+    causa_parada: CausaParada | None = None
 
 
 class Avanzar(BaseModel):
@@ -168,6 +172,8 @@ class DatosUnidad(BaseModel):
     validacion: ResultadoValidacion | None = None
     ultima_orden: dict[str, Any] | None = None
     checkpoint_gate: GateFase | None = None
+    #: Reintentos automáticos seguidos de la orden en curso (los delega el mandato); 0 al completarse.
+    reintentos: int = 0
 
 
 SalidaGate = RefinarArtefacto | RefinarCodigo | GateSuperado | GateEscalado
@@ -236,6 +242,8 @@ class Nodo(Executor):
         )
 
     async def emitir_orden(self, ctx: WorkflowContext, orden: Any) -> None:
+        # Desde 1.11 la orden lleva el mandato bajo el que corre la unidad (None si no corre bajo uno).
+        orden = orden.model_copy(update={"mandato": self.n.mandatos.en_orden(self.n.leer(self.alcance))})
         self.n.almacen.guardar_orden(orden)
         self.n.escribir(
             self.alcance,
@@ -262,6 +270,7 @@ class Nodo(Executor):
         pregunta: str,
         bloquea: bool,
         sha: str | None = None,
+        causa_parada: CausaParada | None = None,
     ) -> None:
         cp = Checkpoint(
             id=self.n.nuevo_id(),
@@ -270,6 +279,7 @@ class Nodo(Executor):
             pregunta=pregunta[:2000],
             artefacto_sha256=sha,
             abierto_en=self.n.reloj(),
+            causa_parada=causa_parada,
         )
         self.n.escribir(
             self.alcance,
@@ -286,29 +296,67 @@ class Nodo(Executor):
 class ConParadas(Nodo):
     """Nodos que emiten órdenes: un reporte fallido o bloqueado abre una parada."""
 
-    async def parada(self, ctx: WorkflowContext, orden: Any, reporte: ReporteOrden) -> None:
+    async def parada(
+        self,
+        ctx: WorkflowContext,
+        orden: Any,
+        reporte: ReporteOrden,
+        fuera: list[str] | None = None,
+    ) -> None:
+        """Parada de la unidad. Bajo un mandato es tipificada (``Checkpoint.causa_parada``) y lo que el
+        mandato delega (reintentar una orden fallida) se aplica sin preguntar y queda registrado."""
+
+        estado = self.n.leer(self.alcance)
+        datos = self.datos(ctx)
+        accion = (
+            AccionParada(causa=CausaParada.fuera_de_alcance)
+            if fuera
+            else self.n.mandatos.tratar_parada(estado, reporte, datos.reintentos)
+        )
+        if accion.reintentar:
+            datos.reintentos += 1
+            self.guardar(ctx, datos)
+            maximo = self.n.mandatos.reintentos_parada(estado)
+            self.n.mandatos.registrar_reintento(self.alcance, orden, reporte, datos.reintentos, maximo)
+            await self._reemitir(
+                ctx,
+                f"Reintento automático {datos.reintentos} de {maximo} (lo delega el mandato): la orden "
+                f"anterior reportó '{reporte.resultado.value}': {reporte.motivo}",
+            )
+            return
+        if fuera:
+            pregunta = (
+                f"La orden {orden.tipo} #{orden.secuencia} tocó rutas que el mandato no permite: "
+                f"{', '.join(fuera[:10])}. ¿Reintentar con indicaciones o rechazar?"
+            )
+        else:
+            pregunta = (
+                f"El arnés reportó '{reporte.resultado.value}' en la orden {orden.tipo} #{orden.secuencia}: "
+                f"{reporte.motivo}. "
+                + {
+                    CausaParada.decision_reservada: "El mandato no delega esta decisión. ",
+                    CausaParada.reintentos_agotados: "Se agotaron los reintentos que delega el mandato. ",
+                }.get(accion.causa, "")
+                + "¿Reintentar?"
+            )
         await self.abrir_checkpoint(
             ctx,
             TipoCheckpoint.parada,
             orden.fase,
-            f"El arnés reportó '{reporte.resultado.value}' en la orden {orden.tipo} #{orden.secuencia}: "
-            f"{reporte.motivo}. ¿Reintentar?",
+            pregunta,
             bloquea=True,
+            causa_parada=accion.causa,
         )
 
-    @response_handler
-    async def resolver_parada(
-        self, cp: Checkpoint, resolucion: ResolucionCheckpoint, ctx: WorkflowContext[Rechazada]
-    ) -> None:
-        if resolucion.decision == Decision.rechazado:
-            await ctx.send_message(Rechazada(motivo=resolucion.comentario or "rechazada"), target_id="cierre")
-            return
+    async def _reemitir(self, ctx: WorkflowContext, indicacion: str | None) -> None:
+        """Vuelve a emitir la última orden (otra secuencia) con una indicación añadida a las instrucciones."""
+
         datos = self.datos(ctx)
         previa = datos.ultima_orden or {}
         estado = self.n.leer(self.alcance)
         instrucciones = previa.get("instrucciones", "")
-        if resolucion.decision == Decision.cambios_solicitados:
-            instrucciones = f"{instrucciones}\n\nIndicación humana tras la parada:\n{resolucion.comentario}"
+        if indicacion:
+            instrucciones = f"{instrucciones}\n\n{indicacion}"
         nueva = CLASES_ORDEN[previa["tipo"]].model_validate(
             {
                 **previa,
@@ -320,6 +368,18 @@ class ConParadas(Nodo):
             }
         )
         await self.emitir_orden(ctx, nueva)
+
+    @response_handler
+    async def resolver_parada(
+        self, cp: Checkpoint, resolucion: ResolucionCheckpoint, ctx: WorkflowContext[Rechazada]
+    ) -> None:
+        if resolucion.decision == Decision.rechazado:
+            await ctx.send_message(Rechazada(motivo=resolucion.comentario or "rechazada"), target_id="cierre")
+            return
+        indicacion = None
+        if resolucion.decision == Decision.cambios_solicitados:
+            indicacion = f"Indicación humana tras la parada:\n{resolucion.comentario}"
+        await self._reemitir(ctx, indicacion)
 
 
 def _objeto(titulo: str, datos: DatosUnidad) -> str:
@@ -463,6 +523,7 @@ class Redaccion(ConParadas):
             await self.parada(ctx, orden, reporte)
             return
         datos = self.datos(ctx)
+        datos.reintentos = 0
         datos.artefactos[orden.artefacto.value] = reporte.artefacto.contenido
         self.guardar(ctx, datos)
         await ctx.send_message(ArtefactoListo(artefacto=orden.artefacto), target_id="gate")
@@ -645,6 +706,8 @@ class Gate(Nodo):
         datos.iteraciones.pop(fase.value, None)
         datos.previos.pop(fase.value, None)
         self.guardar(ctx, datos)
+        # Bajo un mandato (1.11) el gate rojo siempre detiene algo; cuánto lo decide el modo de la unidad.
+        politica = self.n.mandatos.politica_escalado(self.n.leer(self.alcance), causa, motivo)
         resultado = ResultadoGate(
             veredicto=Veredicto.escalado,
             causa=causa,
@@ -653,11 +716,14 @@ class Gate(Nodo):
             gobernanza_consultada=consultada,
             criticos=criticos or [],
             refutador=refutador,
+            diferido=politica.diferido,
             cerrado_en=self.n.reloj(),
         )
         self.cerrar_gate(fase, resultado)
         self.n.avisar_escalado(self.alcance, fase, causa.value, motivo)
-        await ctx.send_message(GateEscalado(fase=fase, motivo=motivo[:1500]), target_id="decision")
+        await ctx.send_message(
+            GateEscalado(fase=fase, motivo=motivo[:1500], causa_parada=politica.causa), target_id="decision"
+        )
 
     def impacto_grafo(self, estado, extraido=None) -> str:
         """Comparación base contra snapshot y trazas ``CA-NN`` de la unidad (railspec-graph), si hay grafo.
@@ -848,6 +914,7 @@ class DecisionHumana(Nodo):
             f"El gate {msg.fase.value} escaló: {msg.motivo}. "
             "Aprobar lo rehabilita; pedir cambios reabre el refinamiento.",
             bloquea=True,
+            causa_parada=msg.causa_parada,
         )
 
     @response_handler
@@ -974,10 +1041,19 @@ class Implementacion(ConParadas):
     async def implementado(
         self, orden: OrdenImplementar, reporte: ReporteOrden, ctx: WorkflowContext[CodigoListo]
     ) -> None:
+        if reporte.snapshot is not None:
+            # Salirse de las rutas del mandato detiene la unidad aunque la orden se reporte completada.
+            fuera = self.n.mandatos.rutas_fuera(
+                self.n.leer(self.alcance), [a.ruta for a in reporte.snapshot.archivos]
+            )
+            if fuera:
+                await self.parada(ctx, orden, reporte, fuera)
+                return
         if reporte.resultado != ResultadoOrden.completado:
             await self.parada(ctx, orden, reporte)
             return
         datos = self.datos(ctx)
+        datos.reintentos = 0
         if reporte.snapshot is not None:
             datos.snapshots.append(str(reporte.snapshot.id))
         datos.tareas_completadas = sorted(set(datos.tareas_completadas) | set(reporte.tareas_completadas))
@@ -1009,6 +1085,7 @@ class Implementacion(ConParadas):
             await self.parada(ctx, orden, reporte)
             return
         datos = self.datos(ctx)
+        datos.reintentos = 0
         datos.validacion = reporte.validacion
         self.guardar(ctx, datos)
         await ctx.send_message(CodigoListo(), target_id="gate")

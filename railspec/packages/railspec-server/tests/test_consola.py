@@ -851,7 +851,8 @@ def test_detalle_linea_de_tiempo_trazabilidad_y_resumen():
             ]
             # Nunca sale texto de instrucciones, plantilla ni contexto de una orden.
             assert all(not ({"instrucciones", "plantilla", "contexto"} & set(o)) for o in linea["ordenes"])
-            emitidos = [e["emitido_en"] for e in linea["eventos"]]
+            # Se comparan como instantes: la cadena omite la fracción cuando es cero y no ordena igual.
+            emitidos = [datetime.fromisoformat(e["emitido_en"]) for e in linea["eventos"]]
             assert emitidos == sorted(emitidos) and len(linea["eventos"]) > 5
             traza = (await c.get(f"{base}/unidades/{alcance.unidad}/trazabilidad")).json()
             assert traza["criterios"], traza

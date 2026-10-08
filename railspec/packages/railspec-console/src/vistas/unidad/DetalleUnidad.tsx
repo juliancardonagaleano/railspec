@@ -7,7 +7,7 @@ import { Cargando, ErrorVista } from "../../componentes/Estados";
 import { EtiquetaEstado, EtiquetaModo, EtiquetaRiesgo, NOMBRE_FASE } from "../../componentes/Etiquetas";
 import { Badge } from "../../componentes/ui/badge";
 import { Button } from "../../componentes/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../componentes/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../componentes/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../componentes/ui/tabs";
 import { alcanza } from "../../lib/roles";
 import { useRol, useWorkspace } from "../../lib/sesion";
@@ -15,6 +15,8 @@ import { fecha, nombreActor, usd } from "../../lib/utiles";
 import { DagFases } from "./DagFases";
 import { DialogoIntegrar } from "./DialogoIntegrar";
 import { DialogoModo } from "./DialogoModo";
+import { DecisionesMandato } from "../mandato/DecisionesMandato";
+import { InsigniaMandato } from "../mandato/EtiquetasMandato";
 import { LineaDeTiempo } from "./LineaDeTiempo";
 import { PanelCheckpoint } from "./PanelCheckpoint";
 import { PestanaGates } from "./PestanaGates";
@@ -28,6 +30,9 @@ const TEXTO_CONEXION: Record<EstadoConexion, string> = {
   desconectado: "sin actualizaciones en vivo",
 };
 
+/** ¿Algún gate escaló en desatendido y difirió la unidad? */
+export const estaDiferida = (estado: EstadoUnidad): boolean => Object.values(estado.gates ?? {}).some((g) => g?.diferido === true && !g.rehabilitado);
+
 function Cabecera({
   estado,
   conexion,
@@ -37,6 +42,7 @@ function Cabecera({
   conexion: EstadoConexion;
   acciones: React.ReactNode;
 }) {
+  const plan = estado.unidad.plan;
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
@@ -46,6 +52,8 @@ function Cabecera({
           <Badge tono="info">{NOMBRE_FASE[estado.fase]}</Badge>
           <EtiquetaEstado estado={estado.estado} />
           <EtiquetaModo modo={estado.modo} />
+          {plan ? <InsigniaMandato org={estado.unidad.org} ws={estado.unidad.workspace} mandato={plan} /> : null}
+          {estaDiferida(estado) ? <Badge tono="aviso">Diferida (desatendido)</Badge> : null}
           <EtiquetaRiesgo riesgo={estado.riesgo} />
           <Badge>perfil {estado.perfil}</Badge>
           {estado.integracion ? <Badge tono="exito">integrada</Badge> : null}
@@ -157,6 +165,26 @@ export function DetalleUnidad() {
           <PanelCheckpoint alcance={alcance} checkpoint={estado.checkpoint_pendiente} puedeResolver={desarrollador} />
         ) : null}
         <TarjetaIntegracion estado={estado} />
+        {estado.decisiones && estado.decisiones.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Decisiones delegadas ({estado.decisiones.length})</CardTitle>
+              <CardDescription>
+                Lo que el arnés decidió apoyándose en una delegación del mandato{estado.unidad.plan ? ` ${estado.unidad.plan}` : ""}. Revertir no deshace el
+                código: deja constancia y lo revierte una persona.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DecisionesMandato
+                org={org}
+                ws={ws}
+                decisiones={estado.decisiones.map((decision) => ({ unidad: estado.unidad.unidad, decision }))}
+                puedeRevisar={desarrollador}
+                versionUnidad={async () => estado.version}
+              />
+            </CardContent>
+          </Card>
+        ) : null}
         {orden_vigente ? (
           <p className="text-sm text-suave">
             Orden vigente: {orden_vigente.tipo} #{orden_vigente.secuencia} (fase {orden_vigente.fase}, {orden_vigente.repositorio}) emitida{" "}

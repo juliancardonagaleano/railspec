@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fnmatch
 import hashlib
 import json
 import logging
@@ -22,10 +23,17 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from railspec.contracts._base import VERSION_CONTRATO, VERSION_MAYOR
 from railspec.contracts.comun import Actor, AlcanceWorkspace, Canal, Modo, Perfil, Riesgo
 from railspec.contracts.estado import Checkpoint, Decision, EstadoLocal, EstadoUnidad
 from railspec.contracts.eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
+from railspec.contracts.mandato import (
+    DecisionPropuesta,
+    EstadoMandato,
+    MandatoContenido,
+    TipoDelegacion,
+)
 from railspec.contracts.orden import OrdenDeTrabajo, OrdenImplementar, OrdenRedactar, OrdenRefinar
 from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, UsoModeloArnes
 from railspec.contracts.snapshot import EMBEDDING_MODELO
@@ -34,6 +42,7 @@ from railspec.contracts.tools import (
     AvanceCerrada,
     AvanceCheckpoint,
     AvanceEspera,
+    AvanceMandatoParado,
     AvanceOrden,
     CodigoError,
     EstadoSalida,
@@ -42,6 +51,13 @@ from railspec.contracts.tools import (
     GraphQuerySalida,
     InsumoGetEntrada,
     InsumoGetSalida,
+    MandateGetEntrada,
+    MandateGetSalida,
+    MandateListEntrada,
+    MandateListSalida,
+    MandateProposeEntrada,
+    MandateRevokeEntrada,
+    MandateSalida,
     RepositorioInicio,
     SyncPullEntrada,
     SyncPullSalida,
@@ -65,7 +81,14 @@ from . import busqueda, codificador, git, insumos, secretos, validacion
 from .almacen import EXCLUIR_DE_GIT, Almacen
 from .cliente import ClienteServidor
 from .config import Config
-from .errores import ErrorRailspec, ErrorServidor, FueraDeAlcance, SinConexion
+from .errores import (
+    DecisionSinRespaldo,
+    ErrorRailspec,
+    ErrorServidor,
+    FueraDeAlcance,
+    FueraDeAlcanceMandato,
+    SinConexion,
+)
 from .indice import Indexador
 from .politica import construir_snapshot
 from .rebase import rebasar_unidad
@@ -251,6 +274,15 @@ class ProxyLocal:
                     }
                 elif isinstance(avance, AvanceCerrada):
                     respuesta |= {"tipo": "cerrada"}
+                elif isinstance(avance, AvanceMandatoParado):
+                    respuesta |= {
+                        "tipo": "mandato-parado",
+                        "mandato": avance.mandato,
+                        "causa": avance.causa.value if avance.causa else None,
+                        "detalle": avance.detalle,
+                        "reintentar_en_s": avance.reintentar_en_s,
+                        "como_resolver": _como_resolver_mandato_parado(avance, self.config.url_consola),
+                    }
             almacen.escribir(estado)
             return respuesta
 
@@ -317,13 +349,19 @@ class ProxyLocal:
         tareas_completadas: list[str] | None = None,
         motivo: str | None = None,
         uso_modelo: UsoModeloArnes | None = None,
+        decisiones: list[DecisionPropuesta | Json] | None = None,
     ) -> Json:
+        """``decisiones`` (1.11): las que el arnés tomó apoyándose en una delegación del mandato de la
+        orden. Se validan como ``DecisionPropuesta`` y viajan en el reporte; el servidor las registra para
+        revisión humana."""
+
         almacen = self._almacen(unidad)
         with almacen.cerrojo():
             estado = almacen.tomar_bloqueo(almacen.leer())
             orden = estado.orden_en_curso
             if orden is None:
                 raise ErrorRailspec("No hay orden en curso: llama unit_advance para recibir la siguiente.")
+            propuestas = _validar_decisiones(orden, decisiones or [])
             if any(
                 isinstance(e.carga, OrdenReportada) and e.carga.orden_id == orden.id
                 for e in estado.cola_pendiente
@@ -388,6 +426,7 @@ class ProxyLocal:
                 tareas_completadas=tareas_completadas or [],
                 motivo=motivo,
                 uso_modelo=uso_modelo,
+                decisiones=propuestas,
             )
             almacen.guardar_pendiente(reporte)
             estado = self._encolar(estado, reporte)
@@ -709,6 +748,83 @@ class ProxyLocal:
                 fila["worktree"] = str(locales[u.unidad])
             filas.append(fila)
         return {"unidades": filas, "cursor_siguiente": salida.cursor_siguiente}
+
+    # --- mandato (1.11) ----------------------------------------------------------------------
+    # Solo las tools que el contrato expone por MCP: ``mandate.approve`` y ``mandate.review`` son de la
+    # consola (``ClienteServidor.llamar`` se niega a llamarlas), así que aprobar nunca pasa por el arnés.
+
+    async def proponer_mandato(
+        self, mandato: str, contenido: Json | MandatoContenido, version_vista: int | None = None
+    ) -> Json:
+        """Redacta un borrador (o edita uno); lo aprueba una persona en la consola, sobre su ``huella``."""
+
+        if not isinstance(contenido, MandatoContenido):
+            try:
+                contenido = MandatoContenido.model_validate(contenido)
+            except ValidationError as exc:
+                raise ErrorRailspec(f"El contenido del mandato no cumple el contrato: {exc}") from exc
+        entrada = MandateProposeEntrada(
+            alcance=self._alcance_ws(), id=mandato, contenido=contenido, version_vista=version_vista
+        )
+        salida = await self.cliente.llamar("mandate.propose", entrada, MandateSalida)
+        m = salida.mandato
+        huella = salida.huella  # la que la persona compara al aprobar en la consola
+        consola = self.config.url_consola
+        donde = f"la consola web ({consola})" if consola else "la consola web del servidor"
+        respuesta: Json = {
+            "mandato": m.id,
+            "titulo": m.contenido.titulo,
+            "modo": m.contenido.modo.value,
+            "estado": m.estado.value,
+            "version": m.version,
+            "huella": huella,
+            "aprobado": False,
+            "como_aprobar": (
+                f"Es un borrador: no está aprobado y no ampara ninguna unidad. Una persona tiene que "
+                f"revisarlo y aprobarlo en {donde}, comprobando que la huella sea {huella}. No existe tool "
+                "para aprobarlo desde el arnés: avísale y espera."
+            ),
+        }
+        if consola:
+            respuesta["consola"] = consola
+        return respuesta
+
+    async def ver_mandato(self, mandato: str) -> Json:
+        salida = await self.cliente.llamar(
+            "mandate.get", MandateGetEntrada(alcance=self._alcance_ws(), id=mandato), MandateGetSalida
+        )
+        return _json(salida)
+
+    async def listar_mandatos(self, estado: list[EstadoMandato] | None = None, limite: int = 50) -> Json:
+        entrada = MandateListEntrada(alcance=self._alcance_ws(), estado=estado or [], limite=limite)
+        salida = await self.cliente.llamar("mandate.list", entrada, MandateListSalida)
+        return _json(salida)
+
+    async def revocar_mandato(self, mandato: str, motivo: str, version_vista: int | None = None) -> Json:
+        """Cierra el mandato para siempre y detiene todas sus unidades. Sin ``version_vista`` se lee la
+        vigente: revocar es siempre el lado seguro, pero el servidor sigue exigiendo el bloqueo optimista."""
+
+        if version_vista is None:
+            vigente = await self.cliente.llamar(
+                "mandate.get",
+                MandateGetEntrada(alcance=self._alcance_ws(), id=mandato),
+                MandateGetSalida,
+            )
+            version_vista = vigente.mandato.version
+        entrada = MandateRevokeEntrada(
+            alcance=self._alcance_ws(), id=mandato, version_vista=version_vista, motivo=motivo
+        )
+        salida = await self.cliente.llamar("mandate.revoke", entrada, MandateSalida)
+        m = salida.mandato
+        return {
+            "mandato": m.id,
+            "estado": m.estado.value,
+            "version": m.version,
+            "aviso": (
+                "Revocado para siempre: sus unidades quedan detenidas. Para seguir hay que redactar otro "
+                "mandato."
+            ),
+        }
 
     async def consultar_grafo(
         self,
@@ -1081,6 +1197,50 @@ def _verificar_alcance(orden: OrdenImplementar, rutas: list[str]) -> None:
     ]
     if fuera:
         raise FueraDeAlcance(sorted(fuera))
+    mandato = orden.mandato
+    if mandato is not None and mandato.rutas_permitidas:
+        # Como el servidor (`fnmatch`): un snapshot fuera de las rutas del mandato detiene la unidad. Aquí
+        # se falla antes de reportar; el servidor lo vuelve a comprobar.
+        fuera_mandato = [r for r in rutas if not any(fnmatch.fnmatch(r, g) for g in mandato.rutas_permitidas)]
+        if fuera_mandato:
+            raise FueraDeAlcanceMandato(mandato.mandato, sorted(fuera_mandato), mandato.rutas_permitidas)
+
+
+def _validar_decisiones(
+    orden: OrdenDeTrabajo, crudas: list[DecisionPropuesta | Json]
+) -> list[DecisionPropuesta]:
+    """Valida las decisiones como ``DecisionPropuesta`` y que cada una cite una delegación que el mandato
+    de la orden sí delega (``pre-decidida`` o ``con-criterio``). El servidor lo vuelve a comprobar y rechaza
+    el reporte (`fuera-de-alcance`); aquí se falla antes de construir nada."""
+
+    try:
+        propuestas = [
+            d if isinstance(d, DecisionPropuesta) else DecisionPropuesta.model_validate(d) for d in crudas
+        ]
+    except ValidationError as exc:
+        raise ErrorRailspec(f"Una decisión no cumple el contrato: {exc}") from exc
+    if not propuestas:
+        return []
+    mandato = orden.mandato
+    if mandato is None:
+        raise DecisionSinRespaldo(
+            "Esta orden no corre bajo un mandato: no hay delegaciones en las que apoyar decisiones. No "
+            "decidas; si necesitas una decisión, repórtala como `bloqueado` con el motivo."
+        )
+    tipos = {d.id: d.tipo for d in mandato.delegaciones}
+    for d in propuestas:
+        tipo = tipos.get(d.delegacion)
+        if tipo is None:
+            raise DecisionSinRespaldo(
+                f"La delegación {d.delegacion} no existe en el mandato «{mandato.mandato}»: ninguna "
+                "delegación cubre esa decisión. No decidas; repórtala como `bloqueado` con el motivo."
+            )
+        if tipo == TipoDelegacion.reservada:
+            raise DecisionSinRespaldo(
+                f"La delegación {d.delegacion} es `reservada`: nunca se decide por criterio. No decidas; "
+                "repórtala como `bloqueado` con el motivo y la decide una persona."
+            )
+    return propuestas
 
 
 def _leer_artefacto(worktree: Path, orden: Any) -> ArtefactoRedactado:
@@ -1095,6 +1255,18 @@ def _leer_artefacto(worktree: Path, orden: Any) -> ArtefactoRedactado:
         tipo=orden.artefacto,
         contenido=contenido,
         sha256=hashlib.sha256(contenido.encode("utf-8")).hexdigest(),
+    )
+
+
+def _como_resolver_mandato_parado(avance: AvanceMandatoParado, consola: str | None) -> str:
+    donde = f"la consola web ({consola})" if consola else "la consola web del servidor"
+    causa = f" ({avance.causa.value})" if avance.causa else ""
+    return (
+        f"Detente: el mandato «{avance.mandato}» no ampara trabajo ahora{causa}. No sigas con las "
+        "unidades de este mandato y dile al humano la causa y el detalle. Solo una persona puede "
+        f"renovarlo o aprobarlo, y lo hace en {donde}: no existe tool para eso en el arnés, y no lo edites "
+        "con mandate_propose para sortear la parada. No reintentes en bucle: vuelve a llamar unit_advance "
+        f"cuando el humano te avise o, como pronto, pasados {avance.reintentar_en_s} s."
     )
 
 

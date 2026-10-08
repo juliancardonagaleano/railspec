@@ -4,6 +4,7 @@ import { cn } from "../../lib/utiles";
 export interface Opcion {
   valor: string;
   etiqueta: string;
+  deshabilitada?: boolean;
 }
 
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
@@ -26,7 +27,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
     >
       {vacio !== undefined ? <option value="">{vacio}</option> : null}
       {opciones?.map((o) => (
-        <option key={o.valor} value={o.valor}>
+        <option key={o.valor} value={o.valor} disabled={o.deshabilitada}>
           {o.etiqueta}
         </option>
       ))}

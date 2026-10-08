@@ -57,6 +57,7 @@ from railspec.contracts.tools import (
     AvanceCerrada,
     AvanceCheckpoint,
     AvanceEspera,
+    AvanceMandatoParado,
     AvanceOrden,
     CodigoError,
     EstadoSalida,
@@ -84,6 +85,7 @@ from railspec.contracts.tools import (
 from ..estado.checkpoints import nombre_workflow
 from ..estado.interfaces import EntradaPendiente, TipoEntrada
 from . import dag
+from .errores import ErrorNegocio
 from .escaneo import hallazgos_de_secretos, resumen
 from .nucleo import Nucleo
 
@@ -91,16 +93,7 @@ log = logging.getLogger("railspec.motor")
 
 VERSION_SERVIDOR = tuple(int(x) for x in VERSION_CONTRATO.split("."))
 REINTENTAR_S = 5
-
-
-class ErrorNegocio(Exception):
-    """Se traduce a ``ErrorTool`` en MCP y HTTP."""
-
-    def __init__(self, codigo: CodigoError, detalle: str, version_estado: int | None = None) -> None:
-        super().__init__(f"{codigo.value}: {detalle}")
-        self.codigo = codigo
-        self.detalle = detalle
-        self.version_estado = version_estado
+REINTENTAR_PARADO_S = 300
 
 
 # --- Triaje determinista ----------------------------------------------------------------
@@ -182,6 +175,8 @@ class Motor:
         self.ttl_turno_s = ttl_turno_s
         self.dueno = f"{socket.gethostname()}:{uuid.uuid4().hex[:8]}"
         self._tareas: dict[str, asyncio.Task] = {}
+        # Al aprobar un mandato, las entradas que retuvo vuelven a entregarse por el mismo camino.
+        self.n.mandatos.reanudar = self._reanudar
 
     # --- utilidades -------------------------------------------------------------------
 
@@ -245,6 +240,17 @@ class Motor:
             if arranque is not None:
                 await dag.construir(self.n, alcance, self.checkpoints).run(arranque)
             while entradas := self.n.almacen.entradas_pendientes(alcance):
+                # Bajo un mandato que no ampara trabajo (caducado, parado, revocado, sin aprobar o sin
+                # presupuesto) las entradas se quedan guardadas: ni gates ni órdenes hasta que se renueve.
+                retenida = self.n.mandatos.retencion(self._estado(alcance))
+                if retenida is not None:
+                    log.info(
+                        "%s retenida por el mandato %s: %s",
+                        alcance.unidad,
+                        retenida.mandato,
+                        retenida.detalle,
+                    )
+                    break
                 cp = await self.checkpoints.get_latest(workflow_name=nombre_workflow(alcance))
                 pendientes = set(cp.pending_request_info_events) if cp else set()
                 respuestas: dict[str, Any] = {}
@@ -279,6 +285,8 @@ class Motor:
     async def start(self, e: UnitStartEntrada, actor: Actor) -> UnitStartSalida:
         negociada = negociar(e.version_contrato_cliente)
         self._humano(actor, "arrancar una unidad")
+        if e.modo in MODOS_CON_MANDATO:
+            self.n.mandatos.validar_arranque(e)
         for insumo in e.insumos:
             if self.n.insumos is None or not self.n.insumos.existe(e.alcance, insumo):
                 raise ErrorNegocio(CodigoError.no_encontrado, f"insumo {insumo} no existe en este workspace")
@@ -357,6 +365,10 @@ class Motor:
 
         El DAG lee el modo al decidir cada checkpoint, así que la conversión
         rige desde el siguiente gate sin tocar el workflow.
+
+        Subir a supervisado o desatendido exige un mandato vigente de ese modo que ampare los repositorios
+        de la unidad (1.11). Bajar la autonomía (a interactivo o semi-autónomo) se admite en cualquier
+        momento, también con el mandato caducado o revocado: es la salida de una unidad retenida.
         """
 
         self._humano(actor, "convertir el modo")
@@ -368,7 +380,8 @@ class Motor:
                     f"viste la versión {e.version_vista}; la vigente es {estado.version}",
                     estado.version,
                 )
-            tras = _momento_de_conversion(estado)
+            bajada = estado.modo in MODOS_CON_MANDATO and e.modo not in MODOS_CON_MANDATO
+            tras = estado.fase if bajada else _momento_de_conversion(estado)
             if tras is None:
                 raise ErrorNegocio(
                     CodigoError.conversion_no_permitida,
@@ -389,13 +402,20 @@ class Motor:
                     f"el modo {e.modo.value} exige un mandato y la unidad no pertenece a ninguno",
                     estado.version,
                 )
+            if e.modo in MODOS_CON_MANDATO:
+                self.n.mandatos.validar_conversion(estado, e.modo)
             conversion = ConversionModo(
                 de=estado.modo, a=e.modo, actor=actor, en=self.n.reloj(), motivo=e.motivo, tras=tras
             )
             return {"modo": e.modo, "modo_conversion": [*estado.modo_conversion, conversion]}
 
-        self._estado(e.unidad)
+        previo = self._estado(e.unidad)
         nuevo = self.n.escribir(e.unidad, convertir, actor)
+        if previo.modo in MODOS_CON_MANDATO and nuevo.modo not in MODOS_CON_MANDATO:
+            # Ya no la retiene ningún mandato: lo que quedó guardado se entrega ahora.
+            if self.n.almacen.entradas_pendientes(e.unidad):
+                await self._reanudar(e.unidad)
+                nuevo = self._estado(e.unidad) if self.en_linea else nuevo
         return EstadoSalida(estado=nuevo)
 
     # --- sync.pull y sync.push (contrato 1.3) --------------------------------------------------
@@ -453,15 +473,24 @@ class Motor:
         if self.n.almacen.entradas_pendientes(e.unidad):
             await self._reanudar(e.unidad)
             estado = self._estado(e.unidad)
+        retenida = self.n.mandatos.retencion(estado) if estado.fase != Fase.done else None
         if estado.fase == Fase.done:
             avance: Any = AvanceCerrada()
-        elif estado.orden_vigente is not None:
-            orden = self.n.almacen.obtener_orden(e.unidad, str(estado.orden_vigente))
-            avance = AvanceOrden(orden=orden)
         elif estado.checkpoint_pendiente is not None:
+            # Una persona puede resolverlo aunque el mandato esté parado (la decisión queda guardada).
             avance = AvanceCheckpoint(checkpoint=estado.checkpoint_pendiente)
         elif estado.estado == EstadoFase.bloqueado:
             avance = AvanceEspera(motivo="unidad rechazada; no hay más trabajo", reintentar_en_s=3600)
+        elif retenida is not None:
+            avance = AvanceMandatoParado(
+                mandato=retenida.mandato,
+                causa=retenida.causa,
+                detalle=retenida.detalle[:1000],
+                reintentar_en_s=REINTENTAR_PARADO_S,
+            )
+        elif estado.orden_vigente is not None:
+            orden = self.n.almacen.obtener_orden(e.unidad, str(estado.orden_vigente))
+            avance = AvanceOrden(orden=orden)
         else:
             avance = AvanceEspera(
                 motivo="el motor está evaluando (gate o transición)", reintentar_en_s=REINTENTAR_S
@@ -494,6 +523,7 @@ class Motor:
                 CodigoError.base_commit_distinto, "base_commit distinto del de la orden", estado.version
             )
         self._exigencias(orden, r, estado)
+        self.n.mandatos.validar_decisiones(estado, r.decisiones)
 
         self.n.almacen.guardar_reporte(r)
         # Los avisos local→remoto (orden.reportada, snapshot.subido) los numera y sube el proxy
@@ -507,15 +537,24 @@ class Motor:
                 self.n.almacen.guardar_snapshot(s, vinculo.retencion_snapshots_dias)
             else:
                 self.n.almacen.guardar_snapshot(s)
-            if self.n.grafo is not None and s.delta_indice is not None:
+            fuera = self.n.mandatos.rutas_fuera(estado, [a.ruta for a in s.archivos])
+            # Un snapshot que se sale del mandato detiene la unidad (lo hace el DAG): no entra al grafo.
+            if self.n.grafo is not None and s.delta_indice is not None and not fuera:
                 self._grafo_snapshot(r, orden, vinculo)
+
+        decisiones: list[Any] = []
 
         def cerrar_orden(e: EstadoUnidad) -> dict[str, Any] | None:
             if e.orden_vigente != r.orden_id:
                 raise ErrorNegocio(CodigoError.orden_no_vigente, "otra escritura cerró la orden", e.version)
-            return {"orden_vigente": None}
+            # Las decisiones delegadas entran con el cierre de la orden y se numeran sobre el estado vigente.
+            decisiones[:] = self.n.mandatos.decisiones_nuevas(e, orden, r.decisiones, actor)
+            if not decisiones:
+                return {"orden_vigente": None}
+            return {"orden_vigente": None, "decisiones": [*e.decisiones, *decisiones]}
 
         nuevo = self.n.escribir(r.unidad, cerrar_orden, actor)
+        self.n.mandatos.auditar_decisiones(r.unidad, decisiones)
         self.n.almacen.registrar_entrada(
             EntradaPendiente(
                 alcance=r.unidad,

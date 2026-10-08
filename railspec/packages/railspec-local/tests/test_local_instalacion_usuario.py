@@ -66,6 +66,7 @@ def test_claude_code_instala_las_piezas_en_el_home(hogar, capsys):
         "mcp__railspec__unit_approve",
         "mcp__railspec__unit_set_mode",
         "mcp__railspec__unit_integrate",
+        "mcp__railspec__mandate_revoke",
     ]
     (hook,) = ajustes["hooks"]["PreToolUse"]
     assert hook["hooks"][0]["command"] == "railspec hook claude-code"

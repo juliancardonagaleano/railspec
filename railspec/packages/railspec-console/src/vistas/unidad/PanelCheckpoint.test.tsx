@@ -91,4 +91,32 @@ describe("panel de checkpoint", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByLabelText("Comentario")).toBeNull();
   });
+
+  it("una parada bajo mandato muestra su causa, su ámbito y qué hacer", () => {
+    montarConQuery(
+      <PanelCheckpoint
+        alcance={alcance}
+        checkpoint={{ ...checkpoint, tipo: "parada", causa_parada: "fuera-de-alcance", pregunta: "El snapshot tocó src/db/**." }}
+        puedeResolver
+      />,
+    );
+
+    expect(screen.getByText("Parada bajo mandato:")).toBeInTheDocument();
+    expect(screen.getByText("fuera-de-alcance")).toBeInTheDocument();
+    expect(screen.getByText("(detiene solo esta unidad)")).toBeInTheDocument();
+    expect(screen.getByText(/reintentar con indicaciones o rechazar/)).toBeInTheDocument();
+    expect(screen.getByText("El snapshot tocó src/db/**.")).toBeInTheDocument();
+  });
+
+  it("un gate escalado que congela el mandato lo dice; sin causa no hay aviso de mandato", () => {
+    const { unmount } = montarConQuery(
+      <PanelCheckpoint alcance={alcance} checkpoint={{ ...checkpoint, tipo: "gate-escalado", causa_parada: "gate-escalado" }} puedeResolver />,
+    );
+    expect(screen.getByText("(detiene el mandato)")).toBeInTheDocument();
+    expect(screen.getByText(/congela el mandato entero/)).toBeInTheDocument();
+    unmount();
+
+    montarConQuery(<PanelCheckpoint alcance={alcance} checkpoint={checkpoint} puedeResolver />);
+    expect(screen.queryByText("Parada bajo mandato:")).toBeNull();
+  });
 });

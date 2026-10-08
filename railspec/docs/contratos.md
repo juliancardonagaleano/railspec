@@ -57,6 +57,11 @@ HTTP de la consola (R1).
 | `unit.approve` | escritura | sí | sí | no |
 | `unit.integrate` | escritura | sí | sí | no |
 | `unit.set_mode` | escritura | sí (solo humano) | sí (solo humano) | no |
+| `mandate.propose` | escritura | sí | sí | no |
+| `mandate.approve` | escritura | no | sí (solo humano, canal consola) | no |
+| `mandate.revoke` | escritura | sí (solo humano) | sí (solo humano) | no |
+| `mandate.review` | escritura | no | sí (solo humano, canal consola) | no |
+| `mandate.get`, `mandate.list` | lectura | sí | sí | no |
 | `unit.import` | escritura | sí (solo humano) | sí (solo humano) | no |
 | `unit.export` | lectura | sí | sí | no |
 | `unit.status` | lectura | sí | sí | sí |
@@ -212,7 +217,7 @@ su prueba negativa.
 
 ## Versionado
 
-- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.10`.
+- `version_contrato` va en todo mensaje de primer nivel; hoy es `1.11`.
 - Menor (`1.x`): solo añade campos opcionales o valores de enum nuevos que
   el receptor puede ignorar. Mayor: cualquier otro cambio, con esquemas en
   `schemas/v2` en paralelo.
@@ -270,6 +275,14 @@ su prueba negativa.
   `contenido_verificado` en `None`; un servidor 1.9 rechaza el resumen con 422 y `reindexar.py`
   reintenta sin él. Como en 1.9, un proxy anterior rechazaría los campos nuevos de `frescura`: se
   actualiza primero el proxy. Sin ellos rige lo de 1.9.
+  `1.11` añade el mandato de los modos supervisado y desatendido ([mandato.md](mandato.md)): el
+  modelo `Mandato` y las seis tools `mandate.*`; `AvanceMandatoParado` (`tipo: "mandato-parado"`) como
+  quinto `Avance` de `unit.advance`; `OrdenDeTrabajo.mandato`, `ReporteOrden.decisiones`,
+  `EstadoUnidad.decisiones`, `Checkpoint.causa_parada` y `ResultadoGate.diferido`; el código de
+  error `mandato-no-vigente` (409) y el evento de auditoría `cambio-mandato`, `decision-delegada` y
+  `revision-decision`. Todo con valor por defecto, salvo que `unit.start` y `unit.set_mode` ya no
+  admiten supervisado ni desatendido sin mandato aprobado. Un proxy anterior no entiende
+  `mandato-parado`: se actualiza primero el proxy. `Consumo.llamadas` (de 1.7) empieza a contarse.
 - Los esquemas se publican con `$id` `https://railspec.dev/schemas/v1/<nombre>.schema.json`
   (dominio sin reservar; el `$id` es solo un identificador).
 

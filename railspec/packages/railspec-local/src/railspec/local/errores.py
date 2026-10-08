@@ -100,5 +100,23 @@ class FueraDeAlcance(ErrorRailspec):
         self.rutas = rutas
 
 
+class FueraDeAlcanceMandato(ErrorRailspec):
+    """El snapshot toca rutas que el mandato no permite: el servidor detendría la unidad."""
+
+    def __init__(self, mandato: str, rutas: list[str], permitidas: list[str]) -> None:
+        lista = "\n".join(f"- {r}" for r in rutas)
+        super().__init__(
+            f"El mandato «{mandato}» solo permite tocar {', '.join(permitidas)}; estas rutas quedan fuera:\n"
+            f"{lista}\nSi reportas así, el servidor detendrá la unidad (`fuera-de-alcance`) y tendrá que "
+            "decidir una persona. Revierte esos cambios antes de reportar o repórtala como `bloqueado` con "
+            "el motivo."
+        )
+        self.rutas = rutas
+
+
+class DecisionSinRespaldo(ErrorRailspec):
+    """Una decisión cita una delegación que no existe o que el mandato reserva a una persona."""
+
+
 class UnidadEnUso(ErrorRailspec):
     pass

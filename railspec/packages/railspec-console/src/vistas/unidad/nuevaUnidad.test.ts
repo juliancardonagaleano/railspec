@@ -22,6 +22,27 @@ describe("insumosDeTexto", () => {
   });
 });
 
+describe("validarNuevaUnidad: modo y mandato", () => {
+  it("sin modo no manda modo ni plan; semi-autonomo manda solo el modo", () => {
+    const base = validarNuevaUnidad(valido(), alcance).entrada;
+    expect(base).not.toHaveProperty("modo");
+    expect(base).not.toHaveProperty("plan");
+    const semi = validarNuevaUnidad(valido({ modo: "semi-autonomo", plan: "pdf-a" }), alcance).entrada;
+    expect(semi).toMatchObject({ modo: "semi-autonomo" });
+    expect(semi).not.toHaveProperty("plan");
+  });
+
+  it("supervisado y desatendido exigen el mandato (plan)", () => {
+    for (const modo of ["supervisado", "desatendido"] as const) {
+      const sin = validarNuevaUnidad(valido({ modo }), alcance);
+      expect(sin.entrada).toBeNull();
+      expect(sin.errores).toEqual([`El modo ${modo} exige elegir un mandato (plan).`]);
+      expect(validarNuevaUnidad(valido({ modo, plan: "  " }), alcance).entrada).toBeNull();
+      expect(validarNuevaUnidad(valido({ modo, plan: " pdf-a " }), alcance).entrada).toMatchObject({ modo, plan: "pdf-a" });
+    }
+  });
+});
+
 describe("validarNuevaUnidad", () => {
   it("un formulario completo da la entrada de unit.start, recortada, con el sha en minúsculas", () => {
     const { errores, entrada } = validarNuevaUnidad(

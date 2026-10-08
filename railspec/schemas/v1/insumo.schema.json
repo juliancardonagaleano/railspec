@@ -790,7 +790,7 @@
       "$ref": "#/$defs/VeredictoGateSalida"
     },
     "version_contrato": {
-      "default": "1.10",
+      "default": "1.11",
       "enum": [
         "1.0",
         "1.1",
@@ -802,7 +802,8 @@
         "1.7",
         "1.8",
         "1.9",
-        "1.10"
+        "1.10",
+        "1.11"
       ],
       "title": "Version Contrato",
       "type": "string"

@@ -464,6 +464,52 @@ La integración por la API (`POST /tools/unit.integrate`) no cambia: el
 servidor sigue aceptando la tool sin `commit_integrado` (el contrato lo declara
 opcional) y la sugerencia solo la usa el diálogo.
 
+## Mandatos
+
+Pantalla `/{org}/{ws}/mandatos` (enlace «Mandatos» del workspace) y `/{org}/{ws}/mandatos/{id}`. Un mandato es la
+aprobación única, acotada y con caducidad bajo la que corren las unidades `supervisado` y `desatendido` (contrato 1.11;
+la semántica completa está en [mandato.md](mandato.md)). La consola no decide nada: muestra el estado que calcula el
+servidor y envía las acciones por las tools `mandate.*` (canal `consola`).
+
+**Qué muestra**
+
+- **Lista** (`mandate.list`): id, título, modo, estado con insignia (`propuesto`, `aprobado`, `parado`, `revocado`, y
+  `caducado` cuando el servidor dice `vigente: false` aunque el estado siga `aprobado`), vigente hasta, causa de parada,
+  unidades `n/máx` y decisiones pendientes de revisión.
+- **Detalle** (`mandate.get`): el contenido íntegro (objetivo, repositorios, rutas permitidas, delegaciones con su tipo),
+  el presupuesto total frente al consumo de sus unidades, el estado con el motivo de que no ampare trabajo y la parada con
+  qué hacer, el historial de aprobaciones (cada una con su huella), las unidades del mandato (con insignias «diferida»,
+  causa de parada y decisiones pendientes, enlazadas a su detalle) y las decisiones delegadas tomadas.
+- **Detalle de la unidad**: insignia del mandato (`unidad.plan`) con enlace, «Diferida (desatendido)» si un gate escaló y
+  la unidad se difirió, la causa de parada del checkpoint pendiente con su explicación, y las decisiones de la unidad con
+  su revisión. Cambiar el modo a `supervisado` o `desatendido` avisa de que exige un mandato aprobado, vigente y del mismo
+  modo (y se deshabilita si la unidad no tiene `plan`); «Nueva unidad» deja elegir el modo y, con los que lo exigen, el
+  mandato entre los vigentes o propuestos de ese modo.
+- **Tablero**: un aviso con el número de mandatos parados, para que no pasen inadvertidos (sus unidades están retenidas).
+
+**Quién puede qué.** Leer es de `lector`. Redactar, editar, aprobar, renovar, revocar y revisar decisiones piden
+`desarrollador` o más (el `rol_minimo` de cada tool): la consola oculta los botones al lector y decide el servidor.
+
+| Acción | Tool | Cómo la hace la consola |
+| --- | --- | --- |
+| Nuevo mandato / Editar | `mandate.propose` | Formulario con id (slug), título, objetivo, modo, repositorios (los vinculados del workspace), máximo de unidades, rutas permitidas (una por línea), topes de tokens, costo, segundos y llamadas, reintentos de parada (0 a 3), vigencia (1 a 168 h) y delegaciones. Valida en cliente lo que valida el contrato (un desatendido exige al menos un tope). Editar manda `version_vista`, avisa de que el mandato vuelve a `propuesto` y exigirá otra aprobación. |
+| Aprobar / Renovar | `mandate.approve` | Diálogo con el contenido íntegro, la huella y qué autoriza (trabajo sin checkpoints hasta la caducidad, con estos límites). Manda `version_vista` y la `huella`; comentario opcional. |
+| Revocar | `mandate.revoke` | Motivo obligatorio y confirmación explícita («Revocar definitivamente»): no se reabre. |
+| Aceptar / Revertir una decisión | `mandate.review` | Revertir exige comentario. Manda la `version_vista` del estado de la unidad: en su detalle es la que ya está en pantalla; en el del mandato (`mandate.get` no la trae) se lee con el estado de la unidad justo antes de revisar. |
+
+**Por qué aprobar es solo desde la consola.** Una aprobación vale lo que la persona vio. `mandate.approve` y
+`mandate.review` solo existen por HTTP con el canal `consola` y un actor humano: el MCP del arnés y el proxy local no los
+exponen, así que un agente puede redactar un mandato (`mandate.propose`) o detenerlo (`mandate.revoke`), pero nunca
+aprobarlo ni dar por buena su propia decisión. La aprobación va ligada a la **huella** del contenido (SHA-256 del
+contenido canónico) que calcula el servidor y devuelve `mandate.get`; la consola no la recalcula: la muestra y la devuelve
+tal cual. Si el contenido cambió entre medias (alguien lo editó mientras se leía), el servidor responde 409
+`conflicto-version`.
+
+**Conflictos.** Ante un 409 al aprobar o revocar, el diálogo recarga el mandato, avisa («El mandato cambió mientras lo
+revisabas; ya se recargó») y se queda abierto con el contenido y la huella nuevos: hay que volver a leerlos antes de
+aprobar. Al editar, el formulario conserva la versión con que se abrió, de modo que un 409 avisa de que no se guardó nada
+y obliga a reabrirlo; no hay forma de pisar en silencio los cambios de otra persona.
+
 ## Avisos e informes
 
 Una organización puede recibir un aviso por Teams o por correo cuando un gate escala o se agota un
@@ -556,7 +602,7 @@ registro mientras tanto, el diálogo se cierra.
 | `POST /auth/salir` | Borra la cookie y revoca la sesión y sus tokens `api`; exige `X-Railspec-Consola: 1`. |
 | `POST /auth/token` | Token `rsc1` de una hora para `/v1/*`; exige la cookie de sesión y `X-Railspec-Consola: 1`. |
 | `GET /yo` | Persona, si administra la plataforma, organizaciones y workspaces visibles con su rol. |
-| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
+| `GET /tools`, `POST /tools/{nombre}` | Registro único de tools por la superficie HTTP, canal `consola`, solo la lista blanca `unit.list`, `unit.status`, `unit.approve`, `unit.integrate`, `unit.set_mode`, `unit.start`, `mandate.list`, `mandate.get`, `mandate.propose`, `mandate.approve`, `mandate.revoke`, `mandate.review`, `telemetry.query`, `graph.query`; cualquier otra (`unit.export`, `unit.import`, `insumo.get`…) responde 403 `fuera-de-alcance` (404 si no existe). La salida va filtrada: `unit.status` devuelve la orden vigente como resumen (sin instrucciones, plantilla, contexto ni comando de validación) y las que devuelven el estado lo sirven sin evidencia ni propuesta. |
 | `GET/POST /orgs`, `PUT /orgs/{org}` | Organizaciones. |
 | `GET/POST /orgs/{org}/workspaces`, `PUT /orgs/{org}/workspaces/{ws}` | Workspaces. |
 | `GET/POST /orgs/{org}/roles?workspace=`, `DELETE /orgs/{org}/roles/{id}` | Roles; el sujeto puede ir por login (`{"tipo": "usuario", "login": "ana"}`). La última asignación `org-admin` no se puede quitar (409), salvo por quien administra la plataforma. |

@@ -25,7 +25,7 @@
         "unidad": "0001-emitir-pdf",
         "workspace": "certificados"
       },
-      "version_contrato": "1.10"
+      "version_contrato": "1.11"
     }
   ],
   "espejo_remoto": {
@@ -45,6 +45,7 @@
       "tokens": 84000
     },
     "creado_en": "2026-09-30T13:00:00Z",
+    "decisiones": [],
     "depende_de": [],
     "dueno": {
       "canal": "arnes",
@@ -61,6 +62,7 @@
         "criticos": [
           "correctitud"
         ],
+        "diferido": false,
         "gobernanza_consultada": "si",
         "hallazgos": [],
         "iteraciones": 1,
@@ -110,7 +112,7 @@
       "workspace": "certificados"
     },
     "version": 12,
-    "version_contrato": "1.10"
+    "version_contrato": "1.11"
   },
   "orden_en_curso": {
     "alcance": {
@@ -167,7 +169,7 @@
       "unidad": "0001-emitir-pdf",
       "workspace": "certificados"
     },
-    "version_contrato": "1.10"
+    "version_contrato": "1.11"
   },
   "rama": "rs/0001",
   "repositorio": "certificados-api",
@@ -178,6 +180,6 @@
     "unidad": "0001-emitir-pdf",
     "workspace": "certificados"
   },
-  "version_contrato": "1.10",
+  "version_contrato": "1.11",
   "worktree": "/home/dev/certificados-api/.railspec/worktrees/0001-emitir-pdf"
 }

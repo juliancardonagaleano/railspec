@@ -1,9 +1,10 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { claves, grafo, repositorios, unidades } from "../../api/endpoints";
+import { claves, grafo, mandatos, repositorios, unidades } from "../../api/endpoints";
+import { esModoConMandato, type Modo } from "../../api/tipos";
 import type { Insumo } from "../../chat/tipos";
-import { Cargando, ErrorVista } from "../../componentes/Estados";
+import { Aviso, Cargando, ErrorVista } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Dialog } from "../../componentes/ui/dialog";
 import { Campo, Input, Textarea } from "../../componentes/ui/input";
@@ -37,6 +38,14 @@ export function DialogoNuevaUnidad({ org, ws, desdeInsumo, alCerrar }: Props) {
   const grafos = useQuery({ queryKey: [...claves.grafo(org, ws), "repositorios"], queryFn: () => grafo.repositorios(org, ws) });
   const [form, setForm] = useState<FormNuevaUnidad>(() => (desdeInsumo ? formDesdeInsumo(desdeInsumo) : FORM_VACIO));
   const [intentado, setIntentado] = useState(false);
+  const conMandato = form.modo !== undefined && esModoConMandato(form.modo);
+  // Los mandatos del workspace, solo si el modo elegido descansa en uno.
+  const listaMandatos = useQuery({
+    queryKey: claves.mandatos(org, ws),
+    queryFn: () => mandatos.listar({ alcance: { org, workspace: ws }, limite: 200 }),
+    enabled: conMandato,
+  });
+  const candidatos = (listaMandatos.data?.mandatos ?? []).filter((m) => m.modo === form.modo && (m.vigente || m.estado === "propuesto"));
 
   const listaVinculos = vinculos.data ?? [];
   const listaGrafos = grafos.data ?? [];
@@ -100,6 +109,54 @@ export function DialogoNuevaUnidad({ org, ws, desdeInsumo, alCerrar }: Props) {
           >
             <Textarea id="nu-insumos" rows={2} value={form.insumos} onChange={(e) => setForm({ ...form, insumos: e.target.value })} />
           </Campo>
+          <Campo
+            etiqueta="Modo inicial"
+            htmlFor="nu-modo"
+            ayuda="Sin elegir, la unidad arranca interactiva. Supervisado y desatendido descansan en un mandato."
+          >
+            <Select
+              id="nu-modo"
+              vacio="interactivo (por defecto)"
+              value={form.modo ?? ""}
+              opciones={[
+                { valor: "semi-autonomo", etiqueta: "semi-autonomo" },
+                { valor: "supervisado", etiqueta: "supervisado (con mandato)" },
+                { valor: "desatendido", etiqueta: "desatendido (con mandato)" },
+              ]}
+              onChange={(e) => {
+                const modo = (e.target.value || undefined) as Modo | undefined;
+                setForm({ ...form, modo, plan: undefined });
+              }}
+            />
+          </Campo>
+          {conMandato ? (
+            <Campo
+              etiqueta="Mandato (plan)"
+              htmlFor="nu-plan"
+              ayuda="El servidor exige que el mandato esté aprobado, vigente y sea del mismo modo; un mandato propuesto aún no ampara trabajo."
+            >
+              {listaMandatos.isPending ? <Cargando texto="Cargando mandatos…" /> : null}
+              {listaMandatos.isError ? <ErrorVista error={listaMandatos.error} reintentar={() => void listaMandatos.refetch()} /> : null}
+              {listaMandatos.isSuccess ? (
+                candidatos.length === 0 ? (
+                  <Aviso tono="aviso">
+                    No hay mandatos {form.modo}s vigentes ni propuestos en este workspace. Redáctalo y apruébalo en la pantalla Mandatos.
+                  </Aviso>
+                ) : (
+                  <Select
+                    id="nu-plan"
+                    vacio="Elige un mandato…"
+                    value={form.plan ?? ""}
+                    opciones={candidatos.map((m) => ({
+                      valor: m.id,
+                      etiqueta: `${m.id} — ${m.titulo} (${m.vigente ? "vigente" : "propuesto, sin aprobar"})`,
+                    }))}
+                    onChange={(e) => setForm({ ...form, plan: e.target.value || undefined })}
+                  />
+                )
+              ) : null}
+            </Campo>
+          ) : null}
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-1 text-sm font-medium">Repositorios (el primero es el primario)</legend>
             {filas.map((fila, i) => (

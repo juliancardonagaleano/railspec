@@ -16,6 +16,11 @@ export type EstadoFase = (typeof ESTADOS_FASE)[number];
 export const MODOS = ["interactivo", "semi-autonomo", "supervisado", "desatendido"] as const;
 export type Modo = (typeof MODOS)[number];
 
+/** Modos sin checkpoints humanos: descansan en un mandato aprobado (contrato 1.11). */
+export const MODOS_CON_MANDATO = ["supervisado", "desatendido"] as const;
+export type ModoConMandato = (typeof MODOS_CON_MANDATO)[number];
+export const esModoConMandato = (m: Modo): m is ModoConMandato => (MODOS_CON_MANDATO as readonly string[]).includes(m);
+
 export type Riesgo = "bajo" | "medio" | "alto";
 export type RiesgoImpacto = Riesgo | "critico";
 export type Severidad = "alta" | "media" | "baja";
@@ -107,7 +112,8 @@ export type CodigoError =
   | "conversion-no-permitida"
   | "unidad-no-cerrada"
   | "presupuesto-agotado"
-  | "secuencia-con-hueco";
+  | "secuencia-con-hueco"
+  | "mandato-no-vigente";
 
 export interface CuerpoError {
   detalle?: string;
@@ -176,6 +182,10 @@ export interface UnitStartEntrada {
   pedido: string;
   /** Ids (uuid) de insumos exportados por el chat de este workspace. */
   insumos?: string[];
+  /** Modo inicial que fija la persona; `supervisado` y `desatendido` exigen `plan` (un mandato). */
+  modo?: Modo;
+  /** Id del mandato que ampara la unidad (contrato 1.11). */
+  plan?: string;
   version_contrato_cliente: string;
 }
 
@@ -191,6 +201,8 @@ export interface Checkpoint {
   pregunta: string;
   abierto_en: string;
   artefacto_sha256?: string | null;
+  /** Desde 1.11: por qué se detuvo una unidad bajo mandato (solo en `parada` y `gate-escalado`). */
+  causa_parada?: CausaParada | null;
 }
 
 export interface Cita {
@@ -231,6 +243,8 @@ export interface ResultadoGate {
   hallazgos?: Hallazgo[];
   refutador?: boolean;
   rehabilitado?: Rehabilitacion | null;
+  /** Desde 1.11: en desatendido el gate escaló y la unidad se difirió. */
+  diferido?: boolean;
 }
 
 export interface Integracion {
@@ -251,6 +265,7 @@ export interface Consumo {
   tokens?: number;
   segundos?: number;
   costo_usd?: number;
+  llamadas?: number;
 }
 
 export interface EstadoUnidad {
@@ -274,6 +289,206 @@ export interface EstadoUnidad {
   depende_de?: string[];
   pedido?: string | null;
   orden_vigente?: string | null;
+  /** Desde 1.11: decisiones tomadas bajo el mandato de la unidad (`unidad.plan`). */
+  decisiones?: DecisionDelegada[];
+}
+
+// ---------------------------------------------------------------- mandato (contrato 1.11)
+
+export const ESTADOS_MANDATO = ["propuesto", "aprobado", "parado", "revocado"] as const;
+export type EstadoMandato = (typeof ESTADOS_MANDATO)[number];
+
+export const TIPOS_DELEGACION = ["pre-decidida", "con-criterio", "reservada"] as const;
+export type TipoDelegacion = (typeof TIPOS_DELEGACION)[number];
+
+export const CAUSAS_PARADA = [
+  "gate-escalado",
+  "plan-incompleto",
+  "presupuesto-mandato",
+  "mandato-caducado",
+  "mandato-revocado",
+  "unidad-amparada-fallida",
+  "fuera-de-alcance",
+  "decision-reservada",
+  "reintentos-agotados",
+] as const;
+export type CausaParada = (typeof CAUSAS_PARADA)[number];
+
+export type ResultadoRevision = "aceptada" | "revertida";
+
+export interface Delegacion {
+  /** `D-1`, `D-2`… */
+  id: string;
+  tipo: TipoDelegacion;
+  texto: string;
+}
+
+export interface LimitesMandato {
+  repositorios: string[];
+  max_unidades: number;
+  rutas_permitidas: string[];
+  presupuesto: Presupuesto;
+  reintentos_parada: number;
+  vigencia_horas: number;
+}
+
+/** Lo que una persona aprueba; su huella liga la aprobación a este contenido exacto. */
+export interface MandatoContenido {
+  titulo: string;
+  objetivo: string;
+  modo: ModoConMandato;
+  limites: LimitesMandato;
+  delegaciones: Delegacion[];
+}
+
+export interface AprobacionMandato {
+  actor: Actor;
+  en: string;
+  caduca_en: string;
+  huella: string;
+  comentario?: string | null;
+}
+
+export interface ParadaMandato {
+  causa: CausaParada;
+  unidad?: string | null;
+  detalle: string;
+  en: string;
+}
+
+export interface RevocacionMandato {
+  actor: Actor;
+  en: string;
+  motivo: string;
+}
+
+export interface Mandato {
+  alcance: AlcanceWorkspace;
+  id: string;
+  version: number;
+  contenido: MandatoContenido;
+  estado: EstadoMandato;
+  aprobaciones: AprobacionMandato[];
+  parada?: ParadaMandato | null;
+  revocacion?: RevocacionMandato | null;
+  creado_en: string;
+  creado_por: Actor;
+  actualizado_en: string;
+  actualizado_por: Actor;
+}
+
+export interface RevisionDecision {
+  resultado: ResultadoRevision;
+  actor: Actor;
+  en: string;
+  comentario?: string | null;
+}
+
+/** Decisión tomada bajo el mandato; una persona la revisa después. */
+export interface DecisionDelegada {
+  /** `DD-n`, única dentro de la unidad. */
+  id: string;
+  /** `D-n` del mandato, o `reintento` (la aplica el servidor). */
+  delegacion: string;
+  que: string;
+  alternativas?: string[];
+  revertir: string;
+  fase: Fase;
+  orden?: string | null;
+  tomada_por: Actor;
+  en: string;
+  revision?: RevisionDecision | null;
+}
+
+export interface UnidadDeMandato {
+  unidad: string;
+  titulo: string;
+  fase: Fase;
+  estado: EstadoFase;
+  modo: Modo;
+  consumo: Consumo;
+  diferida: boolean;
+  causa_parada?: CausaParada | null;
+  decisiones_pendientes: number;
+  actualizado_en: string;
+}
+
+export interface DecisionDeUnidad {
+  unidad: string;
+  decision: DecisionDelegada;
+}
+
+/** `mandate.get`. `huella` la calcula el servidor: es la que `mandate.approve` pide de vuelta. */
+export interface MandateGetSalida {
+  mandato: Mandato;
+  huella: string;
+  vigente: boolean;
+  motivo_no_vigente?: string | null;
+  unidades: UnidadDeMandato[];
+  consumo: Consumo;
+  decisiones: DecisionDeUnidad[];
+}
+
+/** Salida de `mandate.propose`, `mandate.approve` y `mandate.revoke`. */
+export interface MandateSalida {
+  mandato: Mandato;
+  huella: string;
+}
+
+export interface ResumenMandato {
+  id: string;
+  titulo: string;
+  modo: ModoConMandato;
+  estado: EstadoMandato;
+  vigente: boolean;
+  vigente_hasta?: string | null;
+  causa_parada?: CausaParada | null;
+  unidades: number;
+  max_unidades: number;
+  decisiones_pendientes: number;
+  actualizado_en: string;
+}
+
+export interface MandateListEntrada {
+  alcance: AlcanceWorkspace;
+  estado?: EstadoMandato[];
+  limite?: number;
+}
+
+export interface MandateListSalida {
+  mandatos: ResumenMandato[];
+}
+
+export interface MandateProposeEntrada {
+  alcance: AlcanceWorkspace;
+  id: string;
+  contenido: MandatoContenido;
+  /** Sin valor crea el mandato; con valor edita la versión que conoces. */
+  version_vista?: number;
+}
+
+export interface MandateApproveEntrada {
+  alcance: AlcanceWorkspace;
+  id: string;
+  version_vista: number;
+  huella: string;
+  comentario?: string;
+}
+
+export interface MandateRevokeEntrada {
+  alcance: AlcanceWorkspace;
+  id: string;
+  version_vista: number;
+  motivo: string;
+}
+
+export interface MandateReviewEntrada {
+  unidad: AlcanceUnidad;
+  decision: string;
+  resultado: ResultadoRevision;
+  comentario?: string;
+  /** Versión del estado de la unidad que la persona vio. */
+  version_vista: number;
 }
 
 export interface ResumenOrden {
@@ -807,6 +1022,8 @@ export interface Presupuesto {
   tokens_max?: number | null;
   segundos_max?: number | null;
   costo_usd_max?: number | null;
+  /** Desde 1.7. */
+  llamadas_max?: number | null;
 }
 
 export interface PresupuestoConfig {

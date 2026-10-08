@@ -110,6 +110,7 @@ CAMPOS_ESTADO = (
     "depende_de",
     "presupuesto",
     "consumo",
+    "decisiones",
     "creado_en",
     "actualizado_en",
     "actualizado_por",
@@ -124,6 +125,7 @@ CAMPOS_GATE = (
     "criticos",
     "refutador",
     "rehabilitado",
+    "diferido",
     "cerrado_en",
 )
 
@@ -200,6 +202,14 @@ _SALIDAS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "unit.set_mode": _solo_estado,
     "telemetry.query": _tal_cual,
     "graph.query": _tal_cual,
+    # Mandato (1.11): texto que redactaron personas o agentes (objetivo, delegaciones, decisiones tomadas
+    # con su porqué), no código. La revisión de una decisión devuelve el estado de la unidad.
+    "mandate.propose": _tal_cual,
+    "mandate.approve": _tal_cual,
+    "mandate.revoke": _tal_cual,
+    "mandate.review": _solo_estado,
+    "mandate.get": _tal_cual,
+    "mandate.list": _tal_cual,
 }
 
 TOOLS_CONSOLA = frozenset(_SALIDAS)

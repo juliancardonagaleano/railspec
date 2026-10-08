@@ -208,4 +208,10 @@ def test_las_tools_de_consola_son_las_documentadas():
         "unit.set_mode",
         "telemetry.query",
         "graph.query",
+        "mandate.propose",
+        "mandate.approve",
+        "mandate.revoke",
+        "mandate.review",
+        "mandate.get",
+        "mandate.list",
     }

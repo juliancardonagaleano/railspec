@@ -56,6 +56,7 @@ export function PestanaGates({ estado }: { estado: EstadoUnidad }) {
               <CardTitle className="flex flex-wrap items-center gap-2">
                 Gate {g === "codigo" ? "código" : g} <EtiquetaVeredicto veredicto={r.veredicto} />
                 {r.rehabilitado ? <Badge tono="info">rehabilitado</Badge> : null}
+                {r.diferido ? <Badge tono="aviso">Diferida (desatendido)</Badge> : null}
               </CardTitle>
               <p className="text-xs text-suave">
                 {r.iteraciones} iteraciones · gobernanza {r.gobernanza_consultada} · cerrado {fecha(r.cerrado_en)}

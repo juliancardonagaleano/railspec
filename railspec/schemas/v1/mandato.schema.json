@@ -1,0 +1,628 @@
+{
+  "$defs": {
+    "Actor": {
+      "additionalProperties": false,
+      "description": "Quién hizo algo, por qué canal. Va en todo lo que se escribe.\n\nLa identidad estable es el id numérico de GitHub (el login puede cambiar).\nEl proveedor de identidad queda detrás de ``proveedor_identidad`` para que\notro (Azure DevOps, Entra ID) entre como valor nuevo sin romper el esquema.",
+      "properties": {
+        "agente": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nodo o rol del agente, si tipo=agente.",
+          "title": "Agente"
+        },
+        "canal": {
+          "$ref": "#/$defs/Canal"
+        },
+        "en_nombre_de": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "github_id del humano por quien actúa un agente.",
+          "title": "En Nombre De"
+        },
+        "github_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Github Id"
+        },
+        "login": {
+          "anyOf": [
+            {
+              "description": "Login de GitHub; informativo, la identidad es github_id.",
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Login"
+        },
+        "oidc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OidcGithubActions"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proveedor_identidad": {
+          "default": "github",
+          "pattern": "^[a-z][a-z0-9-]{1,31}$",
+          "title": "Proveedor Identidad",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoActor"
+        }
+      },
+      "required": [
+        "tipo",
+        "canal"
+      ],
+      "title": "Actor",
+      "type": "object"
+    },
+    "AlcanceWorkspace": {
+      "additionalProperties": false,
+      "description": "Espacio de nombres mínimo: todo dato persistido lo lleva.",
+      "properties": {
+        "org": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Org",
+          "type": "string"
+        },
+        "workspace": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "workspace"
+      ],
+      "title": "AlcanceWorkspace",
+      "type": "object"
+    },
+    "AprobacionMandato": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "caduca_en": {
+          "format": "date-time",
+          "title": "Caduca En",
+          "type": "string"
+        },
+        "comentario": {
+          "anyOf": [
+            {
+              "maxLength": 2000,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Comentario"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "huella": {
+          "description": "Huella del contenido que el humano vio.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Huella",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "en",
+        "caduca_en",
+        "huella"
+      ],
+      "title": "AprobacionMandato",
+      "type": "object"
+    },
+    "Canal": {
+      "enum": [
+        "arnes",
+        "consola",
+        "ci",
+        "servidor"
+      ],
+      "title": "Canal",
+      "type": "string"
+    },
+    "CausaParada": {
+      "description": "Condiciones de parada tipificadas (kit SDD: ``.spec/PARADAS-SUPERVISADO.md``).\n\nLas cinco primeras detienen el mandato entero; las cuatro últimas, solo la unidad afectada\n(``gate-escalado`` es de ambas: en supervisado congela el mandato y en desatendido difiere la unidad).",
+      "enum": [
+        "gate-escalado",
+        "plan-incompleto",
+        "presupuesto-mandato",
+        "mandato-caducado",
+        "mandato-revocado",
+        "unidad-amparada-fallida",
+        "fuera-de-alcance",
+        "decision-reservada",
+        "reintentos-agotados"
+      ],
+      "title": "CausaParada",
+      "type": "string"
+    },
+    "Delegacion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Delegación del mandato, p. ej. D-2.",
+          "pattern": "^D-[0-9]{1,3}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "texto": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Texto",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoDelegacion"
+        }
+      },
+      "required": [
+        "id",
+        "tipo",
+        "texto"
+      ],
+      "title": "Delegacion",
+      "type": "object"
+    },
+    "EstadoMandato": {
+      "enum": [
+        "propuesto",
+        "aprobado",
+        "parado",
+        "revocado"
+      ],
+      "title": "EstadoMandato",
+      "type": "string"
+    },
+    "LimitesMandato": {
+      "additionalProperties": false,
+      "properties": {
+        "max_unidades": {
+          "default": 5,
+          "description": "Cuántas unidades puede amparar.",
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Max Unidades",
+          "type": "integer"
+        },
+        "presupuesto": {
+          "$ref": "#/$defs/Presupuesto",
+          "description": "Tope **total** del mandato, sumando el consumo de todas sus unidades; se alcanza una vez y detiene el mandato entero (`presupuesto-mandato`). Es aparte de los topes por unidad, fase y mes."
+        },
+        "reintentos_parada": {
+          "default": 0,
+          "description": "Cuántas veces reintenta el servidor, sin preguntar, una orden que el arnés reportó `fallido`. 0: ninguna, una parada la ve siempre un humano. `bloqueado` nunca se reintenta.",
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Reintentos Parada",
+          "type": "integer"
+        },
+        "repositorios": {
+          "description": "Repositorios en los que las unidades amparadas pueden trabajar.",
+          "items": {
+            "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Repositorios",
+          "type": "array"
+        },
+        "rutas_permitidas": {
+          "description": "Si hay alguna, un snapshot que toque una ruta que no case con ninguna detiene la unidad (`fuera-de-alcance`). Vacía: sin restricción adicional a la del plan de cada unidad.",
+          "items": {
+            "description": "Patrón glob relativo a la raíz del repositorio (sintaxis gitignore).",
+            "maxLength": 512,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Rutas Permitidas",
+          "type": "array"
+        },
+        "vigencia_horas": {
+          "default": 24,
+          "description": "Cuánto vale cada aprobación; después hay que renovarla.",
+          "maximum": 168,
+          "minimum": 1,
+          "title": "Vigencia Horas",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "repositorios"
+      ],
+      "title": "LimitesMandato",
+      "type": "object"
+    },
+    "MandatoContenido": {
+      "additionalProperties": false,
+      "description": "Lo que un humano aprueba. Su huella liga la aprobación a este contenido exacto.",
+      "properties": {
+        "delegaciones": {
+          "items": {
+            "$ref": "#/$defs/Delegacion"
+          },
+          "maxItems": 50,
+          "title": "Delegaciones",
+          "type": "array"
+        },
+        "limites": {
+          "$ref": "#/$defs/LimitesMandato"
+        },
+        "modo": {
+          "$ref": "#/$defs/Modo",
+          "description": "El modo de todas las unidades que ampara: supervisado o desatendido."
+        },
+        "objetivo": {
+          "description": "Qué se quiere lograr y cuándo se da por terminado.",
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Objetivo",
+          "type": "string"
+        },
+        "titulo": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Titulo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "titulo",
+        "objetivo",
+        "modo",
+        "limites"
+      ],
+      "title": "MandatoContenido",
+      "type": "object"
+    },
+    "Modo": {
+      "enum": [
+        "interactivo",
+        "semi-autonomo",
+        "supervisado",
+        "desatendido"
+      ],
+      "title": "Modo",
+      "type": "string"
+    },
+    "OidcGithubActions": {
+      "additionalProperties": false,
+      "description": "Identidad de servicio emitida por el token OIDC de GitHub Actions.",
+      "properties": {
+        "repositorio": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "title": "Repositorio",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "workflow": {
+          "description": "Claim workflow_ref.",
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repositorio",
+        "workflow"
+      ],
+      "title": "OidcGithubActions",
+      "type": "object"
+    },
+    "ParadaMandato": {
+      "additionalProperties": false,
+      "properties": {
+        "causa": {
+          "$ref": "#/$defs/CausaParada"
+        },
+        "detalle": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Detalle",
+          "type": "string"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "unidad": {
+          "anyOf": [
+            {
+              "description": "Identificador de unidad SDD con forma NNNN-slug.",
+              "pattern": "^[0-9]{4}-[a-z0-9][a-z0-9-]{0,62}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "La unidad que originó la parada, si la hubo.",
+          "title": "Unidad"
+        }
+      },
+      "required": [
+        "causa",
+        "detalle",
+        "en"
+      ],
+      "title": "ParadaMandato",
+      "type": "object"
+    },
+    "Presupuesto": {
+      "additionalProperties": false,
+      "description": "Tope aplicado por el servidor; al agotarse escala al humano.",
+      "properties": {
+        "costo_usd_max": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Costo Usd Max"
+        },
+        "llamadas_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.7: tope de llamadas al modelo. Cuenta las que salen hacia el proveedor (un acierto de caché no cuenta) y, como los demás topes, escala al humano al alcanzarse.",
+          "title": "Llamadas Max"
+        },
+        "segundos_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Segundos Max"
+        },
+        "tokens_max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Max"
+        }
+      },
+      "title": "Presupuesto",
+      "type": "object"
+    },
+    "RevocacionMandato": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/Actor"
+        },
+        "en": {
+          "format": "date-time",
+          "title": "En",
+          "type": "string"
+        },
+        "motivo": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Motivo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actor",
+        "en",
+        "motivo"
+      ],
+      "title": "RevocacionMandato",
+      "type": "object"
+    },
+    "TipoActor": {
+      "enum": [
+        "humano",
+        "servicio",
+        "agente"
+      ],
+      "title": "TipoActor",
+      "type": "string"
+    },
+    "TipoDelegacion": {
+      "enum": [
+        "pre-decidida",
+        "con-criterio",
+        "reservada"
+      ],
+      "title": "TipoDelegacion",
+      "type": "string"
+    }
+  },
+  "$id": "https://railspec.dev/schemas/v1/mandato.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "El mandato de un workspace. Su ``id`` es el ``plan`` de las unidades que ampara.",
+  "properties": {
+    "actualizado_en": {
+      "format": "date-time",
+      "title": "Actualizado En",
+      "type": "string"
+    },
+    "actualizado_por": {
+      "$ref": "#/$defs/Actor"
+    },
+    "alcance": {
+      "$ref": "#/$defs/AlcanceWorkspace"
+    },
+    "aprobaciones": {
+      "description": "Historia que solo crece; la última es la vigente.",
+      "items": {
+        "$ref": "#/$defs/AprobacionMandato"
+      },
+      "title": "Aprobaciones",
+      "type": "array"
+    },
+    "contenido": {
+      "$ref": "#/$defs/MandatoContenido"
+    },
+    "creado_en": {
+      "format": "date-time",
+      "title": "Creado En",
+      "type": "string"
+    },
+    "creado_por": {
+      "$ref": "#/$defs/Actor"
+    },
+    "estado": {
+      "$ref": "#/$defs/EstadoMandato"
+    },
+    "id": {
+      "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "parada": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ParadaMandato"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "revocacion": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RevocacionMandato"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "version": {
+      "description": "Bloqueo optimista; +1 en cada escritura.",
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "version_contrato": {
+      "default": "1.11",
+      "enum": [
+        "1.0",
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        "1.7",
+        "1.8",
+        "1.9",
+        "1.10",
+        "1.11"
+      ],
+      "title": "Version Contrato",
+      "type": "string"
+    }
+  },
+  "required": [
+    "alcance",
+    "id",
+    "version",
+    "contenido",
+    "estado",
+    "creado_en",
+    "creado_por",
+    "actualizado_en",
+    "actualizado_por"
+  ],
+  "title": "Mandato",
+  "type": "object"
+}

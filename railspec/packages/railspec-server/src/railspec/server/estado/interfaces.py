@@ -18,6 +18,7 @@ from typing import Any, Protocol, runtime_checkable
 from pydantic import TypeAdapter
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil, Proveedor
 from railspec.contracts.estado import EstadoUnidad
+from railspec.contracts.mandato import EstadoMandato, Mandato
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import (
@@ -72,6 +73,19 @@ class AlmacenMotor(Protocol):
 
         Devuelve la unidad asociada al origen: ``unidad`` la primera vez, la existente después.
         """
+
+    # --- mandatos (desde 1.11) ---------------------------------------------------
+    def obtener_mandato(self, alcance: AlcanceWorkspace, id_: str) -> Mandato | None: ...
+
+    def guardar_mandato(self, mandato: Mandato, version_esperada: int | None) -> Mandato:
+        """``None`` crea; con versión, reemplaza o lanza ``ConflictoVersion``."""
+
+    def listar_mandatos(
+        self, alcance: AlcanceWorkspace, estados: Iterable[EstadoMandato] = (), limite: int = 200
+    ) -> list[Mandato]: ...
+
+    def estados_de_plan(self, alcance: AlcanceWorkspace, plan: str) -> list[EstadoUnidad]:
+        """Las unidades de un workspace que pertenecen al ``plan`` (el mandato que las ampara)."""
 
     # --- órdenes, reportes y snapshots --------------------------------------------
     def guardar_orden(self, orden: OrdenDeTrabajo) -> None: ...

@@ -30,6 +30,7 @@ from apoyo_motor import (
     aprobar,
     avanzar,
     construir,
+    contenido_mandato,
     entrada_start,
     reporte,
     snapshot,
@@ -46,6 +47,7 @@ from railspec.contracts.comun import (
     Proveedor,
 )
 from railspec.contracts.eventos import Direccion
+from railspec.contracts.mandato import EstadoMandato, Mandato
 from railspec.contracts.repositorio import (
     AsignacionRol,
     Auditoria,
@@ -302,6 +304,17 @@ def _configuracion() -> dict[str, Any]:
             leido_en=AHORA,
             error=None,
         ),
+        "mandato": Mandato(
+            alcance=WS_ALCANCE,
+            id="pdf-a",
+            version=1,
+            contenido=contenido_mandato(),
+            estado=EstadoMandato.propuesto,
+            creado_en=AHORA,
+            creado_por=JULIAN,
+            actualizado_en=AHORA,
+            actualizado_por=JULIAN,
+        ),
         "avisos": ConfigAvisos(
             org=ORG, version=1, activo=True, destinatarios=["equipo@acme.com"], auditoria=_auditoria()
         ),
@@ -352,6 +365,7 @@ def _poblar():
     almacen.guardar_nodo_en_cache(ORG, "hash", {"valor": 1}, AHORA + timedelta(days=1))
     almacen.registrar_telemetria(config["telemetria"])
     almacen.registrar_auditoria(config["auditoria"])
+    almacen.guardar_mandato(config["mandato"], None)
     return SimpleNamespace(
         motor=motor,
         db=almacen.db,
@@ -487,6 +501,15 @@ def _recetas() -> dict[str, tuple[Any, str]]:
             lambda c: a(c).listar_estados(UnitListEntrada(alcance=WS_ALCANCE)),
             "ws",
         ),
+        "AlmacenMongo.obtener_mandato": (lambda c: a(c).obtener_mandato(WS_ALCANCE, "pdf-a"), "ws"),
+        "AlmacenMongo.guardar_mandato": (
+            lambda c: a(c).guardar_mandato(
+                *(lambda m: (m, m.version))(a(c).obtener_mandato(WS_ALCANCE, "pdf-a"))
+            ),
+            "ws",
+        ),
+        "AlmacenMongo.listar_mandatos": (lambda c: a(c).listar_mandatos(WS_ALCANCE), "ws"),
+        "AlmacenMongo.estados_de_plan": (lambda c: a(c).estados_de_plan(WS_ALCANCE, "pdf-a"), "ws"),
         "AlmacenMongo.guardar_orden": (lambda c: a(c).guardar_orden(c.orden), "ws"),
         "AlmacenMongo.obtener_orden": (lambda c: a(c).obtener_orden(c.alcance, str(c.orden.id)), "ws"),
         "AlmacenMongo.reporte_aceptado": (

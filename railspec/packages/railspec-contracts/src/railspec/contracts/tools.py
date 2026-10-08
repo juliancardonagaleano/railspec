@@ -43,9 +43,18 @@ from .comun import (
     UnidadId,
     ids_unicos,
 )
-from .estado import Checkpoint, Decision, EstadoUnidad
+from .estado import Checkpoint, Consumo, Decision, EstadoUnidad
 from .eventos import CommitEmpujado, Direccion, EventoSync, OrdenReportada, SnapshotSubido
 from .insumo import Insumo
+from .mandato import (
+    CausaParada,
+    DecisionDelegada,
+    DecisionId,
+    EstadoMandato,
+    Mandato,
+    MandatoContenido,
+    ResultadoRevision,
+)
 from .orden import OrdenDeTrabajo
 from .portabilidad import PaqueteUnidad
 from .referencias import FrescuraGrafo, RefArchivo, RefCriterio, RefNodoGrafo, RefSimbolo
@@ -88,6 +97,9 @@ class CodigoError(StrEnum):
     unidad_no_cerrada = "unidad-no-cerrada"
     presupuesto_agotado = "presupuesto-agotado"
     secuencia_con_hueco = "secuencia-con-hueco"
+    mandato_no_vigente = (
+        "mandato-no-vigente"  # desde 1.11: el mandato no existe, caducó, está parado o revocado
+    )
 
 
 class ErrorTool(Mensaje):
@@ -211,8 +223,23 @@ class AvanceCerrada(Contrato):
     tipo: Literal["cerrada"] = "cerrada"
 
 
+class AvanceMandatoParado(Contrato):
+    """Desde 1.11: el mandato de la unidad no ampara trabajo ahora; el arnés se detiene.
+
+    No hay orden ni checkpoint que resolver aquí: un humano revisa el mandato en la consola (o lo
+    renueva) y entonces ``unit.advance`` vuelve a dar trabajo. ``causa`` es ``None`` si el mandato
+    nunca se aprobó o la unidad no tiene mandato.
+    """
+
+    tipo: Literal["mandato-parado"] = "mandato-parado"
+    mandato: Slug
+    causa: CausaParada | None = None
+    detalle: str = Field(min_length=1, max_length=1000)
+    reintentar_en_s: int = Field(default=300, ge=1, le=3600)
+
+
 Avance = Annotated[
-    Union[AvanceOrden, AvanceCheckpoint, AvanceEspera, AvanceCerrada],
+    Union[AvanceOrden, AvanceCheckpoint, AvanceEspera, AvanceCerrada, AvanceMandatoParado],
     Field(discriminator="tipo"),
 ]
 
@@ -325,6 +352,135 @@ class ResumenUnidad(Contrato):
 class UnitListSalida(Mensaje):
     unidades: list[ResumenUnidad]
     cursor_siguiente: str | None = None
+
+
+# --- mandate.* (desde 1.11) -------------------------------------------------------------------------
+
+
+class MandateProposeEntrada(Mensaje):
+    """Redacta un mandato o edita uno propuesto, aprobado o parado (vuelve a `propuesto`).
+
+    Lo puede redactar una persona o un agente; **aprobarlo** solo una persona, desde la consola
+    (`mandate.approve`). Un mandato revocado no se edita.
+    """
+
+    alcance: AlcanceWorkspace
+    id: Slug = Field(description="Es el `plan` de las unidades que ampara.")
+    contenido: MandatoContenido
+    version_vista: int | None = Field(
+        default=None, ge=1, description="None crea el mandato; con valor, edita la versión que conoces."
+    )
+
+
+class MandateApproveEntrada(Mensaje):
+    """Aprueba (o renueva) un mandato: solo una persona y solo desde la consola.
+
+    `huella` es la del contenido que la persona vio (`MandatoContenido.huella()`); si el contenido
+    cambió, la aprobación se rechaza. Reanuda también un mandato parado o caducado.
+    """
+
+    alcance: AlcanceWorkspace
+    id: Slug
+    version_vista: int = Field(ge=1)
+    huella: str = Field(pattern=r"^[0-9a-f]{64}$")
+    comentario: str | None = Field(default=None, max_length=2000)
+
+
+class MandateRevokeEntrada(Mensaje):
+    """Cierra un mandato para siempre; sus unidades quedan detenidas. Solo una persona."""
+
+    alcance: AlcanceWorkspace
+    id: Slug
+    version_vista: int = Field(ge=1)
+    motivo: str = Field(min_length=1, max_length=2000)
+
+
+class MandateSalida(Mensaje):
+    mandato: Mandato
+    huella: Sha256 = Field(description="Huella del contenido vigente: la que `mandate.approve` devuelve.")
+
+
+class MandateGetEntrada(Mensaje):
+    alcance: AlcanceWorkspace
+    id: Slug
+
+
+class UnidadDeMandato(Contrato):
+    unidad: UnidadId
+    titulo: str
+    fase: Fase
+    estado: EstadoFase
+    modo: Modo
+    consumo: Consumo
+    diferida: bool = Field(description="Su gate escaló en desatendido y la unidad se difirió.")
+    causa_parada: CausaParada | None = Field(
+        default=None, description="Por qué está detenida, si tiene un checkpoint de parada pendiente."
+    )
+    decisiones_pendientes: int = Field(ge=0, description="Decisiones delegadas sin revisión humana.")
+    actualizado_en: AwareDatetime
+
+
+class DecisionDeUnidad(Contrato):
+    unidad: UnidadId
+    decision: DecisionDelegada
+
+
+MAX_DECISIONES_EN_MANDATO = 500
+
+
+class MandateGetSalida(Mensaje):
+    mandato: Mandato
+    huella: Sha256 = Field(description="Huella del contenido vigente: la que `mandate.approve` devuelve.")
+    vigente: bool
+    motivo_no_vigente: str | None = None
+    unidades: list[UnidadDeMandato]
+    consumo: Consumo = Field(description="Suma del consumo de las unidades; contra `limites.presupuesto`.")
+    decisiones: list[DecisionDeUnidad] = Field(
+        description=f"Las decisiones de todas las unidades, a lo sumo {MAX_DECISIONES_EN_MANDATO}."
+    )
+
+
+class MandateListEntrada(Mensaje):
+    alcance: AlcanceWorkspace
+    estado: list[EstadoMandato] = Field(default_factory=list)
+    limite: int = Field(default=50, ge=1, le=200)
+
+
+class ResumenMandato(Contrato):
+    id: Slug
+    titulo: str
+    modo: Modo
+    estado: EstadoMandato
+    vigente: bool
+    vigente_hasta: AwareDatetime | None = None
+    causa_parada: CausaParada | None = None
+    unidades: int = Field(ge=0)
+    max_unidades: int = Field(ge=1)
+    decisiones_pendientes: int = Field(ge=0)
+    actualizado_en: AwareDatetime
+
+
+class MandateListSalida(Mensaje):
+    mandatos: list[ResumenMandato]
+
+
+class MandateReviewEntrada(Mensaje):
+    """Una persona acepta o revierte una decisión que se tomó bajo el mandato.
+
+    Revertir no deshace el código: deja constancia y es la persona quien lo revierte.
+    """
+
+    unidad: AlcanceUnidad
+    decision: DecisionId
+    resultado: ResultadoRevision
+    comentario: str | None = Field(default=None, max_length=2000)
+    version_vista: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _comentario(self) -> MandateReviewEntrada:
+        if self.resultado == ResultadoRevision.revertida and not self.comentario:
+            raise ValueError("revertir una decisión necesita comentario")
+        return self
 
 
 # --- sync.pull y sync.push (desde 1.3) ------------------------------------------------
@@ -924,6 +1080,63 @@ TOOLS: dict[str, ToolDef] = {
             superficies=frozenset({_M, _H, _C}),
             entrada=UnitListEntrada,
             salida=UnitListSalida,
+        ),
+        ToolDef(
+            nombre="mandate.propose",
+            descripcion="Redacta o edita un mandato (supervisado o desatendido); aprobarlo es aparte.",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_M, _H}),
+            entrada=MandateProposeEntrada,
+            salida=MandateSalida,
+        ),
+        ToolDef(
+            nombre="mandate.approve",
+            descripcion="Aprueba o renueva un mandato sobre su huella; solo una persona, desde la consola.",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_H}),
+            tipos_actor=frozenset({TipoActor.humano}),
+            entrada=MandateApproveEntrada,
+            salida=MandateSalida,
+        ),
+        ToolDef(
+            nombre="mandate.revoke",
+            descripcion="Cierra un mandato para siempre y detiene sus unidades; solo una persona.",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_M, _H}),
+            tipos_actor=frozenset({TipoActor.humano}),
+            entrada=MandateRevokeEntrada,
+            salida=MandateSalida,
+        ),
+        ToolDef(
+            nombre="mandate.review",
+            descripcion="Acepta o revierte una decisión tomada bajo el mandato; solo una persona.",
+            efecto=_E,
+            rol_minimo=Rol.desarrollador,
+            superficies=frozenset({_H}),
+            tipos_actor=frozenset({TipoActor.humano}),
+            entrada=MandateReviewEntrada,
+            salida=EstadoSalida,
+        ),
+        ToolDef(
+            nombre="mandate.get",
+            descripcion="Un mandato con su vigencia, sus unidades, el consumo y las decisiones tomadas.",
+            efecto=_L,
+            rol_minimo=Rol.lector,
+            superficies=frozenset({_M, _H}),
+            entrada=MandateGetEntrada,
+            salida=MandateGetSalida,
+        ),
+        ToolDef(
+            nombre="mandate.list",
+            descripcion="Lista los mandatos de un workspace.",
+            efecto=_L,
+            rol_minimo=Rol.lector,
+            superficies=frozenset({_M, _H}),
+            entrada=MandateListEntrada,
+            salida=MandateListSalida,
         ),
         ToolDef(
             nombre="sync.pull",

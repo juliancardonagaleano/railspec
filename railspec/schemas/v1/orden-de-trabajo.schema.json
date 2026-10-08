@@ -311,6 +311,33 @@
       "title": "Criterio",
       "type": "object"
     },
+    "Delegacion": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Delegación del mandato, p. ej. D-2.",
+          "pattern": "^D-[0-9]{1,3}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "texto": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Texto",
+          "type": "string"
+        },
+        "tipo": {
+          "$ref": "#/$defs/TipoDelegacion"
+        }
+      },
+      "required": [
+        "id",
+        "tipo",
+        "texto"
+      ],
+      "title": "Delegacion",
+      "type": "object"
+    },
     "Fase": {
       "enum": [
         "research",
@@ -611,6 +638,67 @@
       "title": "ItemGobernanza",
       "type": "object"
     },
+    "MandatoEnOrden": {
+      "additionalProperties": false,
+      "description": "Lo del mandato que el arnés necesita para ejecutar una orden dentro de sus límites.",
+      "properties": {
+        "caduca_en": {
+          "format": "date-time",
+          "title": "Caduca En",
+          "type": "string"
+        },
+        "delegaciones": {
+          "items": {
+            "$ref": "#/$defs/Delegacion"
+          },
+          "title": "Delegaciones",
+          "type": "array"
+        },
+        "mandato": {
+          "description": "Identificador en minúsculas, dígitos y guiones (máx. 63).",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+          "title": "Mandato",
+          "type": "string"
+        },
+        "modo": {
+          "$ref": "#/$defs/Modo"
+        },
+        "reintentos_parada": {
+          "default": 0,
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Reintentos Parada",
+          "type": "integer"
+        },
+        "rutas_permitidas": {
+          "items": {
+            "description": "Patrón glob relativo a la raíz del repositorio (sintaxis gitignore).",
+            "maxLength": 512,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\x00]+$",
+            "type": "string"
+          },
+          "title": "Rutas Permitidas",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mandato",
+        "modo",
+        "caduca_en"
+      ],
+      "title": "MandatoEnOrden",
+      "type": "object"
+    },
+    "Modo": {
+      "enum": [
+        "interactivo",
+        "semi-autonomo",
+        "supervisado",
+        "desatendido"
+      ],
+      "title": "Modo",
+      "type": "string"
+    },
     "NodoContexto": {
       "additionalProperties": false,
       "description": "Nodo de la rebanada del grafo. Nunca lleva texto de código.",
@@ -743,6 +831,18 @@
           "title": "Instrucciones",
           "type": "string"
         },
+        "mandato": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MandatoEnOrden"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.11: el mandato bajo el que corre la unidad (modo supervisado o desatendido): sus delegaciones, las rutas permitidas y los reintentos. None en una unidad sin mandato."
+        },
         "presupuesto": {
           "$ref": "#/$defs/Presupuesto"
         },
@@ -779,7 +879,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.10",
+          "default": "1.11",
           "enum": [
             "1.0",
             "1.1",
@@ -791,7 +891,8 @@
             "1.7",
             "1.8",
             "1.9",
-            "1.10"
+            "1.10",
+            "1.11"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -890,6 +991,18 @@
           "title": "Instrucciones",
           "type": "string"
         },
+        "mandato": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MandatoEnOrden"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.11: el mandato bajo el que corre la unidad (modo supervisado o desatendido): sus delegaciones, las rutas permitidas y los reintentos. None en una unidad sin mandato."
+        },
         "plantilla": {
           "maxLength": 40000,
           "title": "Plantilla",
@@ -930,7 +1043,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.10",
+          "default": "1.11",
           "enum": [
             "1.0",
             "1.1",
@@ -942,7 +1055,8 @@
             "1.7",
             "1.8",
             "1.9",
-            "1.10"
+            "1.10",
+            "1.11"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1044,6 +1158,18 @@
           "title": "Instrucciones",
           "type": "string"
         },
+        "mandato": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MandatoEnOrden"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.11: el mandato bajo el que corre la unidad (modo supervisado o desatendido): sus delegaciones, las rutas permitidas y los reintentos. None en una unidad sin mandato."
+        },
         "presupuesto": {
           "$ref": "#/$defs/Presupuesto"
         },
@@ -1085,7 +1211,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.10",
+          "default": "1.11",
           "enum": [
             "1.0",
             "1.1",
@@ -1097,7 +1223,8 @@
             "1.7",
             "1.8",
             "1.9",
-            "1.10"
+            "1.10",
+            "1.11"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1189,6 +1316,18 @@
           "title": "Instrucciones",
           "type": "string"
         },
+        "mandato": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MandatoEnOrden"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Desde 1.11: el mandato bajo el que corre la unidad (modo supervisado o desatendido): sus delegaciones, las rutas permitidas y los reintentos. None en una unidad sin mandato."
+        },
         "presupuesto": {
           "$ref": "#/$defs/Presupuesto"
         },
@@ -1217,7 +1356,7 @@
           "$ref": "#/$defs/AlcanceUnidad"
         },
         "version_contrato": {
-          "default": "1.10",
+          "default": "1.11",
           "enum": [
             "1.0",
             "1.1",
@@ -1229,7 +1368,8 @@
             "1.7",
             "1.8",
             "1.9",
-            "1.10"
+            "1.10",
+            "1.11"
           ],
           "title": "Version Contrato",
           "type": "string"
@@ -1741,6 +1881,15 @@
       ],
       "title": "Tarea",
       "type": "object"
+    },
+    "TipoDelegacion": {
+      "enum": [
+        "pre-decidida",
+        "con-criterio",
+        "reservada"
+      ],
+      "title": "TipoDelegacion",
+      "type": "string"
     },
     "TipoSimbolo": {
       "enum": [

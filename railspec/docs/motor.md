@@ -33,8 +33,9 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   réplicas. Si la réplica cae tras registrar la entrada, el siguiente
   `unit.advance` la procesa.
 - Modos: `interactivo` abre `aprobar-spec` y `aprobar-plan`; `semi-autonomo`
-  abre un `paquete-aprobacion`; `supervisado` y `desatendido` solo paran en
-  paradas y gates escalados.
+  abre un `paquete-aprobacion`; `supervisado` y `desatendido` no abren
+  checkpoints de aprobación: los cubre un [mandato](mandato.md) (desde 1.11) y
+  solo paran en paradas tipificadas y gates escalados.
 - El gate escala sin gastar tokens si la gobernanza no respondió o respondió
   a medias (`sin-gobernanza`) o si el presupuesto se agotó (ver
   [Presupuestos y telemetría](#presupuestos-y-telemetría)). Un fallo del
@@ -82,6 +83,26 @@ triaje → redacción(spec) → gate → decisión → avance → redacción(pla
   siguiente gate. `supervisado` y `desatendido` exigen un mandato: la entrada
   de `unit.set_mode` ya pide `unidad.plan`, y si la unidad guardada no
   pertenece a ninguno responde `conversion-no-permitida` (no guarda nada).
+- **Mandato (1.11).** Una unidad `supervisado` o `desatendido` corre bajo el mandato cuyo
+  id es su `plan` (`railspec/docs/mandato.md` es la especificación). El motor lo impone con el
+  estado, en `motor/mandatos.py`:
+  - `unit.start` y `unit.set_mode` hacia estos modos exigen un mandato vigente del mismo modo,
+    con los repositorios de la unidad y con cupo (`max_unidades`); si no, `mandato-no-vigente`
+    (409) o `fuera-de-alcance`. Bajar la autonomía se admite siempre.
+  - `Mandatos.retencion` se evalúa antes de entregar cada entrada pendiente y en `unit.advance`:
+    caducidad y presupuesto total dejan el mandato `parado` (se escribe una vez). Mientras no
+    ampara trabajo, `procesar` deja las entradas guardadas (sin gates ni órdenes) y `unit.advance`
+    responde `mandato-parado`; un checkpoint pendiente se ofrece igual, para que una persona lo
+    resuelva. `mandate.approve` entrega lo retenido (`Motor._reanudar`).
+  - `Gate.escalar` consulta `politica_escalado`: supervisado congela el mandato; desatendido
+    difiere la unidad (`ResultadoGate.diferido`) salvo causa común. La causa tipificada viaja
+    en `GateEscalado.causa_parada` y queda en `Checkpoint.causa_parada`.
+  - `ConParadas.parada` tipifica una orden fallida o bloqueada, reintenta sola hasta
+    `reintentos_parada` (cada reintento queda como decisión `reintento`) y detiene la unidad si un
+    snapshot toca rutas fuera de `rutas_permitidas`. Las órdenes llevan `mandato`.
+  - `unit.report` valida y registra las `decisiones` delegadas (`EstadoUnidad.decisiones`).
+  - Desde 1.11 `Consumo.llamadas` se cuenta de verdad (antes quedaba en 0) y `llamadas_max` se
+    aplica por unidad, por mandato y por panel de críticos.
 - `unit.report` reconoce el reenvío de un reporte ya aceptado (misma orden y
   secuencia) y responde `secuencia-duplicada` en vez de `orden-no-vigente`, para
   que el proxy lo dé por entregado.

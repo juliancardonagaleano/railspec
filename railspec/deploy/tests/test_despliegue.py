@@ -951,7 +951,7 @@ def test_reindexar_declara_los_commits_cubiertos_en_cada_lote(tmp_path):
     servidor = ServidorDoble()
     assert _correr(raiz, c3, c1, servidor).aplicado
     assert [(c["version_contrato"], c["commits_cubiertos"]) for c in servidor.cuerpos] == [
-        ("1.10", [c3, c2])
+        ("1.11", [c3, c2])
     ] * 2
 
 
@@ -974,7 +974,7 @@ def test_un_servidor_14_que_rechaza_la_lista_recibe_el_indice_sin_ella(tmp_path,
     servidor = ServidorDoble([(422, rechazo)])
     assert _correr(raiz, c3, c1, servidor).aplicado
     primero, *resto = servidor.cuerpos
-    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.10"
+    assert "commits_cubiertos" in primero and primero["version_contrato"] == "1.11"
     assert resto and all("commits_cubiertos" not in c and c["version_contrato"] == "1.4" for c in resto)
     assert "sin cobertura" in capsys.readouterr().out
 
@@ -1020,7 +1020,7 @@ def test_el_resumen_cubre_el_arbol_completo_y_viaja_solo_en_el_ultimo_lote(tmp_p
     assert [len(c["delta"]["simbolos_upsert"]) for c in servidor.cuerpos] == [1, 1]
     assert "resumen" not in servidor.cuerpos[0]
     assert servidor.cuerpos[1]["resumen"] == _esperado("a.py", "b.py", "c.py")
-    assert {c["version_contrato"] for c in servidor.cuerpos} == {"1.10"}
+    assert {c["version_contrato"] for c in servidor.cuerpos} == {"1.11"}
     # La pasada completa parte del árbol vacío y pide todas las rutas del commit.
     vacio = reindexar._git(raiz, "hash-object", "-t", "tree", "/dev/null").strip()
     assert indexador.llamadas == [(c1, ["b.py", "c.py"]), (vacio, ["a.py", "b.py", "c.py"])]
@@ -1099,7 +1099,7 @@ def test_un_servidor_19_que_rechaza_el_resumen_recibe_el_indice_sin_el(tmp_path,
     servidor = ServidorDoble([(422, rechazo)])
     assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
     primero, *resto = servidor.cuerpos
-    assert primero["version_contrato"] == "1.10" and primero["lote"] == 1
+    assert primero["version_contrato"] == "1.11" and primero["lote"] == 1
     # Se reinicia desde el lote 1, ya sin resumen, con 1.9 y conservando la cobertura.
     assert [c["lote"] for c in resto] == [1, 2]
     assert all("resumen" not in c and c["version_contrato"] == "1.9" for c in resto)
@@ -1114,7 +1114,7 @@ def test_un_servidor_14_retrocede_primero_el_resumen_y_despues_la_cobertura(tmp_
     servidor = ServidorDoble([(422, sin_resumen), (422, sin_lista)])
     assert _correr(raiz, c3, c1, servidor, IndexadorPorArchivo()).aplicado
     versiones = [(c["version_contrato"], "commits_cubiertos" in c, "resumen" in c) for c in servidor.cuerpos]
-    assert versiones[0] == ("1.10", True, False)  # lote 1: el resumen va en el último
+    assert versiones[0] == ("1.11", True, False)  # lote 1: el resumen va en el último
     assert versiones[1] == ("1.9", True, False)
     assert set(versiones[2:]) == {("1.4", False, False)}
 

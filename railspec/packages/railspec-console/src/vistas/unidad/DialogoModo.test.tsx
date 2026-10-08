@@ -75,4 +75,43 @@ describe("diálogo de cambio de modo", () => {
     expect(alCerrar).not.toHaveBeenCalled();
     expect(cambiar()).toBeEnabled();
   });
+
+  it("sin mandato (plan) deshabilita supervisado y desatendido y explica por qué", async () => {
+    abrir();
+    const supervisado = await screen.findByRole("option", { name: "supervisado (requiere un mandato)" });
+    expect(supervisado).toBeDisabled();
+    expect(screen.getByRole("option", { name: "desatendido (requiere un mandato)" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: "semi-autonomo" })).toBeEnabled();
+    expect(screen.getByText(/no tiene mandato/)).toBeInTheDocument();
+  });
+
+  it("con mandato avisa que exige uno aprobado, vigente y del mismo modo, y deja enviarlo", async () => {
+    const conPlan: EstadoUnidad = { ...estado, unidad: { ...estado.unidad, plan: "pdf-a" } };
+    const s = servidorFalso({ "POST /tools/unit.set_mode": () => ({ estado: conPlan }) });
+    const alCerrar = vi.fn();
+    montarConQuery(<DialogoModo estado={conPlan} abierto alCerrar={alCerrar} />);
+
+    expect(screen.queryByText(/Si no existe o no está vigente/)).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Modo"), "desatendido");
+    expect(screen.getByText(/exige que el mandato/)).toHaveTextContent("pdf-a");
+    expect(screen.getByText(/Si no existe o no está vigente, el servidor rechazará el cambio/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Motivo"), "limpieza masiva");
+    await userEvent.click(cambiar());
+
+    await waitFor(() => expect(alCerrar).toHaveBeenCalledTimes(1));
+    expect(enviados(s)).toEqual([{ unidad: conPlan.unidad, modo: "desatendido", motivo: "limpieza masiva", version_vista: 7 }]);
+  });
+
+  it("si el servidor rechaza el cambio por el mandato, muestra el motivo", async () => {
+    const conPlan: EstadoUnidad = { ...estado, unidad: { ...estado.unidad, plan: "pdf-a" } };
+    servidorFalso({ "POST /tools/unit.set_mode": () => json(422, { codigo: "mandato-no-vigente", detalle: "el mandato pdf-a no está aprobado" }) });
+    const alCerrar = vi.fn();
+    montarConQuery(<DialogoModo estado={conPlan} abierto alCerrar={alCerrar} />);
+
+    await userEvent.selectOptions(screen.getByLabelText("Modo"), "supervisado");
+    await userEvent.type(screen.getByLabelText("Motivo"), "probar");
+    await userEvent.click(cambiar());
+    expect(await screen.findByText(/el mandato pdf-a no está aprobado/)).toBeInTheDocument();
+    expect(alCerrar).not.toHaveBeenCalled();
+  });
 });

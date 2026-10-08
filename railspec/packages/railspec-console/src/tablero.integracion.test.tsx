@@ -55,6 +55,7 @@ describe("tablero integrado", () => {
     // Un lector no ve los enlaces de administración.
     expect(screen.queryByRole("link", { name: "Configuración" })).toBeNull();
     expect(screen.getByRole("link", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Mandatos" })).toHaveAttribute("href", "/consola/acme/cert/mandatos");
   });
 });
 
