@@ -232,6 +232,7 @@ def test_claude_code_permite_el_bucle_y_pregunta_lo_humano(tmp_path):
         "mcp__railspec__unit_approve",
         "mcp__railspec__unit_set_mode",
         "mcp__railspec__unit_integrate",
+        "mcp__railspec__mandate_revoke",
     ]
     assert not set(ajustes["permissions"]["allow"]) & set(ajustes["permissions"]["ask"])
     local = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())

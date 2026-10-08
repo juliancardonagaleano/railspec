@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RepositorioGrafo } from "../../api/tipos";
 import type { Insumo } from "../../chat/tipos";
+import { resumen } from "../../pruebas/mandatos";
 import { json, montarEnRuta, servidorFalso, vinculo } from "../../pruebas/servidor";
 import { DialogoNuevaUnidad } from "./DialogoNuevaUnidad";
 
@@ -120,5 +121,65 @@ describe("diálogo de nueva unidad", () => {
 
     expect(await within(dialogo).findByText(/El commit base no existe en el clon/)).toBeInTheDocument();
     expect(alCerrar).not.toHaveBeenCalled();
+  });
+
+  describe("modo y mandato", () => {
+    const mandatosDe = () => ({
+      mandatos: [
+        resumen({ id: "pdf-a", titulo: "PDF/A", modo: "desatendido", vigente: true }),
+        resumen({ id: "borrador", titulo: "Borrador", modo: "desatendido", estado: "propuesto", vigente: false }),
+        resumen({ id: "vieja", titulo: "Vieja", modo: "desatendido", estado: "aprobado", vigente: false }),
+        resumen({ id: "super", titulo: "Supervisado", modo: "supervisado", vigente: true }),
+      ],
+    });
+
+    it("por defecto no ofrece mandato ni consulta los mandatos", async () => {
+      const s = servidor();
+      abrir();
+      const dialogo = await screen.findByRole("dialog", { name: "Nueva unidad" });
+      await within(dialogo).findByLabelText("Modo inicial");
+      expect(within(dialogo).queryByLabelText("Mandato (plan)")).toBeNull();
+      expect(s.de("POST", "/tools/mandate.list")).toEqual([]);
+    });
+
+    it("con desatendido deja elegir entre los mandatos vigentes o propuestos de ese modo y envía modo y plan", async () => {
+      const user = userEvent.setup();
+      const s = servidor({
+        "POST /tools/mandate.list": mandatosDe,
+        [`POST /tools/unit.start`]: () => ({ estado: { unidad: { org: "acme", workspace: "cert", unidad: "0001-x" } } }),
+      });
+      const alCerrar = abrir();
+      const dialogo = await screen.findByRole("dialog", { name: "Nueva unidad" });
+      await user.type(await within(dialogo).findByLabelText("Título"), "Emitir PDF/A");
+      await user.type(within(dialogo).getByLabelText("Pedido"), "Firmar");
+      await user.selectOptions(within(dialogo).getByLabelText("Repositorio 1"), "api");
+      await user.selectOptions(within(dialogo).getByLabelText("Modo inicial"), "desatendido");
+
+      const plan = await within(dialogo).findByLabelText("Mandato (plan)");
+      const opciones = within(plan).getAllByRole("option").map((o) => o.textContent);
+      expect(opciones).toEqual(["Elige un mandato…", "pdf-a — PDF/A (vigente)", "borrador — Borrador (propuesto, sin aprobar)"]);
+
+      // Sin elegir mandato no se envía.
+      await user.click(within(dialogo).getByRole("button", { name: "Arrancar unidad" }));
+      expect(await within(dialogo).findByText("El modo desatendido exige elegir un mandato (plan).")).toBeInTheDocument();
+      expect(s.de("POST", "/tools/unit.start")).toEqual([]);
+
+      await user.selectOptions(plan, "pdf-a");
+      await user.click(within(dialogo).getByRole("button", { name: "Arrancar unidad" }));
+      await waitFor(() => expect(alCerrar).toHaveBeenCalledTimes(1));
+      expect(s.de("POST", "/tools/unit.start")[0]!.cuerpo).toMatchObject({ modo: "desatendido", plan: "pdf-a" });
+    });
+
+    it("cambiar de modo limpia el mandato elegido; sin mandatos del modo lo dice", async () => {
+      const user = userEvent.setup();
+      servidor({ "POST /tools/mandate.list": () => ({ mandatos: [resumen({ id: "super", modo: "supervisado" })] }) });
+      abrir();
+      const dialogo = await screen.findByRole("dialog", { name: "Nueva unidad" });
+      await user.selectOptions(await within(dialogo).findByLabelText("Modo inicial"), "supervisado");
+      await user.selectOptions(await within(dialogo).findByLabelText("Mandato (plan)"), "super");
+      await user.selectOptions(within(dialogo).getByLabelText("Modo inicial"), "desatendido");
+      expect(await within(dialogo).findByText(/No hay mandatos desatendidos vigentes ni propuestos/)).toBeInTheDocument();
+      expect(within(dialogo).queryByLabelText("Mandato (plan)")).toBeNull();
+    });
   });
 });

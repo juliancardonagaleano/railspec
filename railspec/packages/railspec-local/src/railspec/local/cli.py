@@ -11,6 +11,8 @@
 - ``railspec exportar`` e ``railspec importar``: una unidad a o desde un paquete en
   disco; ``importar`` también convierte a demanda unidades del kit SDD (``.spec/units/``).
 - ``railspec estado`` y ``railspec sync``: estado local y envío de la cola.
+- ``railspec mandato``: redacta (``proponer``), consulta (``estado``, ``listar``) o revoca un mandato de
+  los modos supervisado y desatendido. Aprobarlo no está aquí: lo hace una persona en la consola web.
 - ``railspec hook <arnés>``: guardia de las reglas de conducta (la llaman los hooks del arnés).
 """
 
@@ -28,7 +30,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from railspec.contracts.comun import Arnes, NivelCodigo
+from pydantic import TypeAdapter, ValidationError
+from railspec.contracts.comun import Arnes, NivelCodigo, Slug
+from railspec.contracts.mandato import EstadoMandato
 
 from . import __version__, adaptadores, config, credenciales, dispositivo, doctor, git, guardia, renovacion
 from .adaptadores import usuario
@@ -235,8 +239,8 @@ def _avisos(arneses: list[Arnes], worktrees: Path) -> list[str]:
             "Copilot solo carga los servidores MCP de .mcp.json y los hooks de .github/hooks (la guardia) "
             f"en carpetas de confianza: acéptala la primera vez. Lánzalo con `copilot --add-dir {worktrees}` "
             "para trabajar en los worktrees. "
-            "Las tools del bucle quedan aprobadas al invocar /railspec; unit_approve, unit_set_mode y "
-            "unit_integrate preguntan siempre."
+            "Las tools del bucle quedan aprobadas al invocar /railspec; unit_approve, unit_set_mode, "
+            "unit_integrate y mandate_revoke preguntan siempre."
         )
     return avisos
 
@@ -518,6 +522,61 @@ def _cmd_sync(args: argparse.Namespace) -> int:
     return 0 if not resultado["pendientes"] else 2
 
 
+def _leer_contenido_mandato(ruta: Path) -> Any:
+    """El contenido de un mandato desde un archivo JSON o YAML (YAML solo si pyyaml está instalado)."""
+
+    try:
+        texto = ruta.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigInvalida(f"No se pudo leer {ruta}: {exc.strerror or exc}.") from exc
+    if ruta.suffix.lower() in (".yaml", ".yml"):
+        try:
+            import yaml
+        except ImportError:
+            raise ConfigInvalida(
+                f"{ruta.name} es YAML y pyyaml no está instalado: conviértelo a JSON (.json)."
+            ) from None
+        try:
+            return yaml.safe_load(texto)
+        except yaml.YAMLError as exc:
+            raise ConfigInvalida(f"{ruta} no es YAML válido: {exc}") from exc
+    try:
+        return json.loads(texto)
+    except json.JSONDecodeError as exc:
+        raise ConfigInvalida(f"{ruta} no es JSON válido: {exc}") from exc
+
+
+def _id_mandato(texto: str) -> str:
+    try:
+        return TypeAdapter(Slug).validate_python(texto)
+    except ValidationError:
+        raise ConfigInvalida(
+            f"«{texto}» no es un id de mandato válido (un slug: minúsculas, números y guiones, como el "
+            "`plan` de las unidades)."
+        ) from None
+
+
+def _cmd_mandato(args: argparse.Namespace) -> int:
+    """Aprobar no existe aquí a propósito: es un acto de una persona en la consola web."""
+
+    if args.accion == "proponer":
+        ruta = Path(args.archivo)
+        mandato = _id_mandato(args.id or ruta.stem)
+        contenido = _leer_contenido_mandato(ruta)
+        proxy = crear_proxy(_raiz(args.repo))
+        _imprimir(asyncio.run(proxy.proponer_mandato(mandato, contenido, args.version_vista)))
+        return 0
+    proxy = crear_proxy(_raiz(args.repo))
+    if args.accion == "estado" and args.id:
+        _imprimir(asyncio.run(proxy.ver_mandato(_id_mandato(args.id))))
+    elif args.accion in ("estado", "listar"):
+        estados = [EstadoMandato(e) for e in getattr(args, "estado", None) or []]
+        _imprimir(asyncio.run(proxy.listar_mandatos(estados, getattr(args, "limite", 50))))
+    else:
+        _imprimir(asyncio.run(proxy.revocar_mandato(_id_mandato(args.id), args.motivo, args.version_vista)))
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     desde = Path(args.repo or ".").resolve()
     comprobaciones = asyncio.run(doctor.diagnosticar(desde, crear_cliente))
@@ -659,6 +718,37 @@ def parser() -> argparse.ArgumentParser:
         help="No contacta el servidor: escribe los paquetes en DESTINO.",
     )
     imp.set_defaults(fn=_cmd_importar)
+
+    man = sub.add_parser(
+        "mandato",
+        help="Mandato de supervisado y desatendido: redactar, consultar o revocar (aprobar: en la consola).",
+    )
+    man_sub = man.add_subparsers(dest="accion", required=True)
+    prop = man_sub.add_parser(
+        "proponer",
+        help="Redacta un borrador desde un archivo JSON o YAML; lo aprueba una persona en la consola.",
+    )
+    prop.add_argument("archivo", help="Contenido del mandato (.json; .yaml/.yml si pyyaml está instalado).")
+    prop.add_argument(
+        "--id", help="Id del mandato (el `plan` de las unidades); por defecto, el nombre del archivo."
+    )
+    prop.add_argument(
+        "--version-vista", type=int, help="Versión que conoces, para editar un mandato que ya existe."
+    )
+    mest = man_sub.add_parser(
+        "estado", help="Un mandato con su vigencia, unidades y decisiones; sin id, los lista."
+    )
+    mest.add_argument("id", nargs="?")
+    mlis = man_sub.add_parser("listar", help="Los mandatos del workspace.")
+    mlis.add_argument(
+        "--estado", action="append", choices=[e.value for e in EstadoMandato], help="Repetible."
+    )
+    mlis.add_argument("--limite", type=int, default=50)
+    mrev = man_sub.add_parser("revocar", help="Cierra un mandato para siempre y detiene sus unidades.")
+    mrev.add_argument("id")
+    mrev.add_argument("--motivo", required=True)
+    mrev.add_argument("--version-vista", type=int, help="Por defecto, la versión vigente.")
+    man.set_defaults(fn=_cmd_mandato)
 
     est = sub.add_parser("estado", help="Estado remoto y local de una unidad.")
     est.add_argument("--unidad")

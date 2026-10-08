@@ -60,6 +60,9 @@ function Navegacion({ yo, org, ws }: { yo: Yo; org?: string; ws?: string }) {
           <Link to="/$org/$ws" params={{ org, ws }} className={CLASE_ENLACE} activeOptions={{ exact: true, includeSearch: false }}>
             Tablero de unidades
           </Link>
+          <Link to="/$org/$ws/mandatos" params={{ org, ws }} className={CLASE_ENLACE}>
+            Mandatos
+          </Link>
           <Link to="/$org/$ws/grafo" params={{ org, ws }} className={CLASE_ENLACE} activeOptions={{ exact: true }}>
             Grafo de código
           </Link>

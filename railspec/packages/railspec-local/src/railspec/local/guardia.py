@@ -50,8 +50,9 @@ ENV_GUARDIA = "RAILSPEC_GUARDIA"
 ARCHIVO_ESTADO = Path(".railspec") / "estado-local.json"
 #: Artefactos del protocolo: solo los toca la orden de redactar o refinar que los pide.
 ARTEFACTOS = ("spec.md", "plan.md", "tasks.md")
-#: Tools del proxy que registran una decisión humana.
-TOOLS_HUMANAS = ("unit_approve", "unit_set_mode", "unit_integrate")
+#: Tools del proxy que registran una decisión humana (``mandate_revoke`` detiene un mandato entero: solo si
+#: la persona lo pide).
+TOOLS_HUMANAS = ("unit_approve", "unit_set_mode", "unit_integrate", "mandate_revoke")
 #: La tool de shell de los cuatro arneses, sin distinguir mayúsculas: ``Bash`` (Claude Code, Codex), ``bash``.
 TOOL_SHELL = "bash"
 _ESCAPE = f"Si de verdad necesitas saltarte la guardia, relanza el arnés con {ENV_GUARDIA}=0."

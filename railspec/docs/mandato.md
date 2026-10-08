@@ -62,7 +62,8 @@ estado, no una conversación.
 | --- | --- | --- |
 | Checkpoints de spec, plan y paquete | no se abren: los cubre el mandato | igual |
 | Gate `escalado` | **congela el mandato entero** (`gate-escalado`) y la unidad espera su decisión | **difiere la unidad** (`unidad-amparada-fallida`): sigue esperando en su checkpoint y las demás unidades siguen |
-| Causa común al escalar (`sin-gobernanza`, `error-proveedor`, presupuesto del mandato o del mes) | congela el mandato | aborta el mandato (`plan-incompleto`, o `presupuesto-mandato`) |
+| Causa común al escalar (`sin-gobernanza`, `error-proveedor`, presupuesto del mandato o del mes) | congela el mandato (`gate-escalado`) | aborta el mandato (`plan-incompleto`) |
+| Presupuesto del mandato al escalar | `presupuesto-mandato` | `presupuesto-mandato` |
 | Orden `fallido` | reintenta hasta `reintentos_parada`; luego parada de la unidad (`reintentos-agotados`) | igual |
 | Orden `bloqueado` | parada de la unidad (`decision-reservada`) | igual |
 | Presupuesto total | detiene el mandato (`presupuesto-mandato`) | igual |

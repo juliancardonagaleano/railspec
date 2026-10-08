@@ -295,7 +295,7 @@ async def _completar(
         )
         raise
     if guardia is not None:
-        guardia.gastado = guardia.gastado + r.uso
+        guardia.gastado = guardia.gastado + r.uso + Uso(llamadas=1)
     if cache is not None:
         cache.guardar(org, peticion, r)
     return r, False

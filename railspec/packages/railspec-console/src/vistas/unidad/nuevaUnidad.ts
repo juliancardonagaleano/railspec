@@ -1,7 +1,9 @@
 import type { Insumo } from "../../chat/tipos";
 import {
+  esModoConMandato,
   VERSION_CONTRATO_CLIENTE,
   type AlcanceWorkspace,
+  type Modo,
   type RepositorioGrafo,
   type UnitStartEntrada,
   type VinculoRepositorio,
@@ -19,6 +21,10 @@ export interface FormNuevaUnidad {
   /** Ids de insumo separados por espacios, comas o saltos de línea. */
   insumos: string;
   repositorios: FilaRepositorio[];
+  /** Modo inicial; sin valor se arranca `interactivo` (el servidor lo decide). */
+  modo?: Modo | undefined;
+  /** Id del mandato (`plan`); obligatorio con `supervisado` y `desatendido` (contrato 1.11). */
+  plan?: string | undefined;
 }
 
 export const PATRON_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -99,6 +105,9 @@ export function validarNuevaUnidad(
     vistos.add(r.repositorio);
   }
 
+  const plan = f.plan?.trim() ?? "";
+  if (f.modo && esModoConMandato(f.modo) && !plan) errores.push(`El modo ${f.modo} exige elegir un mandato (plan).`);
+
   if (errores.length > 0) return { errores, entrada: null };
   return {
     errores,
@@ -108,6 +117,8 @@ export function validarNuevaUnidad(
       titulo,
       pedido,
       ...(insumos.length > 0 ? { insumos } : {}),
+      ...(f.modo ? { modo: f.modo } : {}),
+      ...(f.modo && esModoConMandato(f.modo) ? { plan } : {}),
       version_contrato_cliente: VERSION_CONTRATO_CLIENTE,
     },
   };

@@ -39,6 +39,9 @@ class Uso:
     tokens_cache_escritura: int = 0
     costo_usd: float = 0.0
     duracion_ms: int = 0
+    #: Llamadas que salieron al proveedor. Un proveedor no la fija: la suma ``Uso(llamadas=1)`` de
+    #: quien contabiliza (``Nucleo.contabilizar``, ``Guardia``), para el tope ``llamadas_max``.
+    llamadas: int = 0
 
     def __add__(self, otro: Uso) -> Uso:
         return Uso(
@@ -48,6 +51,7 @@ class Uso:
             self.tokens_cache_escritura + otro.tokens_cache_escritura,
             round(self.costo_usd + otro.costo_usd, 6),
             self.duracion_ms + otro.duracion_ms,
+            self.llamadas + otro.llamadas,
         )
 
     @property

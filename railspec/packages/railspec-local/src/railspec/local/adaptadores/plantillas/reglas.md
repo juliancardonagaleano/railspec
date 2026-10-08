@@ -8,6 +8,10 @@ Este repositorio trabaja con Railspec (servidor MCP `railspec`). Cuando haya una
   no haya dado explícitamente en esta conversación.
 - El modo de la unidad lo fija y lo cambia un humano. No pases `modo` a `unit_start` ni llames
   `unit_set_mode` si el humano no lo pidió.
+- Un mandato (`supervisado`/`desatendido`) lo aprueba solo una persona, en la consola web: puedes
+  redactarlo (`mandate_propose`), nunca aprobarlo ni renovarlo. Ante `mandato-parado` o una parada con
+  causa, detente y díselo al humano. No decidas nada `reservado` ni que ninguna delegación del mandato
+  cubra: repórtalo como `bloqueado`.
 - Trabaja solo en el worktree de la unidad y solo en los archivos que la orden permite.
 - Si un hook de Railspec rechaza una escritura, no lo esquives (tampoco con la shell): ajusta el
   trabajo a la orden o repórtala como `bloqueado`. Apagar la guardia (`RAILSPEC_GUARDIA=0`) solo lo

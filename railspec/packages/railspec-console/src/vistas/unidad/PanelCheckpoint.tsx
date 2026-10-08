@@ -8,6 +8,8 @@ import { Button } from "../../componentes/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../componentes/ui/card";
 import { Campo, Textarea } from "../../componentes/ui/input";
 import { fecha } from "../../lib/utiles";
+import { EtiquetaCausaParada } from "../mandato/EtiquetasMandato";
+import { EXPLICACION_CAUSA } from "../mandato/mandato";
 
 const ETIQUETA_TIPO: Record<Checkpoint["tipo"], string> = {
   "aprobar-spec": "Aprobar spec",
@@ -70,6 +72,15 @@ export function PanelCheckpoint({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {checkpoint.causa_parada ? (
+          <Aviso tono="aviso">
+            <p className="flex flex-wrap items-center gap-2">
+              Parada bajo mandato: <EtiquetaCausaParada causa={checkpoint.causa_parada} />
+              <span className="text-xs">({EXPLICACION_CAUSA[checkpoint.causa_parada].ambito === "mandato" ? "detiene el mandato" : "detiene solo esta unidad"})</span>
+            </p>
+            <p className="mt-1">{EXPLICACION_CAUSA[checkpoint.causa_parada].texto}</p>
+          </Aviso>
+        ) : null}
         <p className="whitespace-pre-wrap rounded-md bg-fondo p-3 text-sm">{checkpoint.pregunta}</p>
         {yaResuelto ? (
           <Aviso tono="aviso">Este checkpoint ya lo resolvió otro canal (arnés, CI u otra sesión). Se recargó el estado.</Aviso>

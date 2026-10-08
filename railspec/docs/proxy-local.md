@@ -205,8 +205,8 @@ humana pregunta siempre:
 
 | | Claude Code | OpenCode |
 |---|---|---|
-| Sin preguntar | `permissions.allow`: `mcp__railspec__<tool>` para `unit_start`, `unit_advance`, `unit_report`, `unit_checkpoint`, `unit_status`, `unit_list`, `graph_query`, `code_search`, `code_index`, `insumo_pull`, `railspec_sync` | por defecto (OpenCode permite las tools MCP) |
-| Pregunta siempre | `permissions.ask` (gana a `allow`): `unit_approve`, `unit_set_mode`, `unit_integrate` | `permission.railspec_<tool>: "ask"` para esas tres |
+| Sin preguntar | `permissions.allow`: `mcp__railspec__<tool>` para `unit_start`, `unit_advance`, `unit_report`, `unit_checkpoint`, `unit_status`, `unit_list`, `mandate_propose`, `mandate_get`, `mandate_list`, `graph_query`, `code_search`, `code_index`, `insumo_pull`, `railspec_sync` | por defecto (OpenCode permite las tools MCP) |
+| Pregunta siempre | `permissions.ask` (gana a `allow`): `unit_approve`, `unit_set_mode`, `unit_integrate`, `mandate_revoke` | `permission.railspec_<tool>: "ask"` para esas cuatro |
 
 En Claude Code, la parte por máquina va a `.claude/settings.local.json`, que
 `instalar` excluye de git en `info/exclude`: `enabledMcpjsonServers:
@@ -434,8 +434,9 @@ cuando el humano lo pide. La conversión lee `_estado.yaml`, `spec.md`,
   importación, siempre como prefijo spec, plan, tasks; si falta uno, la
   unidad retoma en su fase. El de la fase en curso es un borrador.
 - El pedido es la sección «Problema» del spec (o el título).
-- `supervisado` y `desatendido` exigen mandato: la unidad entra interactiva
-  y el modo lo fija el humano. Riesgo, perfil, `governance_refs`, comando de
+- `supervisado` y `desatendido` exigen un mandato aprobado (ver
+  [Mandato](#mandato-supervisado-y-desatendido)) que la importación no trae: la
+  unidad entra interactiva y el modo lo fija el humano. Riesgo, perfil, `governance_refs`, comando de
   validación, dependencias e historial de gates viajan; los dos últimos solo
   como información.
 
@@ -462,7 +463,7 @@ Con una unidad en curso en el repositorio:
 | Escribir sin orden vigente | Rechazada: primero `unit_advance` |
 | Un comando de shell que escribe un archivo por uno de los tres patrones (ver «Guardia de Bash») | Se juzga el archivo como si lo escribiera `Edit`: dentro del alcance pasa, fuera se rechaza |
 | Escribir en el worktree de una unidad cerrada | Rechazada |
-| `unit_approve`, `unit_set_mode`, `unit_integrate` | Pide confirmación al humano (Claude Code, Copilot); en Codex, ver abajo |
+| `unit_approve`, `unit_set_mode`, `unit_integrate`, `mandate_revoke` | Pide confirmación al humano (Claude Code, Copilot); en Codex, ver abajo |
 | Cualquier otra cosa, o sin unidades en curso | La guardia no opina; decide el arnés |
 
 Una unidad está en curso si su worktree tiene estado local y su fase no es
@@ -474,7 +475,7 @@ conducta piden al agente no esquivar un rechazo (tampoco con la shell).
 
 **Claude Code.** `instalar` añade a `hooks.PreToolUse` de
 `.claude/settings.json` una entrada con `matcher`
-`Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
+`Write|Edit|MultiEdit|NotebookEdit|Bash|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate|mcp__railspec__mandate_revoke`
 y el comando `railspec hook claude-code`. La entrada propia se reconoce por el
 comando: reinstalar la reemplaza y `desinstalar` la quita sin tocar los hooks
 ajenos. El hook responde `permissionDecision: deny` con el motivo, que el
@@ -497,7 +498,7 @@ carga al arrancar:
 
 **Codex.** `instalar` añade a `hooks.PreToolUse` de `.codex/hooks.json` (mismo
 formato de archivo que los hooks de Claude Code) una entrada con `matcher`
-`apply_patch|Bash|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate`
+`apply_patch|Bash|mcp__railspec__unit_approve|mcp__railspec__unit_set_mode|mcp__railspec__unit_integrate|mcp__railspec__mandate_revoke`
 y el comando `railspec hook codex`. `apply_patch` es la única tool de edición
 de Codex (de un parche se revisan todas las rutas) y `Bash` pasa por la guardia de Bash. La entrada propia se
 reconoce por el comando, como en Claude Code. Tres cosas lo distinguen:
@@ -528,7 +529,7 @@ reconoce por el comando, como en Claude Code. Tres cosas lo distinguen:
 Copilot carga todos los `*.json` de esa carpeta, así que es un archivo solo de
 Railspec y los hooks ajenos no se tocan. Contiene un `preToolUse` con
 `"bash"` y `"powershell"` = `railspec hook copilot`, `timeoutSec` 30 y `matcher`
-`create|edit|apply_patch|bash|railspec-unit_approve|railspec-unit_set_mode|railspec-unit_integrate`:
+`create|edit|apply_patch|bash|railspec-unit_approve|railspec-unit_set_mode|railspec-unit_integrate|railspec-mandate_revoke`:
 Copilot edita con `create` y `edit` o, con los modelos GPT-5 de código, con
 `apply_patch` (el parche llega como texto), y nombra las tools MCP
 `<servidor>-<tool>`. El hook responde `permissionDecision` `deny` o `ask` con el
@@ -875,6 +876,66 @@ con un formulario del arnés (en la revisión MCP 2026-07-28 viaja como
 la invente. Si el arnés no declara *elicitation*, las reglas de conducta
 le obligan a preguntar y llamar `unit_approve` con la decisión exacta. La
 consola web puede resolverlo también; gana la primera resolución.
+
+## Mandato (supervisado y desatendido)
+
+Desde el contrato 1.11 `supervisado` y `desatendido` descansan en un **mandato**
+aprobado por una persona (semántica completa en [mandato.md](mandato.md)). El
+proxy no lo aprueba ni lo puede aprobar: `mandate.approve` y `mandate.review`
+solo existen por HTTP, y `ClienteServidor` se niega a llamar a una tool que el
+contrato no expone por MCP.
+
+**Qué hace el proxy**
+
+- `unit_advance` entiende `mandato-parado`: devuelve `mandato`, `causa`,
+  `detalle` y `reintentar_en_s`, más un `como_resolver` que manda al arnés
+  detenerse, avisar al humano y no reintentar en bucle; renovarlo es cosa de
+  una persona en la consola web. Un checkpoint con `causa_parada` trae su
+  propio `como_resolver`: en `unidad-amparada-fallida` (desatendido) la unidad
+  quedó diferida y el arnés informa y sigue con la siguiente; en
+  `fuera-de-alcance`, `decision-reservada`, `reintentos-agotados` y
+  `gate-escalado` es una parada que decide una persona. Sin causa, el texto de
+  siempre.
+- `unit_report` acepta `decisiones` (`delegacion`, `que`, `alternativas`,
+  `revertir`), que viajan en `ReporteOrden.decisiones` y, si no hay conexión,
+  se conservan en el reporte pendiente de la cola. Solo valen las respaldadas
+  por una delegación `pre-decidida` o `con-criterio` de `orden.mandato`; una
+  que cita una `reservada` o inexistente (o una orden sin mandato) falla en
+  local antes de reportar: el arnés debe reportar `bloqueado`.
+- Antes de reportar, además de `alcance.permitidos`, comprueba
+  `orden.mandato.rutas_permitidas` (con `fnmatch`, como el servidor): una ruta
+  fuera falla con un mensaje que las nombra y avisa de que el servidor
+  detendría la unidad (`fuera-de-alcance`). El servidor lo vuelve a comprobar.
+
+**Tools nuevas** (alias `nombre_mcp` del contrato): `mandate_propose` redacta
+un borrador (o edita uno con `version_vista`) y devuelve su `huella` para que la
+persona la compare al aprobar; `mandate_get` y `mandate_list` leen;
+`mandate_revoke` cierra el mandato para siempre y solo debe llamarse si la
+persona lo pide. `mandate_propose`, `mandate_get` y `mandate_list` se aprueban
+solas; `mandate_revoke` pregunta siempre, como `unit_approve` (la guardia la
+trata como una decisión humana). El workspace sale de
+`.railspec/config.json`, como en `unit_list`.
+
+**CLI**
+
+```
+railspec mandato proponer mandato.json [--id pdf-a] [--version-vista N]
+railspec mandato estado [ID]          # sin ID, lista los mandatos
+railspec mandato listar [--estado aprobado] [--limite 50]
+railspec mandato revocar ID --motivo "…"
+```
+
+`proponer` lee el contenido de un archivo JSON (YAML si `pyyaml` está
+instalado), usa el nombre del archivo como id si no se pasa `--id`, imprime la
+`huella` y dice que la aprobación se hace en la consola web; si `RAILSPEC_URL`
+termina en `/mcp`, añade la URL de la consola (`<servidor>/consola/`). No hay
+`aprobar` en la CLI.
+
+**Qué ve el arnés.** Las reglas de conducta, la skill `railspec-bucle` y el
+comando de arranque explican que `plan` es el id de un mandato aprobado, que
+`supervisado` y `desatendido` solo se usan si el humano los pidió y el mandato
+existe, y qué hacer ante `mandato-parado`, una parada con causa o una decisión
+`reservada`.
 
 ## Binario autocontenido
 

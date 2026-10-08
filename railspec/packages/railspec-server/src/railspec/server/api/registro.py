@@ -107,6 +107,7 @@ _HTTP = {
     CodigoError.secretos_detectados: 422,
     CodigoError.perfil_insatisfacible: 422,
     CodigoError.presupuesto_agotado: 429,
+    CodigoError.mandato_no_vigente: 409,
 }
 
 
@@ -139,6 +140,12 @@ class Registro:
             "unit.status": motor.status,
             "unit.list": motor.list,
             "telemetry.query": motor.telemetry,
+            "mandate.propose": motor.n.mandatos.propose,
+            "mandate.approve": motor.n.mandatos.approve,
+            "mandate.revoke": motor.n.mandatos.revoke,
+            "mandate.review": motor.n.mandatos.review,
+            "mandate.get": motor.n.mandatos.get,
+            "mandate.list": motor.n.mandatos.list,
         }
         manejadores.update(extra or {})
         return cls(manejadores, autorizador)

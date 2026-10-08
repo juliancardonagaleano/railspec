@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fabricas import JULIAN, SERVIDOR, insumo
+from fabricas import JULIAN, JULIAN_WEB, SERVIDOR, insumo
 from railspec.contracts._base import VERSION_CONTRATO
 from railspec.contracts.comun import (
     AlcanceUnidad,
@@ -36,6 +36,7 @@ from railspec.contracts.comun import (
 )
 from railspec.contracts.estado import (
     Checkpoint,
+    Consumo,
     ConversionModo,
     EstadoUnidad,
     Integracion,
@@ -44,6 +45,13 @@ from railspec.contracts.estado import (
     TipoCheckpoint,
 )
 from railspec.contracts.eventos import Direccion, EventoSync, OrdenEmitida
+from railspec.contracts.mandato import (
+    AprobacionMandato,
+    CausaParada,
+    EstadoMandato,
+    Mandato,
+    RevocacionMandato,
+)
 from railspec.contracts.orden import (
     AlcanceArchivos,
     Artefacto,
@@ -61,6 +69,7 @@ from railspec.contracts.tools import (
     TOOLS,
     AvanceCerrada,
     AvanceCheckpoint,
+    AvanceMandatoParado,
     AvanceOrden,
     CodigoError,
     ErrorTool,
@@ -68,6 +77,14 @@ from railspec.contracts.tools import (
     GraphQueryEntrada,
     GraphQuerySalida,
     InsumoGetSalida,
+    MandateGetEntrada,
+    MandateGetSalida,
+    MandateListEntrada,
+    MandateListSalida,
+    MandateProposeEntrada,
+    MandateRevokeEntrada,
+    MandateSalida,
+    ResumenMandato,
     Superficie,
     SyncPullEntrada,
     SyncPullSalida,
@@ -158,6 +175,9 @@ class ServidorDoble:
         self.perder_respuesta = False
         self.rechazar_con: CodigoError | None = None
         self.checkpoint: Checkpoint | None = None
+        #: Si está, ``unit.advance`` responde esto (el mandato no ampara trabajo).
+        self.mandato_parado: AvanceMandatoParado | None = None
+        self.mandatos: dict[str, Mandato] = {}
         self.resoluciones: list[UnitApproveEntrada] = []
         self.integraciones: list[UnitIntegrateEntrada] = []
         self.consultas_grafo: list[GraphQueryEntrada] = []
@@ -290,6 +310,8 @@ class ServidorDoble:
     def _unit_advance(self, args: dict[str, Any]) -> UnitAdvanceSalida:
         UnitAdvanceEntrada.model_validate(args)
         assert self.estado is not None
+        if self.mandato_parado is not None:
+            return UnitAdvanceSalida(version_estado=self.estado.version, avance=self.mandato_parado)
         if self.checkpoint is not None:
             return UnitAdvanceSalida(
                 version_estado=self.estado.version, avance=AvanceCheckpoint(checkpoint=self.checkpoint)
@@ -447,13 +469,114 @@ class ServidorDoble:
             resultados=[], commits={}, frescura={"certificados-api": FrescuraGrafo(indexado=False)}
         )
 
-    def abrir_checkpoint(self) -> Checkpoint:
+    # --- mandate.* (1.11): solo las que el contrato expone por MCP -------------------------------
+
+    def _mandate_propose(self, args: dict[str, Any]) -> MandateSalida:
+        entrada = MandateProposeEntrada.model_validate(args)
+        previo = self.mandatos.get(entrada.id)
+        if (previo is None) != (entrada.version_vista is None) or (
+            previo is not None and previo.version != entrada.version_vista
+        ):
+            raise self._error(CodigoError.conflicto_version, "versión desactualizada")
+        ahora = T0 + timedelta(hours=1)
+        self.mandatos[entrada.id] = Mandato(
+            alcance=entrada.alcance,
+            id=entrada.id,
+            version=1 if previo is None else previo.version + 1,
+            contenido=entrada.contenido,
+            estado=EstadoMandato.propuesto,
+            creado_en=previo.creado_en if previo else ahora,
+            creado_por=previo.creado_por if previo else JULIAN,
+            actualizado_en=ahora,
+            actualizado_por=JULIAN,
+        )
+        return MandateSalida(mandato=self.mandatos[entrada.id], huella=entrada.contenido.huella())
+
+    def aprobar_mandato(self, mandato: str) -> Mandato:
+        """Lo que haría una persona desde la consola (el proxy no puede)."""
+
+        m = self.mandatos[mandato]
+        ahora = T0 + timedelta(hours=1)
+        aprobacion = AprobacionMandato(
+            actor=JULIAN_WEB,
+            en=ahora,
+            caduca_en=ahora + timedelta(hours=m.contenido.limites.vigencia_horas),
+            huella=m.contenido.huella(),
+        )
+        self.mandatos[mandato] = m.model_copy(
+            update={
+                "estado": EstadoMandato.aprobado,
+                "version": m.version + 1,
+                "aprobaciones": [*m.aprobaciones, aprobacion],
+            }
+        )
+        return self.mandatos[mandato]
+
+    def _mandate_get(self, args: dict[str, Any]) -> MandateGetSalida:
+        entrada = MandateGetEntrada.model_validate(args)
+        if entrada.id not in self.mandatos:
+            raise self._error(CodigoError.no_encontrado, f"no existe el mandato {entrada.id}")
+        m = self.mandatos[entrada.id]
+        ahora = T0 + timedelta(hours=1)
+        return MandateGetSalida(
+            mandato=m,
+            huella=m.contenido.huella(),
+            vigente=m.vigente(ahora),
+            motivo_no_vigente=m.motivo_no_vigente(ahora),
+            unidades=[],
+            consumo=Consumo(),
+            decisiones=[],
+        )
+
+    def _mandate_list(self, args: dict[str, Any]) -> MandateListSalida:
+        entrada = MandateListEntrada.model_validate(args)
+        ahora = T0 + timedelta(hours=1)
+        return MandateListSalida(
+            mandatos=[
+                ResumenMandato(
+                    id=m.id,
+                    titulo=m.contenido.titulo,
+                    modo=m.contenido.modo,
+                    estado=m.estado,
+                    vigente=m.vigente(ahora),
+                    vigente_hasta=m.vigente_hasta,
+                    unidades=0,
+                    max_unidades=m.contenido.limites.max_unidades,
+                    decisiones_pendientes=0,
+                    actualizado_en=m.actualizado_en,
+                )
+                for m in self.mandatos.values()
+                if not entrada.estado or m.estado in entrada.estado
+            ]
+        )
+
+    def _mandate_revoke(self, args: dict[str, Any]) -> MandateSalida:
+        entrada = MandateRevokeEntrada.model_validate(args)
+        m = self.mandatos[entrada.id]
+        if m.version != entrada.version_vista:
+            raise self._error(CodigoError.conflicto_version, "versión desactualizada")
+        self.mandatos[entrada.id] = m.model_copy(
+            update={
+                "estado": EstadoMandato.revocado,
+                "version": m.version + 1,
+                "parada": None,
+                "revocacion": RevocacionMandato(
+                    actor=JULIAN, en=T0 + timedelta(hours=1), motivo=entrada.motivo
+                ),
+            }
+        )
+        return MandateSalida(mandato=self.mandatos[entrada.id], huella=m.contenido.huella())
+
+    def abrir_checkpoint(
+        self, tipo: TipoCheckpoint = TipoCheckpoint.aprobar_spec, causa: CausaParada | None = None
+    ) -> Checkpoint:
         self.checkpoint = Checkpoint(
             id=self._id(),
-            tipo=TipoCheckpoint.aprobar_spec,
+            tipo=tipo,
             fase=Fase.spec,
             pregunta="¿Apruebas el spec?",
             abierto_en=T0,
+            causa_parada=causa,
         )
         self._actualizar(checkpoint_pendiente=self.checkpoint)
         return self.checkpoint

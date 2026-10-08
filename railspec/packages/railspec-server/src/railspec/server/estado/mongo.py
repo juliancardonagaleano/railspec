@@ -35,6 +35,7 @@ from railspec.contracts.almacen import ConflictoVersion
 from railspec.contracts.comun import AlcanceRepositorio, AlcanceUnidad, AlcanceWorkspace, Perfil, Proveedor
 from railspec.contracts.estado import EstadoUnidad
 from railspec.contracts.eventos import Direccion, EventoSync
+from railspec.contracts.mandato import EstadoMandato, Mandato
 from railspec.contracts.orden import OrdenDeTrabajo
 from railspec.contracts.reporte import ReporteOrden
 from railspec.contracts.repositorio import (
@@ -129,6 +130,10 @@ def _clave_unidad(alcance: AlcanceUnidad) -> str:
     return f"{alcance.org}/{alcance.workspace}/{alcance.unidad}"
 
 
+def _clave_mandato(alcance: AlcanceWorkspace, id_: str) -> str:
+    return f"{alcance.org}/{alcance.workspace}/{id_}"
+
+
 class AlmacenMongo:
     """Implementa ``StateStore`` (contratos) y ``AlmacenMotor`` (motor)."""
 
@@ -142,6 +147,10 @@ class AlmacenMongo:
     def crear_indices(self) -> None:
         db = self.db
         db.unidades.create_index([("unidad.org", ASCENDING), ("unidad.workspace", ASCENDING)])
+        db.unidades.create_index(
+            [("unidad.org", ASCENDING), ("unidad.workspace", ASCENDING), ("unidad.plan", ASCENDING)]
+        )
+        db.mandatos.create_index([("alcance.org", ASCENDING), ("alcance.workspace", ASCENDING)])
         db.eventos.create_index(
             [("_clave", ASCENDING), ("direccion", ASCENDING), ("secuencia", ASCENDING)], unique=True
         )
@@ -328,6 +337,55 @@ class AlmacenMongo:
             docs = docs[: consulta.limite]
             siguiente = _codificar_cursor(docs[-1]["_id"])
         return [EstadoUnidad.model_validate(_limpio(d)) for d in docs], siguiente
+
+    # --- AlmacenMotor: mandatos (contrato 1.11) ---------------------------------------------
+
+    def obtener_mandato(self, alcance: AlcanceWorkspace, id_: str) -> Mandato | None:
+        filtro = {
+            "_id": _clave_mandato(alcance, id_),
+            **_filtro_ws(alcance.org, alcance.workspace, "alcance"),
+        }
+        doc = self.db.mandatos.find_one(filtro)
+        return Mandato.model_validate(_limpio(doc)) if doc else None
+
+    def guardar_mandato(self, mandato: Mandato, version_esperada: int | None) -> Mandato:
+        """Crea (``version_esperada=None``) o reemplaza el mandato con bloqueo optimista."""
+
+        nueva = 1 if version_esperada is None else version_esperada + 1
+        mandato = Mandato.model_validate(_doc(mandato.model_copy(update={"version": nueva})))
+        clave = _clave_mandato(mandato.alcance, mandato.id)
+        doc = {"_id": clave, **_doc(mandato)}
+        if version_esperada is None:
+            try:
+                self.db.mandatos.insert_one(doc)
+            except DuplicateKeyError:
+                actual = self.obtener_mandato(mandato.alcance, mandato.id)
+                raise ConflictoVersion(0, actual.version if actual else 0) from None
+            return mandato
+        filtro_ws = _filtro_ws(mandato.alcance.org, mandato.alcance.workspace, "alcance")
+        resultado = self.db.mandatos.replace_one(
+            {"_id": clave, "version": version_esperada, **filtro_ws}, doc
+        )
+        if resultado.matched_count != 1:
+            actual = self.obtener_mandato(mandato.alcance, mandato.id)
+            raise ConflictoVersion(version_esperada, actual.version if actual else 0)
+        return mandato
+
+    def listar_mandatos(
+        self, alcance: AlcanceWorkspace, estados: Iterable[EstadoMandato] = (), limite: int = 200
+    ) -> list[Mandato]:
+        filtro: dict[str, Any] = _filtro_ws(alcance.org, alcance.workspace, "alcance")
+        if estados := [e.value for e in estados]:
+            filtro["estado"] = {"$in": estados}
+        docs = self.db.mandatos.find(filtro).sort("_id", ASCENDING).limit(limite)
+        return [Mandato.model_validate(_limpio(d)) for d in docs]
+
+    def estados_de_plan(self, alcance: AlcanceWorkspace, plan: str) -> list[EstadoUnidad]:
+        """Las unidades del workspace cuyo ``unidad.plan`` es ``plan`` (las que ampara ese mandato)."""
+
+        filtro = {**_filtro_ws(alcance.org, alcance.workspace, "unidad"), "unidad.plan": plan}
+        docs = self.db.unidades.find(filtro).sort("_id", ASCENDING)
+        return [EstadoUnidad.model_validate(_limpio(d)) for d in docs]
 
     # --- AlmacenMotor: órdenes, reportes, snapshots -----------------------------------------
 

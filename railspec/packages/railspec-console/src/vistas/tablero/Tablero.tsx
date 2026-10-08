@@ -12,6 +12,7 @@ import { alcanza } from "../../lib/roles";
 import { useRol, useWorkspace } from "../../lib/sesion";
 import { cn, fecha } from "../../lib/utiles";
 import type { BusquedaTablero } from "../../router";
+import { MandatosParados } from "../mandato/MandatosParados";
 import { DialogoNuevaUnidad } from "../unidad/DialogoNuevaUnidad";
 import {
   agruparEnCarriles,
@@ -261,6 +262,7 @@ export function Tablero() {
           </>
         }
       />
+      <MandatosParados org={org} ws={ws} />
       <Filtros busqueda={busqueda} repos={(repos.data ?? []).map((r) => r.repositorio)} />
       {consulta.isPending ? <Cargando texto="Cargando unidades…" /> : null}
       {consulta.isError ? <ErrorVista error={consulta.error} reintentar={() => void consulta.refetch()} /> : null}

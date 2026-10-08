@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from pydantic import Field, ValidationError
 from railspec.contracts._base import Contrato
@@ -68,6 +69,25 @@ class Config(Contrato):
     @property
     def raiz_path(self) -> Path:
         return Path(self.raiz)
+
+    @property
+    def url_consola(self) -> str | None:
+        return url_consola(self.url)
+
+
+def url_consola(url: str | None) -> str | None:
+    """La consola web del servidor (``<servidor>/consola/``), si el endpoint MCP deja derivarla.
+
+    ``RAILSPEC_URL`` apunta al endpoint MCP (``https://railspec.example/mcp``) y la consola vive en el mismo
+    origen. Si la URL no termina en ``/mcp`` no se adivina: ``None``."""
+
+    if not url:
+        return None
+    partes = urlsplit(url)
+    ruta = partes.path.rstrip("/")
+    if not (partes.scheme and partes.netloc and ruta.endswith("/mcp")):
+        return None
+    return f"{partes.scheme}://{partes.netloc}{ruta.removesuffix('/mcp')}/consola/"
 
 
 def dir_worktrees_por_defecto(raiz: Path) -> Path:

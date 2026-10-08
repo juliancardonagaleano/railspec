@@ -13,11 +13,14 @@ from railspec.contracts.comun import (
     AlcanceRepositorio,
     AlcanceWorkspace,
     Canal,
+    Modo,
     NivelCodigo,
+    Presupuesto,
     Proveedor,
     TipoActor,
 )
 from railspec.contracts.estado import Decision
+from railspec.contracts.mandato import Delegacion, LimitesMandato, MandatoContenido, TipoDelegacion
 from railspec.contracts.orden import Artefacto
 from railspec.contracts.reporte import ArtefactoRedactado, ReporteOrden, ResultadoOrden, ResultadoValidacion
 from railspec.contracts.repositorio import (
@@ -29,6 +32,8 @@ from railspec.contracts.repositorio import (
 )
 from railspec.contracts.snapshot import CambioArchivo, EscaneoSecretos, EstadoArchivo, ModoDelta, Snapshot
 from railspec.contracts.tools import (
+    MandateApproveEntrada,
+    MandateProposeEntrada,
     RepositorioInicio,
     UnitAdvanceEntrada,
     UnitApproveEntrada,
@@ -234,6 +239,64 @@ async def aprobar(
         ),
         actor,
     )
+
+
+# --- mandato (1.11) -----------------------------------------------------------------------------------
+
+PLAN_PDF = "pdf-a"
+DELEGACIONES = [
+    Delegacion(id="D-1", tipo=TipoDelegacion.pre_decidida, texto="Usar el firmador existente."),
+    Delegacion(id="D-2", tipo=TipoDelegacion.con_criterio, texto="Nombres de pruebas y de helpers."),
+    Delegacion(id="D-3", tipo=TipoDelegacion.reservada, texto="Cambios de esquema de base de datos."),
+]
+
+
+def contenido_mandato(modo: Modo = Modo.supervisado, **limites) -> MandatoContenido:
+    """Un mandato válido; el desatendido trae un tope de tokens porque el contrato lo exige."""
+
+    datos = dict(repositorios=[REPO])
+    if modo == Modo.desatendido:
+        datos["presupuesto"] = Presupuesto(tokens_max=10_000_000)
+    datos.update(limites)
+    return MandatoContenido(
+        titulo="Firmar los PDF",
+        objetivo="Los certificados emitidos salen firmados.",
+        modo=modo,
+        limites=LimitesMandato(**datos),
+        delegaciones=list(DELEGACIONES),
+    )
+
+
+async def proponer_mandato(motor: Motor, id_: str = PLAN_PDF, contenido=None, actor=JULIAN_CONSOLA, **kw):
+    return await motor.n.mandatos.propose(
+        MandateProposeEntrada(alcance=WS_ALCANCE, id=id_, contenido=contenido or contenido_mandato(**kw)),
+        actor,
+    )
+
+
+async def aprobar_mandato(motor: Motor, id_: str = PLAN_PDF, actor=JULIAN_CONSOLA, comentario=None):
+    m = motor.n.almacen.obtener_mandato(WS_ALCANCE, id_)
+    return await motor.n.mandatos.approve(
+        MandateApproveEntrada(
+            alcance=WS_ALCANCE,
+            id=id_,
+            version_vista=m.version,
+            huella=m.contenido.huella(),
+            comentario=comentario,
+        ),
+        actor,
+    )
+
+
+async def mandato_aprobado(motor: Motor, id_: str = PLAN_PDF, **kw):
+    """Redacta y aprueba un mandato (lo que hace una persona en la consola) y lo devuelve."""
+
+    await proponer_mandato(motor, id_, **kw)
+    return (await aprobar_mandato(motor, id_)).mandato
+
+
+def entrada_mandato(modo: Modo = Modo.supervisado, plan: str = PLAN_PDF, **extra) -> UnitStartEntrada:
+    return entrada_start(modo=modo, plan=plan, **extra)
 
 
 __all__ = ["HostingChat", "PoliticaChat"]

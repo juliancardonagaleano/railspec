@@ -23,6 +23,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field, ValidationError
 from railspec.contracts.comun import Fase, Modo, Perfil, Riesgo
 from railspec.contracts.estado import Decision
+from railspec.contracts.mandato import DecisionPropuesta, EstadoMandato, MandatoContenido
 from railspec.contracts.reporte import ResultadoOrden, UsoModeloArnes
 from railspec.contracts.tools import nombre_mcp
 
@@ -37,7 +38,51 @@ Railspec pone rieles de Spec-Driven Development a este arnés. El servidor decid
 presupuesto; tú ejecutas la orden de trabajo vigente y nada más.
 Bucle: unit_start (una vez) → unit_advance → ejecutar la orden en el worktree de la unidad →
 unit_report → unit_advance… hasta que unit_advance devuelva "cerrada".
-No decidas fases ni te saltes gates; un checkpoint lo resuelve siempre un humano."""
+No decidas fases ni te saltes gates; un checkpoint lo resuelve siempre un humano.
+Los modos supervisado y desatendido descansan en un mandato que una persona aprueba en la consola web:
+puedes redactarlo (mandate_propose), nunca aprobarlo. Ante "mandato-parado" o una parada con causa,
+detente y díselo al humano."""
+
+#: Qué hacer ante un checkpoint de parada o de gate escalado de una unidad bajo mandato (``causa_parada``).
+COMO_RESOLVER_CHECKPOINT = (
+    "Llama unit_checkpoint: pregunta al humano con un formulario y registra su decisión. Si tu "
+    "arnés no admite formularios, pregúntale tú y llama unit_approve con su decisión exacta. "
+    "Nunca decidas por él; también puede resolverlo desde la consola web."
+)
+_DECIDE_UNA_PERSONA = (
+    "La decide una persona: en la consola web, o aquí con unit_checkpoint (formulario) o, si tu arnés no "
+    "los admite, preguntándole tú y llamando unit_approve con su decisión exacta."
+)
+COMO_RESOLVER_PARADA = {
+    "unidad-amparada-fallida": (
+        "Su gate escaló y la unidad quedó diferida (desatendido): NO esperes a que se resuelva. Informa al "
+        "humano de qué unidad es y por qué, y pasa a la siguiente unidad del mandato. Una persona la "
+        "rehabilita o pide cambios después, desde la consola web."
+    ),
+    "fuera-de-alcance": (
+        "Parada de la unidad: tocó rutas que el mandato no permite. No la resuelvas tú ni sigas "
+        f"trabajando en ella. {_DECIDE_UNA_PERSONA}"
+    ),
+    "decision-reservada": (
+        "Parada de la unidad: necesita una decisión que el mandato no delega. No decidas tú. "
+        f"{_DECIDE_UNA_PERSONA}"
+    ),
+    "reintentos-agotados": (
+        "Parada de la unidad: la orden falló y no quedan reintentos delegados. No la reintentes por tu "
+        f"cuenta. {_DECIDE_UNA_PERSONA}"
+    ),
+    "gate-escalado": (
+        "Parada: un gate escaló. No la resuelvas tú ni sigas con esta unidad. En supervisado el mandato "
+        "entero queda congelado y unit_advance responde `mandato-parado`: detente. "
+        f"{_DECIDE_UNA_PERSONA}"
+    ),
+}
+
+
+def como_resolver_checkpoint(causa_parada: str | None) -> str:
+    """Texto de ``como_resolver`` de un checkpoint; sin causa (unidad sin mandato) es el de siempre."""
+
+    return COMO_RESOLVER_PARADA.get(causa_parada or "", COMO_RESOLVER_CHECKPOINT)
 
 
 class RespuestaCheckpoint(BaseModel):
@@ -94,21 +139,21 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
     ) -> dict[str, Any]:
         """Arranca una unidad SDD: el servidor la registra y el proxy crea su worktree y rama.
         `insumos` son ids de insumos exportados desde el chat de la consola. `modo` solo si el humano
-        lo pidió explícitamente (supervisado y desatendido exigen `plan`); si no, nace interactivo."""
+        lo pidió explícitamente; si no, nace interactivo. `supervisado` y `desatendido` exigen que `plan` sea
+        el id de un mandato ya aprobado por una persona (ver mandate_get); no existe tool para aprobarlo."""
         return await proxy().iniciar(titulo, pedido, insumos, perfil, riesgo_sugerido, plan, modo)
 
     @_errores
     async def unit_advance(unidad: str | None = None) -> dict[str, Any]:
-        """Pide al servidor lo siguiente: una orden de trabajo, un checkpoint humano, una espera o el
-        cierre. Primero envía lo que haya en cola sin conexión. Si la orden parte de otro commit base,
-        rebasa el worktree (solo limpio); un conflicto o cambios sin commit se informan y no se toca nada."""
+        """Pide al servidor lo siguiente: una orden de trabajo, un checkpoint humano, una espera, el
+        cierre o, bajo un mandato que ya no ampara trabajo, `mandato-parado` (detente y díselo al humano:
+        `como_resolver` dice cómo). Primero envía lo que haya en cola sin conexión. Si la orden parte de
+        otro commit base, rebasa el worktree (solo limpio); un conflicto o cambios sin commit se informan y
+        no se toca nada."""
         respuesta = await proxy().avanzar(unidad)
         if respuesta.get("tipo") == "checkpoint":
-            respuesta["como_resolver"] = (
-                "Llama unit_checkpoint: pregunta al humano con un formulario y registra su decisión. Si tu "
-                "arnés no admite formularios, pregúntale tú y llama unit_approve con su decisión exacta. "
-                "Nunca decidas por él; también puede resolverlo desde la consola web."
-            )
+            causa = respuesta["checkpoint"].get("causa_parada")
+            respuesta["como_resolver"] = como_resolver_checkpoint(causa)
         return respuesta
 
     @_errores
@@ -118,12 +163,19 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         tareas_completadas: list[str] | None = None,
         motivo: str | None = None,
         modelo: str | None = None,
+        decisiones: list[DecisionPropuesta] | None = None,
     ) -> dict[str, Any]:
         """Cierra la orden en curso. El proxy construye el snapshot según la política de código,
         corre la validación y lee el artefacto; tú solo dices el resultado. `motivo` es obligatorio
-        si el resultado es fallido o bloqueado; `modelo` es el modelo que usaste (telemetría)."""
+        si el resultado es fallido o bloqueado; `modelo` es el modelo que usaste (telemetría).
+
+        `decisiones` (solo bajo un mandato): lista de {delegacion, que, alternativas?, revertir} con las
+        decisiones que tomaste. Reporta únicamente decisiones respaldadas por una delegación
+        `pre-decidida` o `con-criterio` de `orden.mandato.delegaciones`, citando su id (D-n) y cómo se
+        revierte; una persona las revisa después. Si hace falta decidir algo `reservado` o que ninguna
+        delegación cubre, NO decidas: reporta `bloqueado` con el motivo y la decide una persona."""
         uso = UsoModeloArnes(modelo=modelo) if modelo else None
-        return await proxy().reportar(unidad, resultado, tareas_completadas, motivo, uso)
+        return await proxy().reportar(unidad, resultado, tareas_completadas, motivo, uso, decisiones)
 
     def _pedir_decision(unidad: str | None = None) -> Elicit[RespuestaCheckpoint]:
         try:
@@ -200,6 +252,39 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         return await proxy().listar(**filtros)
 
     @_errores
+    async def mandate_propose(
+        id: str, contenido: MandatoContenido, version_vista: int | None = None
+    ) -> dict[str, Any]:
+        """Redacta un BORRADOR de mandato (el que ampara unidades supervisado o desatendido) o edita uno
+        existente con `version_vista`. NO lo aprueba: lo aprueba una persona en la consola web, sobre el
+        contenido exacto que ve; tú no puedes aprobarlo ni renovarlo. `id` será el `plan` de las unidades.
+        `contenido` lleva titulo, objetivo, modo, limites (repositorios, max_unidades, rutas_permitidas,
+        presupuesto, reintentos_parada, vigencia_horas) y delegaciones ({id: D-n, tipo: pre-decidida |
+        con-criterio | reservada, texto}); un mandato desatendido exige un tope de presupuesto. Devuelve la
+        `huella` del contenido: dásela al humano para que la compare al aprobar. Editar un mandato
+        aprobado lo devuelve a propuesto y retiene sus unidades hasta que se apruebe de nuevo."""
+        return await proxy().proponer_mandato(id, contenido, version_vista)
+
+    @_errores
+    async def mandate_get(id: str) -> dict[str, Any]:
+        """Un mandato con su estado, vigencia, unidades, consumo y decisiones delegadas (y su `huella`).
+        Compruébalo antes de arrancar una unidad supervisada o desatendida: debe estar `aprobado` y
+        vigente."""
+        return await proxy().ver_mandato(id)
+
+    @_errores
+    async def mandate_list(estado: list[EstadoMandato] | None = None, limite: int = 50) -> dict[str, Any]:
+        """Los mandatos del workspace de este repositorio, con su estado y vigencia."""
+        return await proxy().listar_mandatos(estado, limite)
+
+    @_errores
+    async def mandate_revoke(id: str, motivo: str, version_vista: int | None = None) -> dict[str, Any]:
+        """Revoca un mandato para siempre y detiene TODAS sus unidades. Solo si la persona lo pidió
+        explícitamente en esta conversación, con su motivo; nunca por iniciativa tuya. No se reabre: para
+        seguir hay que redactar otro mandato. Sin `version_vista` revoca la versión vigente."""
+        return await proxy().revocar_mandato(id, motivo, version_vista)
+
+    @_errores
     async def graph_query(
         consulta: dict[str, Any],
         repositorios: list[str] | None = None,
@@ -259,6 +344,10 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         (unit_integrate, nombre_mcp("unit.integrate"), escritura),
         (unit_status, nombre_mcp("unit.status"), lectura),
         (unit_list, nombre_mcp("unit.list"), lectura),
+        (mandate_propose, nombre_mcp("mandate.propose"), escritura),
+        (mandate_get, nombre_mcp("mandate.get"), lectura),
+        (mandate_list, nombre_mcp("mandate.list"), lectura),
+        (mandate_revoke, nombre_mcp("mandate.revoke"), escritura),
         (graph_query, nombre_mcp("graph.query"), lectura),
         (code_search, "code_search", lectura),
         (code_index, "code_index", escritura),

@@ -37,6 +37,8 @@ def exceso(consumo: Consumo, tope: Presupuesto) -> str | None:
         return f"costo {consumo.costo_usd:.2f}/{tope.costo_usd_max:.2f} USD"
     if tope.segundos_max is not None and consumo.segundos >= tope.segundos_max:
         return f"segundos {consumo.segundos}/{tope.segundos_max}"
+    if tope.llamadas_max is not None and consumo.llamadas >= tope.llamadas_max:
+        return f"llamadas {consumo.llamadas}/{tope.llamadas_max}"
     return None
 
 
@@ -47,6 +49,7 @@ def con_uso(consumo: Consumo, uso: Uso) -> Consumo:
         tokens=consumo.tokens + uso.tokens,
         segundos=consumo.segundos + uso.duracion_ms // 1000,
         costo_usd=round(consumo.costo_usd + uso.costo_usd, 6),
+        llamadas=consumo.llamadas + uso.llamadas,
     )
 
 

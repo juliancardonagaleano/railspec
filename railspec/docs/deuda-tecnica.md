@@ -140,3 +140,38 @@ del plazo y `GET /consola/api/orgs/{org}/workspaces/{ws}/grafo/retenidas` las li
 sin esperar un índice y el servidor la llama cada hora desde una tarea de fondo
 (`server/api/fondo.py`); la consola las muestra en «Retenidas del grafo»
 (`/{org}/{ws}/grafo/retenidas`), con las vencidas primero.
+
+## Mandato: notificaciones y lo que el servidor no impone
+
+**Qué hay hoy (2026-10-08).** Los modos supervisado y desatendido descansan en un mandato aprobado por
+una persona en la consola, con límites, caducidad y paradas tipificadas ([mandato.md](mandato.md)). Un
+mandato caducado, parado, revocado o sin presupuesto retiene las unidades; aprobar de nuevo las reanuda.
+
+**Qué falta.**
+
+- **Nadie se entera.** Una parada, un gate diferido o una caducidad próxima solo se ven si alguien abre la
+  consola o el arnés llama a `unit.advance` (la consola avisa de los mandatos parados en el tablero). Falta
+  la notificación (correo, Slack, push) y un informe de lo que hizo una unidad desatendida mientras nadie
+  miraba. Es la tercera decisión pendiente de Julian (notificaciones e informes).
+- **El cupo no es atómico.** `max_unidades` se comprueba al arrancar leyendo las unidades del plan; dos
+  `unit.start` simultáneos pueden pasarse en uno.
+- **Presupuesto total con retraso.** El consumo de una unidad se suma al estado tras cada panel de
+  críticos; el tope del mandato se comprueba al arrancar cada llamada del panel y en cada paso, pero las
+  llamadas de dos unidades que corren a la vez no se ven hasta que escriben su consumo. Puede pasarse de
+  un panel por unidad.
+- **Recuento de `llamadas`.** Hasta 1.11 `Consumo.llamadas` quedaba en 0 y `llamadas_max` no se aplicaba
+  en ninguna parte. Ahora cuenta las llamadas que salen al proveedor; las unidades anteriores a 1.11
+  parten de 0 y la telemetría anterior no se reconstruye.
+- **Una decisión revertida no deshace nada.** `mandate.review` deja constancia; el código lo revierte la
+  persona. La revisión pendiente no bloquea cerrar ni integrar la unidad.
+- **Snapshot fuera de alcance.** Se guarda (la persona necesita verlo) pero no entra al grafo; queda en el
+  almacén hasta su retención normal.
+- **Unidades anteriores a 1.11.** Una `supervisado` o `desatendido` con `plan` sin mandato queda retenida
+  hasta que se redacte y apruebe un mandato con ese id, o se baje su autonomía. No hay migración.
+- **`mandate.review` y bloqueo optimista.** La versión que exige es la del estado de la unidad;
+  `UnidadDeMandato` no la trae y la consola la lee justo antes de revisar. Añadir `version` a
+  `UnidadDeMandato` lo haría estricto.
+- **Probado solo con el arnés simulado.** Ningún mandato ha corrido con un arnés ni un modelo reales.
+
+**Resuelta cuando.** Una unidad desatendida se detiene de noche y avisa por un canal que alguien lee, y un
+mandato real de varias unidades corre de punta a punta con un arnés real.

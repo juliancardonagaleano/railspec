@@ -1,6 +1,7 @@
 import { invocarTool, pedir } from "./cliente";
 import type {
   AlcanceUnidad,
+  AlcanceWorkspace,
   AsignacionRol,
   CommitIntegrable,
   ConfigAuth,
@@ -18,6 +19,14 @@ import type {
   GraphQuerySalida,
   LineaDeTiempo,
   ListaSuscripciones,
+  MandateApproveEntrada,
+  MandateGetSalida,
+  MandateListEntrada,
+  MandateListSalida,
+  MandateProposeEntrada,
+  MandateReviewEntrada,
+  MandateRevokeEntrada,
+  MandateSalida,
   ModeloCatalogo,
   Modo,
   Organizacion,
@@ -87,6 +96,19 @@ export const unidades = {
     invocarTool<{ estado: EstadoUnidad }>("unit.integrate", entrada),
   fijarModo: (entrada: { unidad: AlcanceUnidad; modo: Modo; motivo: string; version_vista: number }) =>
     invocarTool<{ estado: EstadoUnidad }>("unit.set_mode", entrada),
+};
+
+// ---------------------------------------------------------------- mandatos (tools, contrato 1.11)
+
+export const mandatos = {
+  listar: (entrada: MandateListEntrada) => invocarTool<MandateListSalida>("mandate.list", entrada),
+  obtener: (alcance: AlcanceWorkspace, id: string) => invocarTool<MandateGetSalida>("mandate.get", { alcance, id }),
+  /** Crea (sin `version_vista`) o edita; lo editado vuelve a `propuesto`. */
+  proponer: (entrada: MandateProposeEntrada) => invocarTool<MandateSalida>("mandate.propose", entrada),
+  /** Solo una persona, solo por la consola. `huella` es la que devolvió `mandate.get`. */
+  aprobar: (entrada: MandateApproveEntrada) => invocarTool<MandateSalida>("mandate.approve", entrada),
+  revocar: (entrada: MandateRevokeEntrada) => invocarTool<MandateSalida>("mandate.revoke", entrada),
+  revisarDecision: (entrada: MandateReviewEntrada) => invocarTool<{ estado: EstadoUnidad }>("mandate.review", entrada),
 };
 
 // ---------------------------------------------------------------- grafo y telemetría
@@ -216,6 +238,9 @@ export const claves = {
   yo: ["yo"] as const,
   configAuth: ["auth", "config"] as const,
   unidad: (org: string, ws: string, u: string) => ["unidad", org, ws, u] as const,
+  /** Prefijo de todo lo de mandatos del workspace (lista y detalles). */
+  mandatos: (org: string, ws: string) => ["mandatos", org, ws] as const,
+  mandato: (org: string, ws: string, id: string) => ["mandatos", org, ws, id] as const,
   tablero: (org: string, ws: string) => ["tablero", org, ws] as const,
   grafo: (org: string, ws: string) => ["grafo", org, ws] as const,
   retenidas: (org: string, ws: string) => ["grafo", org, ws, "retenidas"] as const,

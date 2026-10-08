@@ -182,6 +182,14 @@ try {
     await foto("06-config-workspace");
   });
 
+  await paso("Mandatos: la pantalla carga la lista del workspace sin error", async () => {
+    await pagina.goto(`${servidor.url}/consola/acme/cert/mandatos`);
+    await pagina.getByRole("heading", { name: "Mandatos" }).waitFor();
+    await pagina.getByText("Este workspace aún no tiene mandatos").waitFor();
+    assert.equal(await pagina.getByRole("alert").count(), 0, "la lista de mandatos muestra un error");
+    await foto("06-mandatos");
+  });
+
   await paso("Configuración de la organización: pestañas Presupuestos, Proveedores y Catálogo cargan sin error", async () => {
     await pagina.goto(`${servidor.url}/consola/acme/configuracion`);
     await pagina.getByRole("heading", { name: "Configuración de la organización" }).waitFor();

@@ -2,8 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ErrorApi } from "../../api/cliente";
 import { claves, unidades } from "../../api/endpoints";
-import { MODOS, type EstadoUnidad, type Modo } from "../../api/tipos";
-import { ErrorVista } from "../../componentes/Estados";
+import { esModoConMandato, MODOS, type EstadoUnidad, type Modo } from "../../api/tipos";
+import { Aviso, ErrorVista } from "../../componentes/Estados";
 import { Button } from "../../componentes/ui/button";
 import { Dialog } from "../../componentes/ui/dialog";
 import { Campo, Textarea } from "../../componentes/ui/input";
@@ -14,9 +14,18 @@ export function DialogoModo({ estado, abierto, alCerrar }: { estado: EstadoUnida
   const [modo, setModo] = useState<Modo>(estado.modo);
   const [motivo, setMotivo] = useState("");
   const { org, workspace, unidad } = estado.unidad;
+  // Supervisado y desatendido descansan en un mandato aprobado del mismo modo (`unidad.plan`, contrato 1.11).
+  const plan = estado.unidad.plan;
+  const sinMandato = !plan;
   const cambiar = useMutation({
     mutationFn: () =>
-      unidades.fijarModo({ unidad: { org, workspace, unidad }, modo, motivo: motivo.trim(), version_vista: estado.version }),
+      // El contrato exige `unidad.plan` al pasar a supervisado o desatendido; se manda el de la unidad.
+      unidades.fijarModo({
+        unidad: { org, workspace, unidad, ...(plan ? { plan } : {}) },
+        modo,
+        motivo: motivo.trim(),
+        version_vista: estado.version,
+      }),
     onSuccess: () => {
       void clienteQuery.invalidateQueries({ queryKey: claves.unidad(org, workspace, unidad) });
       setMotivo("");
@@ -43,9 +52,25 @@ export function DialogoModo({ estado, abierto, alCerrar }: { estado: EstadoUnida
             id="modo-nuevo"
             value={modo}
             onChange={(e) => setModo(e.target.value as Modo)}
-            opciones={MODOS.map((m) => ({ valor: m, etiqueta: m === estado.modo ? `${m} (actual)` : m }))}
+            opciones={MODOS.map((m) => ({
+              valor: m,
+              etiqueta: m === estado.modo ? `${m} (actual)` : esModoConMandato(m) && sinMandato ? `${m} (requiere un mandato)` : m,
+              ...(esModoConMandato(m) && sinMandato && m !== estado.modo ? { deshabilitada: true } : {}),
+            }))}
           />
         </Campo>
+        {sinMandato ? (
+          <p className="text-xs text-suave">
+            Esta unidad no tiene mandato (<code>plan</code>): supervisado y desatendido no están disponibles. Arráncala o conviértela con un
+            mandato aprobado para usarlos.
+          </p>
+        ) : null}
+        {esModoConMandato(modo) && modo !== estado.modo && plan ? (
+          <Aviso tono="aviso">
+            {modo === "supervisado" ? "Supervisado" : "Desatendido"} exige que el mandato <strong>{plan}</strong> esté aprobado, vigente y sea del mismo modo ({modo}). Si no
+            existe o no está vigente, el servidor rechazará el cambio. Sin checkpoints humanos: el mandato es la única aprobación.
+          </Aviso>
+        ) : null}
         <Campo etiqueta="Motivo" htmlFor="motivo-modo">
           <Textarea id="motivo-modo" required maxLength={2000} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
         </Campo>
