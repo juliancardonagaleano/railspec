@@ -306,18 +306,24 @@ def crear_servidor(fabrica_proxy: Callable[[], ProxyLocal]) -> MCPServer:
         tipos: list[str] | None = None,
         ruta: str | None = None,
         unidad: str | None = None,
+        modo: str = "auto",
     ) -> dict[str, Any]:
         """Busca texto en el código del clon (nombre, ruta y cuerpo de cada símbolo) con BM25,
-        sin red y sin modelo: complementa a `graph_query`, que responde por nombre. Devuelve símbolos
+        sin red: complementa a `graph_query`, que responde por nombre. Devuelve símbolos
         con su ruta, líneas y un fragmento con los términos marcados entre «»; para el código
         completo, lee el archivo. `tipos` filtra por tipo de símbolo y `ruta` por prefijo de ruta.
-        Lee `avisos`: dicen si no hay índice (llama `code_index`) o si va por detrás de tu rama."""
-        return await proxy().buscar_codigo(texto, limite, tipos, ruta, unidad)
+        `modo`: `auto` (palabras y, si el equipo tiene el modelo local de embeddings y los vectores
+        calculados, también similitud), `texto`, `semantico` o `hibrido`; la respuesta dice el `modo`
+        usado. Lee `avisos`: dicen si no hay índice (llama `code_index`), si va por detrás de tu rama
+        o si faltan vectores."""
+        return await proxy().buscar_codigo(texto, limite, tipos, ruta, unidad, modo)
 
     @_errores
     async def code_index(unidad: str | None = None) -> dict[str, Any]:
         """Construye el índice de texto de `code_search` con el indexador local (una vez por clon o
-        unidad; después se mantiene con cada `unit_report`). Todo queda en .railspec/ y no viaja."""
+        unidad; después se mantiene con cada `unit_report`). Todo queda en .railspec/ y no viaja.
+        No calcula vectores (tardan minutos): si el equipo tiene el modelo de embeddings, el aviso
+        de la respuesta dice cuántos faltan y la persona los calcula con `railspec indice --vectores`."""
         return await proxy().indexar_codigo(unidad)
 
     @_errores

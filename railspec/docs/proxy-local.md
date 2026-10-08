@@ -653,8 +653,8 @@ viaja: el servidor lo deriva del token.
 | `unit_integrate` | `unit.integrate` | Manda `commit_integrado` (1.4): el del arnés o, si no, la punta de la rama por defecto del remoto tras un `git fetch`; sin remoto ni red no lo manda y el servidor descarta la superposición |
 | `unit_status`, `unit_list` | homónimas | `unit_status` actualiza el espejo local; `unit_list` solo añade la ruta del worktree de las unidades que tienes en local |
 | `graph_query` | `graph.query` | Vector de la consulta calculado en local (1.1); `avisos` si no hay con qué calcularlo (ver [Indexador local](#indexador-local)), si el repositorio no está indexado o si el canónico va por detrás de tu rama (ver [Consultas al grafo](#consultas-al-grafo-y-sus-avisos)) |
-| `code_search` | — (solo local) | BM25 sobre nombre, ruta y cuerpo de los símbolos del clon o de la unidad, sin red ni modelo ([Búsqueda de texto local](#búsqueda-de-texto-local)) |
-| `code_index` | — (solo local) | Construye ese índice con el indexador local (también `railspec indice [--unidad <unidad>]`) |
+| `code_search` | — (solo local) | BM25 sobre nombre, ruta y cuerpo de los símbolos del clon o de la unidad, sin red; con modelo local opcional suma similitud (`modo`) ([Búsqueda de texto local](#búsqueda-de-texto-local)) |
+| `code_index` | — (solo local) | Construye ese índice con el indexador local (también `railspec indice [--unidad <unidad>] [--vectores]`) |
 | `insumo_pull` | `insumo.get` | Markdown en `.railspec/insumos/` (también `railspec insumo pull <id> [--unidad <unidad>]`) |
 | `railspec_sync` | `unit.report`, `sync.push`, `sync.pull` | Vacía la cola y trae eventos remotos |
 
@@ -781,8 +781,8 @@ respuesta lleva en `avisos` la causa y la sugerencia de buscar por nombre
 certificado» no se contesta si esas palabras no están en un nombre. `code_search` (también
 `railspec buscar <texto>`) busca en el **cuerpo** de los símbolos, además de su nombre y su ruta, con una
 base SQLite con FTS5 y ordenación BM25 (el nombre pesa 10, las partes del identificador 6, la ruta 2 y el
-cuerpo 1). Es el complemento local de `codebase-memory-mcp`: sale de sus mismos símbolos y ids, no usa modelo
-ni vectores y no hace ninguna llamada de red.
+cuerpo 1). Es el complemento local de `codebase-memory-mcp`: sale de sus mismos símbolos y ids y no hace ninguna
+llamada de red. Por defecto no usa modelo; con uno instalado suma similitud ([abajo](#búsqueda-semántica-opcional)).
 
 - **Dónde vive:** `.railspec/busqueda.sqlite` del clon o del worktree de la unidad; `git` no lo versiona (va a
   `info/exclude`) y nunca viaja al servidor ni a ningún modelo de Railspec. Lo lee el arnés como leería el archivo.
@@ -804,8 +804,42 @@ ni vectores y no hace ninguna llamada de red.
 - **Unidad:** sin `unidad` busca en la única unidad local si hay una y, si no, en la raíz del clon.
 - **Sin FTS5:** si el SQLite de tu Python no lo trae, el error lo dice y el resto del proxy sigue igual.
 
-La búsqueda semántica con vectores locales (`Indexador.embedding_consulta`) es un paso posterior y entrará en este
-mismo índice sin cambiar la forma de la respuesta.
+### Búsqueda semántica (opcional)
+
+Las palabras no encuentran «cuándo caduca el certificado» si el código dice `expiration`. Con un modelo de
+embeddings local, el mismo índice guarda un vector por símbolo y `code_search` mezcla las dos ordenaciones. Es
+opcional y está apagada hasta que lo pides: sin modelo todo sigue por palabras y nada cambia.
+
+1. `pip install "railspec-local[embeddings]"` (onnxruntime, tokenizers y numpy; **el binario autocontenido no los
+   trae**, así que esto vale para la instalación con pip).
+2. `railspec modelo instalar` baja `jina-embeddings-v2-base-code` (Apache-2.0, 768 dimensiones, cuantizado, unos
+   160 MB) a `$XDG_DATA_HOME/railspec/modelos/` con la revisión y el sha256 fijados en el código; no ejecuta
+   código del repositorio del modelo. `railspec modelo estado` dice si se puede usar. Otro modelo ONNX sirve con un
+   `codificador.json` (nombre, dimensiones, `onnx`, `tokenizer`, `salida`, `pooling`, `prefijo_consulta`,
+   `max_tokens`) y `RAILSPEC_MODELO_EMBEDDINGS` apuntando a su carpeta.
+3. `railspec indice --vectores` codifica los símbolos pendientes (nombre, ruta y los primeros 256 tokens del
+   cuerpo). En CPU de 4 núcleos fueron unos 17 símbolos por segundo: 2 250 símbolos en dos minutos, así que un
+   repositorio de 12 000 tarda unos doce. Se guarda por lotes: si lo interrumpes, la próxima llamada sigue donde iba.
+   `code_index` (la tool) no calcula vectores para no bloquear al arnés; su aviso dice cuántos faltan.
+4. Desde entonces cada `unit_report` codifica lo que su delta cambió (hasta 64 símbolos; el resto queda pendiente) y
+   reconstruir el índice hereda los vectores de los símbolos que no cambiaron.
+
+`code_search` (y `railspec buscar --modo`) acepta `modo`: `auto` (híbrido si hay modelo y vectores; si no, texto),
+`texto`, `semantico` o `hibrido`. El híbrido funde BM25 y coseno por rango recíproco (RRF, k = 60); cada resultado
+dice su `origen` (`texto`, `semantico` o `ambos`) y la respuesta el `modo` usado y la cobertura de `vectores`. Con
+vectores a medias avisa el porcentaje: lo que aún no tiene vector solo aparece por palabras. Los vectores van en
+int8 (768 bytes por símbolo, unos 9 MB por cada 12 000), se comparan por fuerza bruta con numpy (decenas de
+milisegundos a esa escala) y, como todo el índice, nunca salen del equipo. No usa `sqlite-vec`: cargar extensiones
+no está disponible en todos los Python (el de macOS, el binario) y a esta escala no hace falta.
+
+**Medido, y qué no.** Sobre los 2 256 símbolos de este repositorio y 12 consultas que escribí a mano (la mitad
+en inglés sobre código con nombres en español), acertar entre los 5 primeros fue igual con texto e híbrido (42 %)
+y la posición media del acierto mejoró de 0,26 a 0,38 (MRR). Es una muestra pequeña y de un solo repositorio con
+identificadores en español, que un modelo de código mayormente inglés trata peor: no demuestra que valga la pena
+en el tuyo. `railspec evaluar-busqueda consultas.json` (una lista de `{"consulta", "esperados": [nombres de
+símbolo]}`) mide texto, semántico e híbrido sobre tu índice para que lo decidas con tus consultas. Los vectores
+**no** se suben al servidor: el contrato (1.10) nombra `nomic-embed-code` y este modelo es otro, así que subirlos
+(`graph.query` con `semantica`) exige primero decidir el modelo y ampliar el contrato.
 
 ### Consultas al grafo y sus avisos
 
@@ -1047,6 +1081,11 @@ mismo PR. Construir en local: `empaquetado/README.md`.
   probaron con un indexador doble que emite un símbolo por `def`; no se corrieron contra `codebase-memory-mcp`
   (la enumeración de todo el árbol en una sola llamada, como hace el reindexado de CI, y el tiempo en un
   repositorio grande) ni dentro del binario autocontenido, cuyo SQLite podría no traer FTS5 (el error lo diría).
+- **Búsqueda semántica local sin probar con el binario ni con repositorios grandes.** El codificador se probó de
+  punta a punta con el modelo real en CPU de Linux (instalación con hash, indexado, búsqueda), pero no en macOS ni
+  Windows, ni con un repositorio de decenas de miles de símbolos (la matriz de vectores se carga entera en cada
+  consulta: unos 100 MB a 130 000 símbolos). El binario autocontenido no incluye `onnxruntime`. Está por decidir si
+  compensa un modelo propio para identificadores en español.
 - **Renovación probada solo con dobles.** La renovación (`POST /v1/auth/renovar`)
   se probó con GitHub simulado y contra un servidor MCP local, no contra GitHub
   real: la forma de la respuesta de `grant_type=refresh_token` sigue la

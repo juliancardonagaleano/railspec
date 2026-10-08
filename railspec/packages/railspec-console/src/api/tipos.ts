@@ -1183,3 +1183,65 @@ export interface ResultadoDescubrimiento {
   codigo?: string;
   detalle?: string;
 }
+
+// ---------------------------------------------------------------- avisos e informes de la organización
+
+export type CanalAviso = "teams" | "correo";
+export type TipoAviso = "gate-escalado" | "presupuesto-agotado" | "informe-semanal" | "prueba";
+
+export interface DisponibilidadCanal {
+  disponible: boolean;
+  motivo?: string | null;
+}
+
+export interface ConfigAvisos {
+  /** `null` si aún no existe: crear es un PUT sin versión. */
+  version: number | null;
+  activo: boolean;
+  /** El URL del webhook nunca vuelve: solo si está configurado y su host. */
+  teams: { configurado: boolean; host: string | null };
+  correo: { destinatarios: string[] };
+  eventos: { gate_escalado: boolean; presupuesto_agotado: boolean };
+  informe: { activo: boolean; /** 0 = lunes … 6 = domingo. */ dia_semana: number; /** 0..23 */ hora_utc: number };
+}
+
+export interface UltimoAviso {
+  en: string;
+  tipo: TipoAviso;
+  canal: CanalAviso;
+  resultado: "enviado" | "error";
+  codigo: string | null;
+  workspace: string | null;
+  unidad: string | null;
+}
+
+export interface EstadoAvisos {
+  cifrado: { disponible: boolean; variable: string };
+  canales: { teams: DisponibilidadCanal; correo: DisponibilidadCanal };
+  hosts_teams: string[];
+  config: ConfigAvisos;
+  ultimos: UltimoAviso[];
+}
+
+export interface EscrituraAvisos {
+  activo: boolean;
+  /** Solo se envía al cambiarlo; ausente = conservar el guardado. Solo escritura. */
+  teams_url?: string | null;
+  quitar_teams: boolean;
+  destinatarios: string[];
+  eventos: ConfigAvisos["eventos"];
+  informe: ConfigAvisos["informe"];
+  version?: number | null;
+}
+
+export interface ResultadoPruebaAvisos {
+  resultados: { canal: CanalAviso; resultado: "enviado" | "error"; codigo: string | null }[];
+}
+
+export interface InformeSemanal {
+  desde: string;
+  hasta: string;
+  totales: { unidades_cerradas: number; gates_escalados: number; costo_usd: number; llamadas: number };
+  por_tier: { tier: "bajo" | "medio" | "alto" | null; costo_usd: number; llamadas: number }[];
+  por_workspace: { workspace: string; unidades_cerradas: number; gates_escalados: number; costo_usd: number }[];
+}

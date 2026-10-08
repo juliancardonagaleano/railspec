@@ -188,6 +188,16 @@ La clave de la caché de nodos incluye el commit del código evaluado
 (`repositorio@commit` de cada repositorio de la unidad): el mismo material
 sobre otro commit es otra pregunta. Ver [proveedores.md](proveedores.md).
 
+## Avisos
+
+Cuando `Dag.escalar` cierra un gate como `escalado`, llama a `Nucleo.avisar_escalado`, que arma un `EventoAviso`
+(organización, workspace, unidad, gate, causa y, si la causa es `presupuesto-agotado`, el tope y el consumo que
+extrae del motivo) y se lo pasa a `ServicioAvisos.notificar` (`railspec.server.avisos`). Ese método encola el trabajo
+en un hilo y nunca lanza ni espera a la red. El hilo registra el escalado en `avisos_eventos` (de ahí sale el conteo
+del informe, aunque los avisos estén apagados) y, si la organización los tiene activos, lo manda por sus canales.
+Configuración, canales, reservas y el informe semanal: [consola.md](consola.md#avisos-e-informes). No cambia el
+contrato.
+
 ## Política de datos con varios repositorios
 
 Una unidad puede tocar varios repositorios (el primero es el primario; los demás,

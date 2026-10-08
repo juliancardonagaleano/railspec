@@ -1,7 +1,7 @@
 # Deuda técnica
 
 Lo que se sabe que falta y se decidió no hacer todavía. Cada entrada dice qué hay hoy, qué falta y
-cómo se sabrá que está resuelta. Se verificó contra `master` el 2026-10-07.
+cómo se sabrá que está resuelta. Se verificó contra `master` el 2026-10-07 (la sección de avisos, el 2026-10-08).
 
 ## GitHub Actions no ejecuta ningún job de CI
 
@@ -12,6 +12,34 @@ es local y cada PR lo dice.
 
 **Resuelta cuando.** Un run de `railspec-ci` en `master` llega a ejecutar sus pasos. El primer fallo
 real que cabe esperar entonces son las pruebas que no se han visto en CI (FalkorDB real, `humo.mjs`).
+
+## Avisos e informes: sin probar contra un Teams ni un SMTP reales
+
+**Qué hay hoy (2026-10-08).** Un gate que escala o un presupuesto que se agota avisan por Teams (webhook
+entrante cifrado por organización) y por correo (SMTP de la plataforma, `RAILSPEC_SMTP_URL`), y cada semana sale un
+informe de unidades cerradas, gates escalados y gasto por tier ([consola.md](consola.md#avisos-e-informes)). Las
+pruebas cubren los canales con transportes y SMTP simulados, el cifrado, las reservas, el tope por hora, el
+informe y la API; el contrato no cambió. «Informes» no estaba definido: lo mínimo útil es este resumen semanal, no
+un generador de informes.
+
+**Qué falta.**
+
+- **Probarlo de verdad** (solo lo puede hacer quien administra Teams y el correo): crear el flujo de Teams, definir
+  `RAILSPEC_SMTP_URL` en Render y usar «Enviar aviso de prueba» e «Enviar informe ahora» en la consola. Hasta
+  entonces el formato de la tarjeta (Adaptive Card en un mensaje de Flujos de trabajo) no está verificado contra Teams.
+- **Hosts de Teams.** La lista de hosts admitidos es fija (nube comercial de Microsoft). Para nubes soberanas o un
+  relé propio haría falta una variable de plataforma, como `RAILSPEC_PROVEEDORES_HOSTS`.
+- **Umbrales previos.** Solo avisa al agotarse un tope, no al acercarse (80 %). Tampoco avisa de aprobaciones
+  pendientes, de unidades varadas ni del tope del chat (que no se comprueba, [motor.md](motor.md#presupuestos-y-telemetría)).
+- **Historia del informe.** Cuenta los escalados desde que existen los avisos (el registro dura 120 días) y fecha el
+  cierre de una unidad por su último cambio, que integrarla mueve; las unidades se recorren por workspace (hasta
+  20 000 por barrido). Sin entrega garantizada: un canal caído deja el intento en «Últimos avisos» y reintenta solo
+  el informe.
+- **Rotar la clave maestra.** El webhook se cifra con `RAILSPEC_CLAVE_MAESTRA`; tras rotarla sigue legible con
+  `RAILSPEC_CLAVE_MAESTRA_ANTERIOR`, pero se reescribe con la nueva solo al volver a guardarlo en la pantalla.
+
+**Resuelta cuando.** Una organización recibe en Teams y en el correo el aviso de prueba, el de un escalado real y el
+informe de un lunes, y se confirmó el formato y los destinos.
 
 ## Métricas de operación: sin scraper ni alertas en marcha (`/metrics`)
 
@@ -43,29 +71,33 @@ cómo rotarlo y cuatro alertas sugeridas.
 éxito (`up == 1`) y las alertas de [despliegue.md](despliegue.md#esquema-del-estado-y-métricas) están
 creadas y se probaron una vez disparándolas a propósito.
 
-## Búsqueda semántica sin codificador local de embeddings
+## Búsqueda semántica: codificador local hecho; falta decidir si se sube y con qué modelo
 
-**Qué hay hoy.** El contrato y el servidor saben guardar y comparar embeddings (int8, 768,
-`Embedding.vector_b64`) y `graph.query` admite `semantica` con el `vector_b64` que calcula el
-proxy. Pero ningún eslabón los produce: `codebase-memory-mcp` 0.11 no expone sus vectores
-(`indexador_cbm.py`), así que los deltas viajan sin embeddings; `embedding_consulta` devuelve
-`None`; y el servidor no cablea un `CodificadorConsulta` (`app.py` construye `AlmacenGrafo` sin él, y
-nunca calcula embeddings de código). Una búsqueda semántica cae a texto y la respuesta lo avisa. La
-rebanada de grafo del contexto de spec, plan y tasks tampoco es semántica: busca por nombre de
-símbolo ([motor.md](motor.md#recorrido)).
+**Qué hay hoy (2026-10-08).** El proxy puede calcular embeddings **en local** y mezclarlos con BM25 en
+`code_search` ([proxy-local.md](proxy-local.md#búsqueda-semántica-opcional)): `railspec modelo instalar`
+(`jina-embeddings-v2-base-code`, 768 dimensiones, hash fijado), `railspec indice --vectores`, `modo` en la búsqueda
+y `railspec evaluar-busqueda` para medirla con consultas propias. Es opcional y no envía nada.
 
-**Decisión pendiente (no se cierra desde el repositorio).** Elegir el modelo de embeddings y dónde
-corre (el proxy de cada desarrollador y el job de CI) exige bajar pesos de varios GB y probar su
-calidad sobre código real, y el entorno de las sesiones en la nube bloquea esas descargas.
+**Qué sigue sin existir.** Los vectores no suben al servidor. El contrato y el servidor saben guardarlos y
+compararlos (int8, 768, `Embedding.vector_b64`; `graph.query` admite `semantica`), pero el contrato nombra
+`nomic-embed-code` (`Literal`) y el modelo local es otro; `codebase-memory-mcp` 0.11 tampoco expone los suyos
+(`indexador_cbm.py`), así que los deltas siguen sin embeddings, `Indexador.embedding_consulta` devuelve `None` y el
+servidor no cablea un `CodificadorConsulta`. La rebanada de grafo del contexto de spec, plan y tasks sigue buscando
+por nombre de símbolo ([motor.md](motor.md#recorrido)).
 
-**Qué falta.** Un codificador local (el modelo `nomic-embed-code` que fija el contrato, o una
-vía para leer los vectores del indexador) que calcule los embeddings del delta en el proxy y en
-el job de CI, y el de la consulta en el proxy; y decidir si el motor, al armar la rebanada del
-contexto, pide `semantica` cuando haya vector.
+**Qué falta.**
 
-**Resuelta cuando.** Un índice de CI sube embeddings, una búsqueda con `semantica: true` desde
-el proxy devuelve resultados por similitud sin avisos, y una prueba contra un repositorio real lo
-verifica.
+- Decidir el modelo con evidencia: la medida hecha (12 consultas, un repositorio con nombres en español) dio una
+  mejora pequeña de la posición del acierto (MRR 0,26 → 0,38) y ninguna del acierto entre los 5 primeros. Hay que
+  correr `railspec evaluar-busqueda` sobre repositorios y consultas reales antes de subir nada.
+- Si se sube: cambiar el `Literal` del contrato por el modelo elegido (contrato nuevo, aditivo; proxy antes que
+  servidor), calcular los embeddings del delta en el job de CI y cablear el `CodificadorConsulta` del servidor.
+- El binario autocontenido no trae `onnxruntime`; hoy solo funciona con `pip install "railspec-local[embeddings]"`.
+- Un modelo mejor para código con identificadores en español, o un `prefijo_consulta`/pesos distintos por repositorio.
+
+**Resuelta cuando.** Una medida con consultas reales justifica el modelo, un índice de CI sube embeddings, una
+búsqueda con `semantica: true` desde el proxy devuelve resultados por similitud sin avisos, y una prueba contra un
+repositorio real lo verifica.
 
 ## Grafo de Render en Postgres: falta verlo contra Supabase real
 

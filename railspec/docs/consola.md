@@ -510,6 +510,42 @@ revisabas; ya se recargó») y se queda abierto con el contenido y la huella nue
 aprobar. Al editar, el formulario conserva la versión con que se abrió, de modo que un 409 avisa de que no se guardó nada
 y obliga a reabrirlo; no hay forma de pisar en silencio los cambios de otra persona.
 
+## Avisos e informes
+
+Una organización puede recibir un aviso por Teams o por correo cuando un gate escala o se agota un
+presupuesto, y un informe semanal. Todo está **apagado por defecto**: hace falta que un `org-admin` lo configure
+en Configuración → «Avisos e informes» (solo él ve y edita la pantalla; el guardado queda en la auditoría de la
+organización sin el secreto). La API es `/consola/api/orgs/{org}/avisos` (`GET`, `PUT` con `version`),
+`POST …/avisos/prueba` (`{"que": "aviso" | "informe"}`) y `GET …/informe-semanal` (vista previa).
+
+- **Qué avisa.** Un gate que escala (`gate-escalado`, con su causa) y un tope de presupuesto agotado
+  (`presupuesto-agotado`: unidad, fase o mes; el escalado por presupuesto ya existía, el aviso lo anuncia). Cada
+  tipo se activa por separado. El chat no comprueba los topes, así que no avisa.
+- **Qué lleva.** Organización, workspace, unidad, gate, causa, y en el presupuesto el tope y el consumo en números
+  (`tokens 1200/1000`), más un enlace a la unidad en la consola. **Nunca texto de código** ni el motivo del escalado
+  (puede traer títulos de hallazgos): el motivo solo se lee para extraer el tope con una forma numérica estricta.
+- **Teams.** Webhook entrante (los «Flujos de trabajo» de Teams; los conectores de Office 365 también aceptan la
+  tarjeta). El URL lleva la firma, así que es un secreto: se cifra con `RAILSPEC_CLAVE_MAESTRA` (AES-GCM, dominio
+  propio, ligado a la organización), no vuelve a salir en ninguna respuesta (solo su host), ni en logs ni en la
+  auditoría, y los errores de red salen como códigos (`http-404`, `sin-conexion`…), nunca con el texto de la
+  librería. Solo se admiten URL https de `*.logic.azure.com`, `*.api.powerplatform.com`, `*.webhook.office.com` y
+  `outlook.office.com`, con la misma defensa anti-SSRF de los proveedores de contexto (IP pública comprobada al
+  conectar, sin redirecciones). Sin clave maestra no se puede guardar el webhook.
+- **Correo.** SMTP del servidor, que fija la plataforma con `RAILSPEC_SMTP_URL`
+  ([despliegue.md](despliegue.md)); la organización solo elige hasta 20 destinatarios. Sin esa variable la pantalla
+  lo dice y el correo queda deshabilitado.
+- **Informe semanal.** Cada lunes a las 08:00 UTC por defecto (día y hora configurables), con el periodo de los
+  7 días anteriores: **unidades cerradas** (fase `done`, por la fecha de su último cambio), **gates escalados**
+  (por causa; solo los que los avisos registraron, es decir, desde que existen) y **gasto por tier** y por workspace
+  (la telemetría de las estadísticas). Es el valor por defecto que se propuso: se puede apagar o cambiar de día.
+  Lo envía una tarea periódica del servidor (cada 30 minutos mira si toca); si el servidor estuvo caído a esa
+  hora lo manda al volver dentro de las 12 horas siguientes, y si falla un canal se reintenta en la pasada siguiente.
+- **Sin duplicados ni tormentas.** Cada envío se reserva en el estado por clave y canal, así que varias réplicas o un
+  reintento no repiten un aviso; un gate repetido en la misma hora tampoco. El presupuesto mensual avisa una vez por
+  mes y workspace (no una por unidad), y hay un tope de 30 avisos por organización y hora.
+- Un aviso nunca frena un gate: se envía desde un hilo aparte y sus fallos solo se registran. La pantalla muestra los
+  últimos 20 intentos (canal, resultado y código de error).
+
 ## Auditoría
 
 Toda escritura de administración y configuración queda en `auditoria` con su
@@ -703,6 +739,5 @@ npm --prefix railspec/packages/railspec-console run humo     # capturas en humo/
 
 - Que algo lea `contexto.yaml` (hoy la consola solo lo edita y valida; ver
   [deuda-tecnica.md](deuda-tecnica.md)).
-- Notificaciones de gates escalados y presupuestos (Teams o correo).
 - Un flujo de eventos por workspace (SSE) para el tablero, que hoy sondea cada
   15 s: sería una ruta nueva del servidor.
