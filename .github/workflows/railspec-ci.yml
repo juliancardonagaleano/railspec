@@ -63,7 +63,7 @@ jobs:
             falkordb: true
             indexador: false
           - paquete: railspec-local
-            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest
+            instalar: -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-local[embeddings]" pytest
             pruebas: railspec/packages/railspec-local
             falkordb: false
             indexador: true

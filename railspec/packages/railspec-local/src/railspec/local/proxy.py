@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -60,7 +61,7 @@ from railspec.contracts.tools import (
     UnitStatusSalida,
 )
 
-from . import busqueda, git, insumos, secretos, validacion
+from . import busqueda, codificador, git, insumos, secretos, validacion
 from .almacen import EXCLUIR_DE_GIT, Almacen
 from .cliente import ClienteServidor
 from .config import Config
@@ -73,6 +74,8 @@ from .rutas import coincide
 log = logging.getLogger(__name__)
 
 Json = dict[str, Any]
+
+MODOS_BUSQUEDA = ("auto", "texto", "semantico", "hibrido")
 
 
 def _json(modelo: Any) -> Any:
@@ -91,6 +94,8 @@ class ProxyLocal:
         self.config = config
         self.cliente = cliente
         self.indexador = indexador
+        #: Codificador local de embeddings (``codificador.cargar``); inyectable en pruebas.
+        self.codificador: codificador.Codificador | None = None
         self.reloj = reloj
         self.nuevo_id = nuevo_id
 
@@ -833,18 +838,44 @@ class ProxyLocal:
             raise ErrorRailspec(f"No hay worktree local para la unidad {unidad}; arráncala con unit_start.")
         return locales[unidad]
 
+    def _codificador_local(self) -> tuple[codificador.Codificador | None, str | None]:
+        """``(codificador, aviso)``: sin modelo ``(None, None)``; instalado pero inutilizable, el motivo."""
+
+        if self.codificador is None:
+            try:
+                self.codificador = codificador.cargar()
+            except codificador.CodificadorNoDisponible as exc:
+                return None, str(exc)
+        return self.codificador, None
+
     def _refrescar_busqueda(self, worktree: Path, delta: Any) -> None:
-        """Mantiene al día el índice de texto con el delta de un snapshot; nunca bloquea el reporte."""
+        """Mantiene al día el índice de texto con el delta de un snapshot; nunca bloquea el reporte.
+
+        Si el índice ya tiene vectores (el usuario los pidió con ``railspec indice --vectores``), codifica
+        lo que el delta cambió, hasta ``POR_REPORTE`` símbolos; el resto queda pendiente."""
 
         if delta is None:
             return
         try:
-            busqueda.IndiceTexto.de(worktree).aplicar(worktree, delta, git.head(worktree))
-        except Exception as exc:  # noqa: BLE001 - sqlite, git o disco: el índice se reconstruye con code_index
+            indice = busqueda.IndiceTexto.de(worktree)
+            indice.aplicar(worktree, delta, git.head(worktree))
+            if indice.meta().get("modelo_vectores"):
+                local, _ = self._codificador_local()
+                if local is not None:
+                    indice.codificar_pendientes(local, limite=codificador.POR_REPORTE)
+        except Exception as exc:  # noqa: BLE001 - sqlite, git, disco o modelo: el índice se reconstruye con code_index
             log.warning("no se pudo actualizar el índice de texto: %s", exc)
 
-    async def indexar_codigo(self, unidad: str | None = None) -> Json:
-        """Construye el índice de texto completo del clon o de la unidad con el indexador local."""
+    async def indexar_codigo(
+        self,
+        unidad: str | None = None,
+        vectores: bool = False,
+        progreso: Callable[[int, int], None] | None = None,
+    ) -> Json:
+        """Construye el índice de texto completo del clon o de la unidad con el indexador local.
+
+        ``vectores`` codifica además todos los símbolos pendientes con el codificador local (minutos en un
+        repositorio grande; la tool MCP no lo pide, ``railspec indice --vectores`` sí)."""
 
         if self.indexador is None:
             raise ErrorRailspec(
@@ -858,19 +889,64 @@ class ProxyLocal:
         def construir() -> Json:
             patrones = secretos.exclusiones(base)
             delta = indexador.delta(base, repositorio, git.arbol_vacio(base), git.archivos(base), patrones)
-            n = busqueda.IndiceTexto.de(base).reemplazar(
+            indice = busqueda.IndiceTexto.de(base)
+            n = indice.reemplazar(
                 base,
                 delta.simbolos_upsert,
                 commit=git.head(base),
                 repositorio=repositorio,
                 motor=delta.motor.version,
             )
-            return {"simbolos": n, "base": str(base), "commit": git.head(base)}
+            salida: Json = {"simbolos": n, "base": str(base), "commit": git.head(base)}
+            local, aviso = self._codificador_local()
+            avisos = [] if aviso is None else [aviso]
+            if local is not None:
+                if vectores:
+                    indice.codificar_pendientes(local, progreso=progreso)
+                estado = indice.vectores(local.nombre)
+                salida["vectores"] = estado
+                if estado["codificados"] < estado["total"]:
+                    avisos.append(
+                        f"Faltan {estado['total'] - estado['codificados']} de {estado['total']} vectores: "
+                        "`railspec indice --vectores` los calcula (tarda minutos y se puede interrumpir)."
+                    )
+            elif vectores and aviso is None:
+                avisos.append("No hay modelo de embeddings instalado: `railspec modelo instalar`.")
+            if avisos:
+                salida["avisos"] = avisos
+            return salida
 
         try:
             return await asyncio.to_thread(construir)
         except busqueda.BusquedaNoDisponible as exc:
             raise ErrorRailspec(str(exc)) from exc
+
+    async def evaluar_busqueda(self, casos: Path, unidad: str | None = None) -> Json:
+        """Mide texto, semántico e híbrido con un archivo de consultas y los nombres que deberían salir."""
+
+        try:
+            lista = json.loads(casos.read_text(encoding="utf-8"))
+            if not isinstance(lista, list) or not all(
+                isinstance(c, dict) and isinstance(c.get("consulta"), str) and c.get("esperados")
+                for c in lista
+            ):
+                raise ValueError("debe ser una lista de {consulta, esperados}")
+        except (OSError, ValueError) as exc:
+            raise ErrorRailspec(
+                f'No se pudo leer {casos}: {exc}. Formato: [{{"consulta": "…", "esperados": ["nombre"]}}].'
+            ) from exc
+        indice = busqueda.IndiceTexto.de(self._base_busqueda(unidad))
+        if not indice.completo():
+            raise ErrorRailspec("No hay índice de texto: ejecuta `railspec indice` (y `--vectores`) primero.")
+        local, aviso = self._codificador_local()
+
+        def medir() -> Json:
+            return busqueda.evaluar(indice, lista, local)
+
+        resultado = await asyncio.to_thread(medir)
+        if aviso is not None:
+            resultado["avisos"] = [aviso]
+        return resultado
 
     async def buscar_codigo(
         self,
@@ -879,7 +955,15 @@ class ProxyLocal:
         tipos: list[str] | None = None,
         ruta: str | None = None,
         unidad: str | None = None,
+        modo: str = "auto",
     ) -> Json:
+        """Busca en el índice local. ``modo``: ``texto`` (BM25), ``semantico`` (similitud), ``hibrido`` (ambos
+        fundidos) o ``auto`` (híbrido si hay codificador y vectores; si no, texto)."""
+
+        if modo not in MODOS_BUSQUEDA:
+            raise ErrorRailspec(
+                f"Modo de búsqueda «{modo}» desconocido; usa uno de: {', '.join(MODOS_BUSQUEDA)}."
+            )
         base = self._base_busqueda(unidad)
         indice = busqueda.IndiceTexto.de(base)
         meta = indice.meta()
@@ -892,11 +976,38 @@ class ProxyLocal:
                     "tarda lo que el indexador en recorrer el repositorio."
                 ],
             }
+        avisos: list[str] = []
+
+        def consultar() -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
+            local, aviso = (None, None) if modo == "texto" else self._codificador_local()
+            if aviso is not None:
+                avisos.append(aviso)
+            estado = None if local is None else indice.vectores(local.nombre)
+            if local is None or not estado or estado["codificados"] == 0:
+                if modo in ("semantico", "hibrido") and aviso is None:
+                    avisos.append(
+                        "La búsqueda semántica pide un modelo de embeddings y vectores calculados "
+                        "(`railspec modelo instalar` y `railspec indice --vectores`); busqué por palabras."
+                    )
+                elif local is not None:
+                    avisos.append(
+                        "Hay modelo de embeddings y ningún vector: `railspec indice --vectores` los calcula."
+                    )
+                return indice.buscar(texto, limite, tipos, ruta), "texto", estado
+            if estado["codificados"] < estado["total"]:
+                avisos.append(
+                    f"Vectores al {100 * estado['codificados'] // max(estado['total'], 1)} %: lo que aún no "
+                    "tiene vector solo aparece por palabras (`railspec indice --vectores` completa el resto)."
+                )
+            vector = local.codificar_consulta(texto)
+            if modo == "semantico":
+                return indice.buscar_semantico(vector, local.nombre, limite, tipos, ruta), "semantico", estado
+            return indice.buscar_hibrido(texto, vector, local.nombre, limite, tipos, ruta), "hibrido", estado
+
         try:
-            resultados = indice.buscar(texto, limite, tipos, ruta)
+            resultados, usado, vectores = await asyncio.to_thread(consultar)
         except busqueda.BusquedaNoDisponible as exc:
             raise ErrorRailspec(str(exc)) from exc
-        avisos: list[str] = []
         try:
             actual = git.head(base)
         except ErrorRailspec:
@@ -915,11 +1026,13 @@ class ProxyLocal:
             )
         return {
             "resultados": resultados,
+            "modo": usado,
             "indice": {
                 "simbolos": int(meta.get("simbolos", 0)),
                 "commit": meta.get("commit"),
                 "construido": meta.get("construido"),
                 "actualizado": meta.get("actualizado"),
+                "vectores": vectores,
             },
             "avisos": avisos,
         }

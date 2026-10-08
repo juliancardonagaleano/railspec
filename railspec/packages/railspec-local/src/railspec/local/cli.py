@@ -457,14 +457,51 @@ def _cmd_insumo(args: argparse.Namespace) -> int:
 
 def _cmd_indice(args: argparse.Namespace) -> int:
     proxy = crear_proxy(_raiz(args.repo))
-    _imprimir(asyncio.run(proxy.indexar_codigo(args.unidad)))
+
+    def progreso(hechos: int, total: int) -> None:
+        print(
+            f"\rVectores: {hechos}/{total}", end="" if hechos < total else "\n", file=sys.stderr, flush=True
+        )
+
+    _imprimir(
+        asyncio.run(proxy.indexar_codigo(args.unidad, args.vectores, progreso if args.vectores else None))
+    )
+    return 0
+
+
+def _cmd_modelo(args: argparse.Namespace) -> int:
+    from . import codificador
+
+    if args.accion == "instalar":
+        destino = codificador.instalar(args.nombre, lambda m: print(m, file=sys.stderr))
+        _imprimir({"instalado": args.nombre, "directorio": str(destino)})
+        return 0
+    try:
+        local = codificador.cargar()
+        estado: dict[str, object] = {
+            "directorio": str(codificador.directorio_de()),
+            "instalado": local is not None,
+        }
+        if local is not None:
+            estado.update(nombre=local.nombre, dimensiones=local.dimensiones)
+    except codificador.CodificadorNoDisponible as exc:
+        estado = {"directorio": str(codificador.directorio_de()), "instalado": True, "problema": str(exc)}
+    _imprimir(estado)
+    return 0
+
+
+def _cmd_evaluar_busqueda(args: argparse.Namespace) -> int:
+    proxy = crear_proxy(_raiz(args.repo))
+    _imprimir(asyncio.run(proxy.evaluar_busqueda(Path(args.casos), args.unidad)))
     return 0
 
 
 def _cmd_buscar(args: argparse.Namespace) -> int:
     proxy = crear_proxy(_raiz(args.repo))
     resultado = asyncio.run(
-        proxy.buscar_codigo(" ".join(args.texto), args.limite, args.tipo or None, args.ruta, args.unidad)
+        proxy.buscar_codigo(
+            " ".join(args.texto), args.limite, args.tipo or None, args.ruta, args.unidad, args.modo
+        )
     )
     _imprimir(resultado)
     return 0 if resultado["resultados"] else 1
@@ -633,7 +670,29 @@ def parser() -> argparse.ArgumentParser:
         "indice", help="Construye el índice de texto local que usa `railspec buscar` y code_search."
     )
     idx.add_argument("--unidad")
+    idx.add_argument(
+        "--vectores",
+        action="store_true",
+        help="Calcula también los embeddings con el modelo local (minutos; se puede interrumpir).",
+    )
     idx.set_defaults(fn=_cmd_indice)
+
+    mod = sub.add_parser("modelo", help="Modelo local de embeddings para la búsqueda semántica (opcional).")
+    mod_sub = mod.add_subparsers(dest="accion", required=True)
+    inst = mod_sub.add_parser("instalar", help="Descarga el modelo (hash verificado) a tu carpeta de datos.")
+    inst.add_argument("nombre", nargs="?", default="jina-v2-base-code")
+    inst.set_defaults(fn=_cmd_modelo)
+    mod_sub.add_parser("estado", help="Dónde está el modelo y si se puede usar.").set_defaults(fn=_cmd_modelo)
+
+    ev = sub.add_parser(
+        "evaluar-busqueda",
+        help='Compara texto, semántico e híbrido con tus consultas: [{"consulta": …, "esperados": […]}].',
+    )
+    ev.add_argument(
+        "casos", help="Archivo JSON con las consultas y los nombres de símbolo que deberían salir."
+    )
+    ev.add_argument("--unidad")
+    ev.set_defaults(fn=_cmd_evaluar_busqueda)
 
     bus = sub.add_parser("buscar", help="Busca texto en el código del clon (índice local, sin red).")
     bus.add_argument("texto", nargs="+")
@@ -641,6 +700,12 @@ def parser() -> argparse.ArgumentParser:
     bus.add_argument("--tipo", action="append", help="Tipo de símbolo; repetible.")
     bus.add_argument("--ruta", help="Prefijo de ruta.")
     bus.add_argument("--unidad")
+    bus.add_argument(
+        "--modo",
+        choices=("auto", "texto", "semantico", "hibrido"),
+        default="auto",
+        help="Cómo ordenar (auto).",
+    )
     bus.set_defaults(fn=_cmd_buscar)
 
     exp = sub.add_parser("exportar", help="Escribe una unidad como paquete railspec.unidad/v1 en disco.")
