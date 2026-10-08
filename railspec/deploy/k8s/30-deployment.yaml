@@ -57,7 +57,8 @@ spec:
             # RAILSPEC_CLAVE_MAESTRA (cifra las claves de las suscripciones de modelos de la consola),
             # RAILSPEC_METRICAS_TOKEN (opcional: Bearer de GET /metrics, 16 caracteres o más),
             # RAILSPEC_CONSOLA_SECRETO (obligatoria, mínimo 32 caracteres: con la URL https del
-            # ConfigMap el servidor no arranca sin ella), RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET (consola).
+            # ConfigMap el servidor no arranca sin ella), RAILSPEC_GITHUB_APP_CLIENT_ID/_SECRET (consola),
+            # RAILSPEC_GITHUB_APP_ID y RAILSPEC_GITHUB_APP_CLAVE_PRIVADA (opcionales: PR de contexto.yaml).
             - secretRef:
                 name: ${RAILSPEC_SECRETO}
           # Modo desarrollo apagado por construcción: ``env`` gana a ``envFrom``, así que una clave

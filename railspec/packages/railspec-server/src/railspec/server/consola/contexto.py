@@ -51,6 +51,9 @@ class ContextoConsola:
     #: ``FuenteCodigo`` del chat (clones canónicos de solo lectura); ``None`` sin ``RAILSPEC_CHAT_CLONES``.
     #: La consola solo le pide la punta de la rama por defecto para sugerir el ``commit_integrado``.
     fuente_codigo: Any | None = None
+    #: ``RepoGithub``: la App como instalación, para leer ``contexto.yaml``/``.railspecignore`` y proponer su
+    #: cambio como PR. ``None`` (o sin credenciales de instalación): la edición queda en modo manual.
+    repo_github: Any | None = None
     #: ``Catalogo`` del servidor (lectura por API de cada proveedor); ``None`` sin proveedores de modelo.
     catalogo: Any | None = None
     #: ``ServicioSuscripciones`` (conexiones a Foundry/Anthropic registradas desde la consola, contrato 1.6).

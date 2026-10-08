@@ -19,6 +19,7 @@ import { opcionesDe, Select } from "../../componentes/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../componentes/ui/table";
 import { AvisoGuardado, ErrorGuardado, useGuardado, useGuardar } from "../../lib/mutaciones";
 import { fecha } from "../../lib/utiles";
+import { ArchivosRepositorio } from "./ArchivosRepositorio";
 
 const POLITICA_BASE: PoliticaChat = {
   hosting: "azure-zona-datos",
@@ -277,6 +278,7 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
   const [editandoId, setEditandoId] = useState<string | "nuevo" | null>(null);
   const editando = editandoId === "nuevo" ? "nuevo" : (lista.data?.find((v) => v.alcance.repositorio === editandoId) ?? null);
   const [desvinculando, setDesvinculando] = useState<VinculoRepositorio | null>(null);
+  const [archivos, setArchivos] = useState<string | null>(null);
   const guardado = useGuardado(claveAviso(org, ws));
   return (
     <Card>
@@ -342,6 +344,9 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
                         <Button variante="secundario" tamano="pequeno" onClick={() => setEditandoId(v.alcance.repositorio)}>
                           Editar
                         </Button>
+                        <Button variante="secundario" tamano="pequeno" onClick={() => setArchivos(v.alcance.repositorio)}>
+                          Archivos
+                        </Button>
                         <Button variante="fantasma" tamano="pequeno" onClick={() => setDesvinculando(v)}>
                           Desvincular
                         </Button>
@@ -363,6 +368,7 @@ export function Repositorios({ org, ws, puedeEditar }: { org: string; ws: string
           alCerrar={() => setEditandoId(null)}
         />
       ) : null}
+      {archivos ? <ArchivosRepositorio org={org} ws={ws} repo={archivos} alCerrar={() => setArchivos(null)} /> : null}
       {desvinculando ? <DialogoDesvincular org={org} ws={ws} vinculo={desvinculando} alCerrar={() => setDesvinculando(null)} /> : null}
     </Card>
   );

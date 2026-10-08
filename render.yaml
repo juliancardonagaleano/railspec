@@ -58,6 +58,11 @@ services:
         sync: false
       - key: RAILSPEC_GITHUB_APP_CLIENT_SECRET
         sync: false
+      # Opcionales, juntas: con ellas la consola abre PR para editar contexto.yaml y .railspecignore.
+      - key: RAILSPEC_GITHUB_APP_ID
+        sync: false
+      - key: RAILSPEC_GITHUB_APP_CLAVE_PRIVADA
+        sync: false
       # --- modelos (Azure AI Foundry) ---
       - key: RAILSPEC_FOUNDRY_ENDPOINT
         sync: false

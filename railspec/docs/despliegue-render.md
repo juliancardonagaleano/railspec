@@ -45,6 +45,7 @@ Las claves y cadenas de conexión las pones tú en el panel de Render. No las pe
 | `RAILSPEC_CONSOLA_SECRETO` | Aleatorio de 256 bits que genera Render | Render |
 | `RAILSPEC_CONSOLA_ADMINS` | `83125327` (el github_id de Julian) | Blueprint |
 | `RAILSPEC_GITHUB_APP_CLIENT_ID`, `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | De la GitHub App | Tú, en el panel |
+| `RAILSPEC_GITHUB_APP_ID`, `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` | Opcionales, juntas: id numérico de la App y su clave privada PEM (pégala con saltos de línea reales o con `\n`); con ellas la consola abre PR para editar `contexto.yaml` y `.railspecignore` ([consola.md](consola.md#archivos-del-repositorio)) | Tú, en el panel |
 | `RAILSPEC_CLAVE_MAESTRA` | `openssl rand -base64 32`; cifra las claves de las suscripciones de la consola | Tú, en el panel |
 | `RAILSPEC_METRICAS_TOKEN` | Opcional: Bearer de `GET /metrics`, 16 caracteres o más (`openssl rand -base64 24`); sin él no hay endpoint | Tú, en el panel |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Del recurso de Foundry; opcionales desde 1.6 (respaldo de los perfiles sin suscripción) | Tú, en el panel |
