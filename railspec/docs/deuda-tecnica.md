@@ -43,29 +43,33 @@ cómo rotarlo y cuatro alertas sugeridas.
 éxito (`up == 1`) y las alertas de [despliegue.md](despliegue.md#esquema-del-estado-y-métricas) están
 creadas y se probaron una vez disparándolas a propósito.
 
-## Búsqueda semántica sin codificador local de embeddings
+## Búsqueda semántica: codificador local hecho; falta decidir si se sube y con qué modelo
 
-**Qué hay hoy.** El contrato y el servidor saben guardar y comparar embeddings (int8, 768,
-`Embedding.vector_b64`) y `graph.query` admite `semantica` con el `vector_b64` que calcula el
-proxy. Pero ningún eslabón los produce: `codebase-memory-mcp` 0.11 no expone sus vectores
-(`indexador_cbm.py`), así que los deltas viajan sin embeddings; `embedding_consulta` devuelve
-`None`; y el servidor no cablea un `CodificadorConsulta` (`app.py` construye `AlmacenGrafo` sin él, y
-nunca calcula embeddings de código). Una búsqueda semántica cae a texto y la respuesta lo avisa. La
-rebanada de grafo del contexto de spec, plan y tasks tampoco es semántica: busca por nombre de
-símbolo ([motor.md](motor.md#recorrido)).
+**Qué hay hoy (2026-10-08).** El proxy puede calcular embeddings **en local** y mezclarlos con BM25 en
+`code_search` ([proxy-local.md](proxy-local.md#búsqueda-semántica-opcional)): `railspec modelo instalar`
+(`jina-embeddings-v2-base-code`, 768 dimensiones, hash fijado), `railspec indice --vectores`, `modo` en la búsqueda
+y `railspec evaluar-busqueda` para medirla con consultas propias. Es opcional y no envía nada.
 
-**Decisión pendiente (no se cierra desde el repositorio).** Elegir el modelo de embeddings y dónde
-corre (el proxy de cada desarrollador y el job de CI) exige bajar pesos de varios GB y probar su
-calidad sobre código real, y el entorno de las sesiones en la nube bloquea esas descargas.
+**Qué sigue sin existir.** Los vectores no suben al servidor. El contrato y el servidor saben guardarlos y
+compararlos (int8, 768, `Embedding.vector_b64`; `graph.query` admite `semantica`), pero el contrato nombra
+`nomic-embed-code` (`Literal`) y el modelo local es otro; `codebase-memory-mcp` 0.11 tampoco expone los suyos
+(`indexador_cbm.py`), así que los deltas siguen sin embeddings, `Indexador.embedding_consulta` devuelve `None` y el
+servidor no cablea un `CodificadorConsulta`. La rebanada de grafo del contexto de spec, plan y tasks sigue buscando
+por nombre de símbolo ([motor.md](motor.md#recorrido)).
 
-**Qué falta.** Un codificador local (el modelo `nomic-embed-code` que fija el contrato, o una
-vía para leer los vectores del indexador) que calcule los embeddings del delta en el proxy y en
-el job de CI, y el de la consulta en el proxy; y decidir si el motor, al armar la rebanada del
-contexto, pide `semantica` cuando haya vector.
+**Qué falta.**
 
-**Resuelta cuando.** Un índice de CI sube embeddings, una búsqueda con `semantica: true` desde
-el proxy devuelve resultados por similitud sin avisos, y una prueba contra un repositorio real lo
-verifica.
+- Decidir el modelo con evidencia: la medida hecha (12 consultas, un repositorio con nombres en español) dio una
+  mejora pequeña de la posición del acierto (MRR 0,26 → 0,38) y ninguna del acierto entre los 5 primeros. Hay que
+  correr `railspec evaluar-busqueda` sobre repositorios y consultas reales antes de subir nada.
+- Si se sube: cambiar el `Literal` del contrato por el modelo elegido (contrato nuevo, aditivo; proxy antes que
+  servidor), calcular los embeddings del delta en el job de CI y cablear el `CodificadorConsulta` del servidor.
+- El binario autocontenido no trae `onnxruntime`; hoy solo funciona con `pip install "railspec-local[embeddings]"`.
+- Un modelo mejor para código con identificadores en español, o un `prefijo_consulta`/pesos distintos por repositorio.
+
+**Resuelta cuando.** Una medida con consultas reales justifica el modelo, un índice de CI sube embeddings, una
+búsqueda con `semantica: true` desde el proxy devuelve resultados por similitud sin avisos, y una prueba contra un
+repositorio real lo verifica.
 
 ## Grafo de Render en Postgres: falta verlo contra Supabase real
 
