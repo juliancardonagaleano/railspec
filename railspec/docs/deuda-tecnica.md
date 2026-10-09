@@ -212,6 +212,28 @@ mandato caducado, parado, revocado o sin presupuesto retiene las unidades; aprob
 **Resuelta cuando.** Una unidad desatendida se detiene de noche y avisa por un canal que alguien lee, y un
 mandato real de varias unidades corre de punta a punta con un arnés real.
 
+## Retiro del kit SDD: sin segunda red de seguridad
+
+**Qué hay hoy (2026-10-09).** Julian decidió retirar el kit SDD de la raíz del repositorio, aun
+sabiendo que sin él no queda un protocolo de respaldo si Railspec falla con modelos reales. Se
+retira por etapas, un PR por etapa para poder revertir cada una: (1) instalador, scripts, `.mcp.json`,
+`opencode.jsonc`, `docs/` de la raíz y su entrada en la CI; (2) lo que vive en `.claude/` (hooks,
+`settings.json`, skills, agentes, comandos); (3) `.spec/`, `.agents/` y `AGENTS.md`. El kit queda en el
+historial, en el commit `b49d427`. `railspec instalar` no depende de nada de eso.
+
+**Qué falta.**
+
+- **Quitar el gancho de pre-push del clon de cada persona.** `.git/hooks/pre-push` no se versiona:
+  quien lo instaló con el kit tiene que borrarlo antes de que se retire `.spec/` (etapa 3), o todo
+  `git push` fallará ([migracion-kit.md](migracion-kit.md#un-aviso-sobre-el-pre-push)).
+- **Ya no se prueba la convivencia ni el procedimiento «Quitar el kit».** Los cubría
+  `installer/tests`, que se fue con el instalador; la guía conserva el procedimiento tal como se probó
+  por última vez.
+- **Cerrar una unidad real con modelos reales** sigue pendiente (claves de Foundry, Anthropic y
+  compatible sin probar): hasta entonces el respaldo es el historial de git.
+
+**Resuelta cuando.** Una unidad real corre de punta a punta con un modelo real sin el kit presente.
+
 ## `contexto.yaml`: la consola lo edita, pero nada lo lee; falta probar el PR contra GitHub real
 
 **Qué hay hoy (2026-10-08).** La consola edita `contexto.yaml` y `.railspecignore` de un repositorio

@@ -142,28 +142,6 @@ def test_el_comprobador_no_confunde_ejecutar_comentar_o_rotular_con_instalar(tex
     assert _requisitos(texto) == []
 
 
-# --- las pruebas del instalador del kit corren en la CI ---------------------------------------------
-
-
-def test_la_ci_corre_las_pruebas_del_instalador_con_railspec_local_instalado():
-    """``test_convivencia_railspec.py`` hace ``importorskip("railspec.local.cli")``: sin railspec-local
-    en el entorno del job se saltaría en silencio y la CI saldría en verde sin probar la convivencia."""
-
-    ci = yaml.safe_load((WORKFLOWS / "railspec-ci.yml").read_text("utf-8"))
-    entradas = [
-        e for e in ci["jobs"]["pruebas"]["strategy"]["matrix"]["include"] if e["pruebas"] == "installer/tests"
-    ]
-    assert len(entradas) == 1, (
-        "la matriz de railspec-ci.yml debe tener una entrada con pruebas: installer/tests"
-    )
-    assert "-e railspec/packages/railspec-local" in entradas[0]["instalar"]
-    assert "pyyaml" in entradas[0]["instalar"].split()
-    # Y los cambios del instalador disparan la CI (si no, la entrada solo correría por casualidad).
-    disparadores = ci.get("on", ci.get(True))  # PyYAML (YAML 1.1) lee la clave ``on`` como True
-    for evento in ("pull_request", "push"):
-        assert "installer/**" in disparadores[evento]["paths"]
-
-
 # --- el índice completo programado de railspec-reindexar.yml -----------------------------------------
 
 

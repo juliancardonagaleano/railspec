@@ -1,29 +1,10 @@
-# sdd-kit
+# Railspec
 
-Kit de Spec-Driven Development (SDD) — motor genérico del protocolo,
-agnóstico a cualquier repositorio destino concreto.
+Plugin que da rieles SDD a arneses existentes (Claude Code, OpenCode, Codex y GitHub Copilot CLI):
+un motor remoto dicta órdenes de trabajo y verifica, un proxy MCP local ejecuta en el clon del
+desarrollador, y una consola web administra, mide y explora. Todo el código vive en
+[railspec/](railspec/README.md).
 
-> Esqueleto inicial. Este README se completa a medida que el contenido del
-> kit (instalador, scripts de andamiaje, prosa normativa, skills `sdd-*`) se
-> extrae desde su repositorio de origen y se generaliza.
-
-## Qué es
-
-Un repositorio propio que aloja el instalador y el motor del protocolo SDD
-— separado de cualquier implementación concreta que lo consuma — para que
-pueda evolucionar por su cuenta e instalarse sobre más de un destino.
-
-## Instalación en un destino
-
-```
-python3 installer/cli.py --target <ruta-destino> --install
-```
-
-Ver `docs/` para el detalle del contenido del kit y su manifiesto.
-
-## Railspec
-
-El repositorio también aloja [Railspec](railspec/README.md), un plugin que da rieles SDD a
-los arneses con un motor remoto. Puede instalarse junto al kit en el mismo repositorio;
-para traer unidades y, si quieres, quitar el kit:
+El kit SDD que compartía este repositorio se retiró; si lo tienes instalado en otro repositorio,
+cómo traer sus unidades y cómo quitarlo está en
 [railspec/docs/migracion-kit.md](railspec/docs/migracion-kit.md).
