@@ -1,7 +1,6 @@
 # CI de Railspec: lint, pruebas de cada paquete por separado (cada uno con
 # solo sus dependencias) y validación de lo desplegable. Sustituye al antiguo
-# railspec-contratos.yml. Corre también las pruebas del instalador del kit
-# (installer/tests), que incluyen la convivencia del kit con Railspec.
+# railspec-contratos.yml.
 #
 # codebase-memory-mcp nunca se instala suelto: se fija a railspec.local.indexador_cbm.VERSION_FIJA
 # con el paso "Indexador fijado" (mismo patrón que railspec-binario.yml). Una prueba de
@@ -10,10 +9,10 @@ name: railspec-ci
 
 on:
   pull_request:
-    paths: ["railspec/**", "installer/**", ".github/workflows/railspec-*.yml"]
+    paths: ["railspec/**", ".github/workflows/railspec-*.yml"]
   push:
     branches: [master]
-    paths: ["railspec/**", "installer/**", ".github/workflows/railspec-*.yml"]
+    paths: ["railspec/**", ".github/workflows/railspec-*.yml"]
 
 permissions:
   contents: read
@@ -76,13 +75,6 @@ jobs:
               -e railspec/packages/railspec-graph -e "railspec/packages/railspec-server[motor,grafo]"
               pytest pyyaml
             pruebas: railspec/deploy/tests
-            falkordb: false
-            indexador: false
-          # Las pruebas del instalador del kit viven en installer/tests. test_convivencia_railspec.py
-          # instala el kit y `railspec instalar` en repositorios temporales y necesita railspec-local.
-          - paquete: installer
-            instalar: -e railspec/packages/railspec-contracts -e railspec/packages/railspec-local pytest pyyaml
-            pruebas: installer/tests
             falkordb: false
             indexador: false
     services:

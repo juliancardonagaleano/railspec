@@ -5,9 +5,9 @@ GitHub Copilot CLI): un motor remoto dicta órdenes de trabajo y verifica, un
 proxy MCP local ejecuta en el clon del desarrollador, y una consola web
 administra, mide y explora.
 
-Vive dentro de `sdd-mcp`, que también aloja el kit SDD (`.spec/`, `installer/`).
-Los dos pueden instalarse en el mismo repositorio sin pisarse, y las unidades del
-kit se traen a Railspec a demanda: ver [docs/migracion-kit.md](docs/migracion-kit.md).
+El kit SDD que antes compartía repositorio con Railspec se retiró; quien lo tenga instalado
+en otro repositorio encuentra cómo traer sus unidades y cómo quitarlo en
+[docs/migracion-kit.md](docs/migracion-kit.md).
 
 ## Estructura
 
