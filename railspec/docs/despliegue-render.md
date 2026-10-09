@@ -48,7 +48,7 @@ Las claves y cadenas de conexión las pones tú en el panel de Render. No las pe
 | `RAILSPEC_GITHUB_APP_ID`, `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` | Opcionales, juntas: id numérico de la App y su clave privada PEM (pégala con saltos de línea reales o con `\n`); con ellas la consola abre PR para editar `contexto.yaml` y `.railspecignore` ([consola.md](consola.md#archivos-del-repositorio)) | Tú, en el panel |
 | `RAILSPEC_CLAVE_MAESTRA` | `openssl rand -base64 32`; cifra las claves de las suscripciones de la consola y los webhooks de Teams de los avisos | Tú, en el panel |
 | `RAILSPEC_SMTP_URL` | opcional: `smtp://usuario:clave@host:587?desde=correo`; correo de los avisos y del informe semanal ([consola.md](consola.md#avisos-e-informes)) | Tú, en el panel |
-| `RAILSPEC_METRICAS_TOKEN` | Opcional: Bearer de `GET /metrics`, 16 caracteres o más (`openssl rand -base64 24`); sin él no hay endpoint | Tú, en el panel |
+| `RAILSPEC_METRICAS_TOKEN` | Opcional y de respaldo: Bearer de `GET /metrics`, 16 caracteres o más (`openssl rand -base64 24`). No hace falta: las claves de `/metrics` se crean en la consola (Plataforma → Operación), una por origen | Tú, en el panel (si la quieres) |
 | `RAILSPEC_FOUNDRY_ENDPOINT`, `RAILSPEC_FOUNDRY_API_KEY` | Del recurso de Foundry; opcionales desde 1.6 (respaldo de los perfiles sin suscripción) | Tú, en el panel |
 | `RAILSPEC_FOUNDRY_REGION`, `RAILSPEC_FOUNDRY_ZONA_DATOS`, `RAILSPEC_FOUNDRY_DESPLIEGUES` | Región, zona de datos y despliegues declarados ([proveedores.md](proveedores.md)) | Tú, en el panel |
 

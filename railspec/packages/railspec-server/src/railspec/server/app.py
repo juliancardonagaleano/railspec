@@ -181,6 +181,17 @@ def ensamblar(
     catalogo = getattr(proveedores, "catalogo", None)
     if catalogo is not None and catalogo.registrar is None:
         catalogo.registrar = datos_consola.guardar_estado_catalogo
+    from .claves_metricas import ClavesMetricasMongo
+    from .metricas import Metricas, Operacion, montar_metricas
+
+    operacion = Operacion(
+        metricas=Metricas(),
+        version_app=app.version,
+        esquema=esquema,
+        sondas=sondas,
+        claves=ClavesMetricasMongo(almacen.db),
+        token=config.metricas_token,
+    )
     consola = ContextoConsola(
         config=config.consola,
         firmador=firmador,
@@ -198,17 +209,13 @@ def ensamblar(
         catalogo=catalogo,
         suscripciones=suscripciones,
         avisos=avisos,
+        operacion=operacion,
         abierto=config.modo_memoria,
     )
     montar_consola(app, consola)
     if config.consola.carpeta_spa is not None:
         _redirigir_raiz(app)
-    if config.metricas_token:
-        from .metricas import montar_metricas
-
-        montar_metricas(
-            app, token=config.metricas_token, version_app=app.version, esquema=esquema, sondas=sondas
-        )
+    montar_metricas(app, operacion)
     return motor, app
 
 

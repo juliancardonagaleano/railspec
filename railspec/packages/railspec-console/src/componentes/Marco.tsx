@@ -107,6 +107,9 @@ function Navegacion({ yo, org, ws }: { yo: Yo; org?: string; ws?: string }) {
           <Link to="/organizaciones" className={CLASE_ENLACE}>
             Organizaciones
           </Link>
+          <Link to="/operacion" className={CLASE_ENLACE}>
+            Operación
+          </Link>
         </div>
       ) : null}
     </nav>

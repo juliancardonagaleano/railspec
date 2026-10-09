@@ -5,7 +5,8 @@
 
 Sin dependencias fuera de la biblioteca estándar. Sale con 0 si el endpoint responde 200 con las
 familias de métricas esperadas y todas las sondas en 1; con 1 si algo falla, diciendo qué.
-El token se lee del entorno (nunca como argumento: quedaría en el historial de la shell).
+La clave se lee del entorno (nunca como argumento: quedaría en el historial de la shell): una clave
+creada en la consola (Plataforma → Operación) o el `RAILSPEC_METRICAS_TOKEN` del servicio.
 """
 
 from __future__ import annotations
@@ -78,10 +79,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"up == 0: no se pudo conectar ({e})")
         return 1
     if estado == 401:
-        print("up == 0: 401, el token no coincide con RAILSPEC_METRICAS_TOKEN del servicio")
+        print("up == 0: 401, la clave no es una activa de la consola ni RAILSPEC_METRICAS_TOKEN del servicio")
         return 1
     if estado == 404:
-        print("up == 0: 404, el servicio no tiene RAILSPEC_METRICAS_TOKEN definido (o no es este servidor)")
+        print(
+            "up == 0: 404, el servicio no tiene RAILSPEC_METRICAS_TOKEN ni claves activas en la consola "
+            "(o no es este servidor)"
+        )
         return 1
     if estado != 200:
         print(f"up == 0: respondió {estado}")

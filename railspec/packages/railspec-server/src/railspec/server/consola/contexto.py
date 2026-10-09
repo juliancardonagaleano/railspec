@@ -60,6 +60,8 @@ class ContextoConsola:
     suscripciones: Any | None = None
     #: ``ServicioAvisos`` (Teams, correo e informe semanal por organización); ``None`` sin él.
     avisos: Any | None = None
+    #: ``metricas.Operacion``: estado de operación y claves de ``/metrics`` (solo la plataforma).
+    operacion: Any | None = None
     #: Sin Mongo (solo desarrollo): toda persona sin asignaciones es ``desarrollador``.
     abierto: bool = False
     reloj: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))

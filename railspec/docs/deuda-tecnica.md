@@ -46,30 +46,34 @@ informe de un lunes, y se confirmó el formato y los destinos.
 **Qué hay hoy.** El servidor publica `GET /metrics` en texto de Prometheus
 (`packages/railspec-server/src/railspec/server/metricas.py`): versión del servidor, versión del
 esquema del estado (la del código y la guardada), estado de cada sonda, peticiones por superficie y
-clase de estado, e instante de arranque. Solo existe si `RAILSPEC_METRICAS_TOKEN` está definido
-(16 caracteres o más) y exige `Authorization: Bearer <token>`. La variable ya está cableada en
-`render.yaml`, `deploy/render/render-ghcr.yaml` (secreta, sin valor), en el Secret de AKS
-([despliegue.md](despliegue.md#esquema-del-estado-y-métricas)) y en las pruebas de variables del
-despliegue; la documentación trae un trabajo de Prometheus de ejemplo con el token como credencial,
-cómo rotarlo y cuatro alertas sugeridas.
+clase de estado, e instante de arranque. Exige `Authorization: Bearer <clave>`: una clave por origen
+creada en la consola (Plataforma → Operación; revocable, guardada como hash, con su último uso) o
+`RAILSPEC_METRICAS_TOKEN` como respaldo; sin ninguna responde 404. La misma pantalla muestra todo eso
+en vivo a quien administra la plataforma, sin clave
+([consola.md](consola.md#operación-del-servidor-y-claves-de-métricas)). La documentación trae un trabajo
+de Prometheus de ejemplo, cómo rotar las claves y cuatro alertas sugeridas.
+
+**Decisión (2026-10-09).** Sin scraper por ahora: en Render gratis, consultar cada minuto mantendría el
+servicio despierto todo el mes y consumiría casi todas las 750 horas gratis de la cuenta. Se mira en la
+consola y se comprueba a mano con `deploy/prometheus/verificar_metricas.py` y una clave de la consola.
 
 **Qué falta.**
 
-- **Definir el token y poner un scraper** (esto solo lo puede hacer quien administra el servicio). Nadie consulta el endpoint: el token no está definido en
-  ningún despliegue real y no hay Prometheus (o un servicio gestionado que acepte
-  `Authorization: Bearer`) que lo lea. En Render hay que decidir dónde vive y cuánto cuesta.
+- **Poner un scraper** cuando el despliegue lo justifique (un plan de pago o AKS): crear su clave en
+  la consola y apuntar Prometheus (o un servicio gestionado que acepte `Authorization: Bearer`).
 - **Crear y probar las alertas.** Las reglas están en `deploy/prometheus/alertas.yaml` (con una
   más, `RailspecSinMetricas`, para un scrape caído) y una prueba verifica su forma y que cada
   métrica que usan la publique el servidor; `deploy/prometheus/verificar_metricas.py <url>` consulta
-  un servidor desplegado con el token y dice si Prometheus lo podría leer (`up == 1`), sin montar
+  un servidor desplegado con una clave y dice si Prometheus lo podría leer (`up == 1`), sin montar
   Prometheus. Falta cargar las reglas en un Prometheus real y dispararlas a propósito una vez.
-- **Aceptar los límites.** Los contadores son por réplica y en memoria (se reinician con el proceso;
-  `rate()` lo tolera y Prometheus suma entre réplicas) y no hay métricas de negocio (costo, caché,
-  latencia de los gates): eso sigue saliendo de la consola de estadísticas.
+- **Aceptar los límites.** Los contadores son por réplica y en memoria (se reinician con el proceso,
+  también cuando Render duerme el servicio; `rate()` lo tolera y Prometheus suma entre réplicas) y no
+  hay métricas de negocio (costo, caché, latencia de los gates): eso sigue saliendo de la consola de
+  estadísticas. Las claves no van a la auditoría de ninguna organización (son de la plataforma).
 
-**Resuelta cuando.** Un servidor desplegado tiene el token definido, un scraper lo consulta con
-éxito (`up == 1`) y las alertas de [despliegue.md](despliegue.md#esquema-del-estado-y-métricas) están
-creadas y se probaron una vez disparándolas a propósito.
+**Resuelta cuando.** Un scraper consulta un servidor desplegado con su clave con éxito (`up == 1`) y
+las alertas de [despliegue.md](despliegue.md#esquema-del-estado-y-métricas) están creadas y se
+probaron una vez disparándolas a propósito.
 
 ## Búsqueda semántica: codificador local hecho; falta decidir si se sube y con qué modelo
 

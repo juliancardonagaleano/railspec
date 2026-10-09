@@ -1245,3 +1245,52 @@ export interface InformeSemanal {
   por_tier: { tier: "bajo" | "medio" | "alto" | null; costo_usd: number; llamadas: number }[];
   por_workspace: { workspace: string; unidades_cerradas: number; gates_escalados: number; costo_usd: number }[];
 }
+
+// ---------------------------------------------------------------- operación del servidor (plataforma)
+
+/** Una sonda de `/healthz`: `ok`, `sin respuesta` o `error: <tipo>`. */
+export interface SondaOperacion {
+  nombre: string;
+  estado: string;
+}
+
+/** Peticiones atendidas desde el arranque de la réplica, por superficie, método y clase de estado. */
+export interface PeticionesOperacion {
+  grupo: string;
+  metodo: string;
+  estado: string;
+  total: number;
+}
+
+/** `GET /operacion`: lo mismo que publica `/metrics`, en JSON. */
+export interface Operacion {
+  version: string;
+  esquema: { codigo: number; almacenado: number };
+  sondas: SondaOperacion[];
+  /** Arranque de la réplica (ISO). */
+  inicio: string;
+  /** Hora del servidor al responder (ISO). */
+  ahora: string;
+  peticiones: PeticionesOperacion[];
+  /** `RAILSPEC_METRICAS_TOKEN` definido en el servidor (nunca su valor). */
+  token_entorno: boolean;
+}
+
+/** Clave de `/metrics` para un origen. Nunca trae el secreto: solo sale al crearla. */
+export interface ClaveMetricas {
+  id: string;
+  nombre: string;
+  /** Principio de la clave, para reconocerla. */
+  prefijo: string;
+  creada_por: string;
+  creada_en: string;
+  ultimo_uso: string | null;
+  revocada_en: string | null;
+  revocada_por: string | null;
+  activa: boolean;
+}
+
+export interface ClaveMetricasCreada {
+  clave: ClaveMetricas;
+  secreto: string;
+}

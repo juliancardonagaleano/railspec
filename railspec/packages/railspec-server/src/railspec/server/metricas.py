@@ -1,8 +1,11 @@
 """``GET /metrics`` en formato de texto de Prometheus.
 
-Solo existe si ``RAILSPEC_METRICAS_TOKEN`` está definido y exige ``Authorization: Bearer <token>``: el
-servidor puede estar en internet (Render) y las métricas no son para cualquiera. Contadores en memoria de
-cada réplica (se reinician con ella); Prometheus suma entre réplicas.
+Exige ``Authorization: Bearer <clave>``: el servidor puede estar en internet (Render) y las métricas no
+son para cualquiera. Vale ``RAILSPEC_METRICAS_TOKEN`` o una clave activa de las que se crean en la consola
+(una por origen, ver ``claves_metricas.py``). Sin ninguna de las dos responde 404, como si no existiera.
+Contadores en memoria de cada réplica (se reinician con ella, también cuando Render duerme el servicio);
+Prometheus suma entre réplicas. La consola muestra lo mismo en JSON (``Operacion.vista``) a quien
+administra la plataforma, sin clave: le basta su sesión.
 
 - ``railspec_info{version}``: versión del servidor.
 - ``railspec_estado_esquema{origen="codigo"|"almacenado"}``: versión del esquema del estado que entiende
@@ -14,11 +17,14 @@ cada réplica (se reinician con ella); Prometheus suma entre réplicas.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import threading
 import time
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Request
@@ -26,6 +32,7 @@ from fastapi.responses import PlainTextResponse
 
 from .api.identidad import token_de_cabecera
 from .api.superficies import TOPE_SONDA_S, _sondear
+from .claves_metricas import ClavesMetricasMongo
 from .estado import VersionEsquema
 
 TIPO_CONTENIDO = "text/plain; version=0.0.4; charset=utf-8"
@@ -136,29 +143,63 @@ async def renderizar(
     return "\n".join(salida) + "\n"
 
 
-def montar_metricas(
-    app: Any,
-    *,
-    token: str,
-    version_app: str,
-    esquema: VersionEsquema,
-    sondas: dict[str, Callable[[], Any]],
-    metricas: Metricas | None = None,
-) -> Metricas:
-    """Añade ``GET /metrics`` (con token) y el contador de peticiones a la app."""
+@dataclass
+class Operacion:
+    """Lo que la consola muestra de la operación del servidor: lo mismo que ``/metrics``, en JSON."""
 
-    metricas = metricas or Metricas()
-    esperado = token.encode()
+    metricas: Metricas
+    version_app: str
+    esquema: VersionEsquema
+    sondas: dict[str, Callable[[], Any]]
+    claves: ClavesMetricasMongo | None = None
+    #: ``RAILSPEC_METRICAS_TOKEN``: la vista solo dice si está definido, nunca su valor.
+    token: str | None = field(default=None, repr=False)
+    reloj: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+
+    async def vista(self) -> dict[str, Any]:
+        sondeo = await _sondear(self.sondas, TOPE_SONDA_S)
+        return {
+            "version": self.version_app,
+            "esquema": {"codigo": self.esquema.codigo, "almacenado": self.esquema.almacenada},
+            "sondas": [{"nombre": n, "estado": v} for n, v in sorted(sondeo.items())],
+            "inicio": datetime.fromtimestamp(self.metricas.inicio, UTC).isoformat(),
+            "ahora": self.reloj().astimezone(UTC).isoformat(),
+            "peticiones": [
+                {"grupo": g, "metodo": m, "estado": e, "total": n}
+                for (g, m, e), n in sorted(self.metricas.peticiones().items())
+            ],
+            "token_entorno": self.token is not None,
+        }
+
+
+def montar_metricas(app: Any, operacion: Operacion) -> None:
+    """Añade ``GET /metrics`` y el contador de peticiones a la app.
+
+    El endpoint se monta siempre (las claves de la consola pueden aparecer en cualquier momento), pero sin
+    ``RAILSPEC_METRICAS_TOKEN`` ni claves activas responde 404, como cuando no existía.
+    """
+
+    token = operacion.token
 
     @app.get("/metrics", include_in_schema=False)
     async def _metricas(request: Request) -> PlainTextResponse:
+        claves = operacion.claves
+        if token is None and (claves is None or not await asyncio.to_thread(claves.hay_activas)):
+            return PlainTextResponse("sin RAILSPEC_METRICAS_TOKEN ni claves de métricas\n", status_code=404)
         presentado = token_de_cabecera(request.headers.get("authorization"))
-        if presentado is None or not hmac.compare_digest(presentado.encode(), esperado):
+        valida = presentado is not None and (
+            (token is not None and hmac.compare_digest(presentado.encode(), token.encode()))
+            or (
+                claves is not None
+                and await asyncio.to_thread(claves.validar, presentado, operacion.reloj()) is not None
+            )
+        )
+        if not valida:
             return PlainTextResponse(
                 "token de métricas inválido\n", status_code=401, headers={"WWW-Authenticate": "Bearer"}
             )
-        cuerpo = await renderizar(metricas, version_app=version_app, esquema=esquema, sondas=sondas)
+        m = operacion
+        cuerpo = await renderizar(m.metricas, version_app=m.version_app, esquema=m.esquema, sondas=m.sondas)
         return PlainTextResponse(cuerpo, media_type=TIPO_CONTENIDO)
 
-    app.add_middleware(MedirPeticiones, metricas=metricas)
-    return metricas
+    app.add_middleware(MedirPeticiones, metricas=operacion.metricas)
