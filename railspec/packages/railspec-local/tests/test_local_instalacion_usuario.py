@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -176,15 +177,14 @@ def test_desinstalar_un_solo_arnes(hogar, capsys):
     assert usuario.instalados() == [Arnes.claude_code]
 
 
-def test_carpeta_de_worktrees_se_abre_si_esta_fijada(hogar, capsys, monkeypatch):
-    monkeypatch.setenv(config.ENV_WORKTREES, "/srv/worktrees")
+def test_carpeta_de_worktrees_se_abre_si_esta_fijada(hogar, capsys, monkeypatch, tmp_path):
+    carpeta = str(tmp_path / "worktrees")  # absoluta en cualquier SO
+    monkeypatch.setenv(config.ENV_WORKTREES, carpeta)
 
     codigo, salida, _ = ejecutar(capsys, "instalar", "--alcance", "usuario", "--arnes", "claude-code")
 
     assert codigo == 0 and "avisos" not in salida
-    assert leer(hogar / ".claude" / "settings.json")["permissions"]["additionalDirectories"] == [
-        "/srv/worktrees"
-    ]
+    assert leer(hogar / ".claude" / "settings.json")["permissions"]["additionalDirectories"] == [carpeta]
     # Y se quita al desinstalar.
     ejecutar(capsys, "desinstalar", "--alcance", "usuario", "--arnes", "claude-code")
     assert not (hogar / ".claude").exists()
@@ -370,7 +370,8 @@ def test_conserva_el_modo_de_claude_json_y_no_deja_temporales(hogar, capsys):
 
     ejecutar(capsys, "instalar", "--alcance", "usuario", "--arnes", "claude-code")
 
-    assert stat.S_IMODE((hogar / ".claude.json").stat().st_mode) == 0o600
+    if sys.platform != "win32":  # Windows no tiene bits de modo
+        assert stat.S_IMODE((hogar / ".claude.json").stat().st_mode) == 0o600
     assert [p.name for p in hogar.iterdir() if p.name.endswith(".tmp")] == []
 
 
