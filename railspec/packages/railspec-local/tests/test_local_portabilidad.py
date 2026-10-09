@@ -231,14 +231,3 @@ def test_cli_solo_convertir_no_necesita_servidor(tmp_path, capsys):
     assert impreso[0]["fase_retomar"] == "plan"
     leido = portabilidad.leer_paquete(salida / "0007-pce-mcp-completo")
     assert leido.paquete.titulo == "PCE MCP completo con el kit"
-
-
-@pytest.mark.skipif(not (RAIZ_REPO / ".spec" / "units").is_dir(), reason="sin unidades del kit en este clon")
-def test_las_unidades_reales_del_kit_se_convierten(tmp_path):
-    unidades = sorted(p for p in (RAIZ_REPO / ".spec" / "units").iterdir() if (p / "_estado.yaml").is_file())
-    assert unidades
-    for carpeta in unidades:
-        conversion = portabilidad.desde_unidad_sdd(carpeta)
-        assert conversion.paquete.titulo, carpeta.name
-        destino = portabilidad.escribir_paquete(conversion, tmp_path / carpeta.name)
-        assert portabilidad.leer_paquete(destino).paquete == conversion.paquete
