@@ -27,7 +27,7 @@ from local_fabricas import repo_git
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from railspec.contracts._base import VERSION_CONTRATO
-from railspec.local import cli, config, credenciales, dispositivo
+from railspec.local import cli, config, credenciales, dispositivo, renovacion
 from railspec.local.errores import (
     NOTA_TOKEN_GENERICA,
     CredencialesInvalidas,
@@ -471,6 +471,8 @@ def entorno(tmp_path, monkeypatch):
     monkeypatch.setenv(config.ENV_CREDENCIALES, str(tmp_path / "credenciales.json"))
     monkeypatch.delenv(config.ENV_TOKEN, raising=False)
     monkeypatch.delenv(config.ENV_GITHUB_CLIENT_ID, raising=False)
+    # Ningún servidor publica su client id salvo que la prueba lo diga: nada sale a la red.
+    monkeypatch.setattr(renovacion, "descubrir_client_id", lambda url, *a, **kw: None)
     return credenciales.AlmacenCredenciales(tmp_path / "credenciales.json")
 
 
@@ -548,12 +550,47 @@ def test_login_recuerda_el_client_id_y_el_de_la_variable_vale_si_no_hay_flag(ent
     assert github3.formulario(0) == {"client_id": "Iv-flag"} and entorno.leer(URL).client_id == "Iv-flag"
 
 
+def test_login_toma_el_client_id_del_servidor_salvo_flag_o_variable(entorno, monkeypatch, capsys):
+    consultas = []
+
+    def publica(url, *a, **kw):
+        consultas.append(url)
+        return "Iv-del-servidor"
+
+    monkeypatch.setattr(renovacion, "descubrir_client_id", publica)
+    github = GithubFalso([_exito()])
+    _con_github(monkeypatch, github)
+    assert cli.main(["login"]) == 0
+    assert github.formulario(0) == {"client_id": "Iv-del-servidor"} and consultas == [URL]
+    assert entorno.leer(URL).client_id == "Iv-del-servidor"
+    assert "https://railspec.example" in _salida(capsys)[1]
+
+    # La variable y el flag ganan y ni se pregunta al servidor.
+    monkeypatch.setenv(config.ENV_GITHUB_CLIENT_ID, "Iv-del-entorno")
+    github2 = GithubFalso([_exito()])
+    _con_github(monkeypatch, github2)
+    assert cli.main(["login"]) == 0 and github2.formulario(0) == {"client_id": "Iv-del-entorno"}
+    assert consultas == [URL]
+
+    # El servidor manda sobre el de la sesión guardada (el administrador pudo cambiar de GitHub App) y,
+    # si no responde, se usa el guardado.
+    monkeypatch.delenv(config.ENV_GITHUB_CLIENT_ID)
+    github3 = GithubFalso([_exito()])
+    _con_github(monkeypatch, github3)
+    assert cli.main(["login"]) == 0 and github3.formulario(0) == {"client_id": "Iv-del-servidor"}
+    monkeypatch.setattr(renovacion, "descubrir_client_id", lambda url, *a, **kw: None)
+    github4 = GithubFalso([_exito()])
+    _con_github(monkeypatch, github4)
+    assert cli.main(["login"]) == 0 and github4.formulario(0) == {"client_id": "Iv-del-servidor"}
+
+
 def test_login_sin_client_id_o_sin_url_dice_que_falta(entorno, monkeypatch, capsys):
     github = GithubFalso([])
     _con_github(monkeypatch, github)
     assert cli.main(["login"]) == 1
     error = _salida(capsys)[1]
-    assert "Falta el client id" in error and config.ENV_GITHUB_CLIENT_ID in error and "--client-id" in error
+    assert "No se pudo averiguar el client id" in error and config.ENV_GITHUB_CLIENT_ID in error
+    assert "--client-id" in error
     assert github.peticiones == [] and not entorno.ruta.exists()
 
     monkeypatch.delenv(config.ENV_URL)

@@ -239,3 +239,25 @@ def test_ensamblar_publica_la_ruta_con_la_github_app_del_servidor():
 
     assert r.status_code == 200 and r.json()["access_token"] == NUEVO_TOKEN
     assert github.formulario()["client_secret"] == APP.client_secret
+
+
+# --- GET /v1/auth/config: el client id público ----------------------------------------------------
+
+
+async def _get_config(api: FastAPI) -> httpx.Response:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=api), base_url="https://railspec.test"
+    ) as c:
+        return await c.get("/v1/auth/config")
+
+
+def test_config_publica_solo_el_client_id_y_sin_autenticacion():
+    r = asyncio.run(_get_config(_app(GithubFalso())))
+    assert r.status_code == 200 and r.json() == {"github_client_id": APP.client_id}
+    assert APP.client_secret not in r.text
+    assert "max-age" in r.headers["cache-control"]
+
+
+def test_config_sin_la_github_app_responde_404_tipado():
+    r = asyncio.run(_get_config(_app(GithubFalso(), app=None)))
+    assert r.status_code == 404 and r.json()["codigo"] == "login-no-disponible"
