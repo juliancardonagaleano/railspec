@@ -216,10 +216,10 @@ mandato real de varias unidades corre de punta a punta con un arnés real.
 
 **Qué hay hoy (2026-10-09).** Julian decidió retirar el kit SDD de la raíz del repositorio, aun
 sabiendo que sin él no queda un protocolo de respaldo si Railspec falla con modelos reales. Se
-retira por etapas, un PR por etapa para poder revertir cada una: (1) instalador, scripts, `.mcp.json`,
-`opencode.jsonc`, `docs/` de la raíz y su entrada en la CI; (2) lo que vive en `.claude/` (hooks,
-`settings.json`, skills, agentes, comandos); (3) `.spec/`, `.agents/` y `AGENTS.md`. El kit queda en el
-historial, en el commit `b49d427`. `railspec instalar` no depende de nada de eso.
+retira por etapas, un PR por etapa para poder revertir cada una: (1, hecha) instalador, scripts,
+`.mcp.json`, `opencode.jsonc`, `docs/` de la raíz y su entrada en la CI; (2, hecha) todo `.claude/`
+(hooks, `settings.json`, skills, agentes, comandos y espejos); (3) `.spec/`, `.agents/` y `AGENTS.md`.
+El kit queda en el historial, en el commit `b49d427`. `railspec instalar` no depende de nada de eso.
 
 **Qué falta.**
 

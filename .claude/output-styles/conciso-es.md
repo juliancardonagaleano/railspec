@@ -1,1 +1,0 @@
-# Output style: conciso-es
