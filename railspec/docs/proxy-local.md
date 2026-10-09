@@ -19,7 +19,8 @@ railspec login --client-id Iv23li...               # inicia sesión con GitHub (
 ```
 
 `railspec instalar` escribe `.railspec/config.json` (versionable, sin
-secretos: org, workspace, slug del repositorio, nivel de código, arnés) y el
+secretos: org, workspace, slug del repositorio, nivel de código, arnés y, si lo
+resolvió el servidor, la URL del servidor) y el
 adaptador de cada arnés. `--nivel` fija el nivel del vínculo; si falta rige
 `restringido`. El nivel solo decide qué material de código viaja en el snapshot
 (ver "Nivel" más abajo); no elige proveedor ni modelo del servidor: usar Anthropic,
@@ -57,6 +58,32 @@ configuración de tu usuario (todos los repositorios, sin tocar cada clon) añad
 `--alcance usuario`: ver [Instalación por usuario](#instalación-por-usuario).
 Y si algo no funciona, `railspec doctor` lo diagnostica sin cambiar nada: ver
 [Diagnóstico](#diagnóstico-railspec-doctor).
+
+## Instalar sin conocer organización, workspace ni slug
+
+En un clon cuyo repositorio ya está vinculado en la consola, con `RAILSPEC_URL`
+exportada y la sesión iniciada (`railspec login`):
+
+```
+railspec instalar --arnes claude-code     # sin --org, --workspace ni --repositorio
+```
+
+Si no existe `.railspec/config.json` ni se pasa ninguno de esos tres parámetros,
+`railspec instalar` lee el remoto `origin` del clon (`https://`, `git@` o `ssh://`;
+solo GitHub; si lleva usuario o token, se descarta) y pregunta al servidor con tu
+sesión (`GET /v1/repositorios/resolver?url=…`). El servidor contesta únicamente con
+los vínculos de workspaces donde tienes algún rol, tuyo o de un equipo tuyo de
+GitHub, y compara la URL por `owner/repo` sin distinguir mayúsculas. Con una
+coincidencia escribe la configuración (con el nivel del vínculo, salvo `--nivel`)
+y guarda `servidor` en ella; sin coincidencias o con varias no escribe nada y dice
+qué hacer (pedir el vínculo o el rol, o pasar los tres parámetros).
+
+Con `servidor` en el archivo versionado, quien clona después solo necesita
+`railspec login`: sin `RAILSPEC_URL`, el proxy, `doctor` y `login` usan ese
+servidor (`login` lo avisa). Como lo dice un archivo del repositorio y no la
+persona, ese servidor nunca recibe `RAILSPEC_TOKEN`: solo la sesión que hayas
+iniciado tú en él. `RAILSPEC_URL`, si está exportada, manda siempre. Un servidor
+anterior a esta versión responde 404 y hay que pasar los tres parámetros.
 
 ## Iniciar sesión con GitHub
 

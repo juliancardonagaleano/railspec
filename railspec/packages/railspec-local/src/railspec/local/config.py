@@ -53,6 +53,16 @@ class ConfigRepositorio(Contrato):
     )
     arnes: Arnes | None = None
     validacion_timeout_s: int = Field(default=VALIDACION_TIMEOUT_S, ge=1, le=6 * 3600)
+    servidor: str | None = Field(
+        default=None,
+        max_length=512,
+        pattern=r"^https://[^\s]+$",
+        description=(
+            "Endpoint MCP del servidor (https) cuando ``railspec instalar`` resolvió el vínculo con él. "
+            "``RAILSPEC_URL``, si está exportada, manda. No es una credencial: una URL de un repositorio "
+            "ajeno nunca recibe ``RAILSPEC_TOKEN``, solo la sesión que ya hayas iniciado en ese servidor."
+        ),
+    )
 
     @property
     def alcance(self) -> AlcanceRepositorio:
@@ -114,6 +124,8 @@ def escribir_config_repositorio(raiz: Path, config: ConfigRepositorio) -> Path:
     ruta = raiz / ARCHIVO_CONFIG
     ruta.parent.mkdir(parents=True, exist_ok=True)
     datos = config.model_dump(mode="json", exclude_defaults=False)
+    if datos.get("servidor") is None:
+        datos.pop("servidor", None)  # los archivos sin servidor siguen siendo como eran
     ruta.write_text(json.dumps(datos, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return ruta
 
@@ -121,10 +133,13 @@ def escribir_config_repositorio(raiz: Path, config: ConfigRepositorio) -> Path:
 def cargar(raiz: Path, entorno: dict[str, str] | None = None) -> Config:
     env = os.environ if entorno is None else entorno
     repo = leer_config_repositorio(raiz)
+    url = env.get(ENV_URL) or None
     return Config(
         raiz=str(raiz),
         repo=repo,
-        url=env.get(ENV_URL) or None,
-        token=env.get(ENV_TOKEN) or None,
+        url=url or repo.servidor,
+        # El token de entorno solo acompaña a un servidor que la persona nombró ella (RAILSPEC_URL), no al
+        # que dice un archivo del repositorio: clonar un repositorio ajeno no debe poder dirigirlo.
+        token=(env.get(ENV_TOKEN) or None) if url else None,
         dir_worktrees=env.get(ENV_WORKTREES) or str(dir_worktrees_por_defecto(raiz)),
     )
