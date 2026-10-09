@@ -16,6 +16,7 @@ probarlo y el mensaje manda a ``railspec login``).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
@@ -26,6 +27,8 @@ from .credenciales import AlmacenCredenciales, Credencial, FuenteToken, ahora_ut
 from .errores import RenovacionFallida
 
 RUTA_RENOVAR = "/v1/auth/renovar"
+RUTA_CONFIG = "/v1/auth/config"
+_CLIENT_ID = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 _LOCALES = frozenset({"localhost", "127.0.0.1", "::1"})
 _VOLVER_A_INICIAR = "Ejecuta `railspec login` otra vez."
 
@@ -38,6 +41,35 @@ def url_base(url: str) -> str:
     if ruta.endswith("/mcp"):
         ruta = ruta[: -len("/mcp")]
     return urlunsplit((partes.scheme, partes.netloc, ruta, "", ""))
+
+
+def descubrir_client_id(
+    url: str, cliente: httpx2.Client | None = None, *, timeout_s: float = 60.0
+) -> str | None:
+    """El client id público de la GitHub App que publica el servidor (``GET /v1/auth/config``).
+
+    Evita que cada persona tenga que conseguirlo: ``railspec login`` solo necesita ``RAILSPEC_URL``. Devuelve
+    ``None`` si el servidor no lo ofrece (versión anterior, sin App), no responde o contesta algo raro: el
+    llamador cae entonces en ``--client-id``/``RAILSPEC_GITHUB_CLIENT_ID``. Nunca lanza. El plazo es largo
+    porque el plan gratuito de Render duerme el servicio y la primera petición lo despierta.
+    """
+
+    base = url_base(url)
+    destino = urlsplit(base)
+    if destino.scheme != "https" and destino.hostname not in _LOCALES:
+        return None  # un canal sin cifrar podría cambiar la App a la que se autoriza
+    propio = cliente is None
+    cliente = cliente or httpx2.Client(timeout=httpx2.Timeout(timeout_s))
+    try:
+        r = cliente.get(base + RUTA_CONFIG, headers={"Accept": "application/json"})
+        cuerpo = r.json() if r.status_code == 200 else None
+    except (httpx2.TransportError, ValueError):
+        return None
+    finally:
+        if propio:
+            cliente.close()
+    valor = cuerpo.get("github_client_id") if isinstance(cuerpo, dict) else None
+    return valor if isinstance(valor, str) and _CLIENT_ID.fullmatch(valor) else None
 
 
 class RenovadorServidor:

@@ -647,3 +647,52 @@ def test_doctor_sin_refresh_token_sigue_avisando_del_vencimiento(tmp_path):
     )
 
     assert comprobacion.estado == "aviso" and "no se renueva" in comprobacion.detalle
+
+
+# --- client id publicado por el servidor ---------------------------------------------------------
+
+
+def _cliente(respuesta, peticiones=None) -> httpx2.Client:
+    def manejar(peticion: httpx2.Request) -> httpx2.Response:
+        if peticiones is not None:
+            peticiones.append(peticion)
+        if isinstance(respuesta, Exception):
+            raise respuesta
+        return respuesta
+
+    return httpx2.Client(transport=httpx2.MockTransport(manejar))
+
+
+def test_descubrir_client_id_lee_la_configuracion_publica_del_servidor_sin_el_mcp_de_la_url():
+    vistas: list[httpx2.Request] = []
+    cliente = _cliente(httpx2.Response(200, json={"github_client_id": CLIENT_ID}), vistas)
+    assert renovacion.descubrir_client_id(URL, cliente) == CLIENT_ID
+    (peticion,) = vistas
+    assert peticion.method == "GET" and str(peticion.url) == "https://railspec.example/v1/auth/config"
+    assert "authorization" not in peticion.headers
+
+
+@pytest.mark.parametrize(
+    "respuesta",
+    [
+        httpx2.Response(404, json={"codigo": "login-no-disponible", "detalle": ""}),
+        httpx2.Response(500),
+        httpx2.Response(200, text="<html>no es JSON</html>"),
+        httpx2.Response(200, json=["Iv"]),
+        httpx2.Response(200, json={"github_client_id": ""}),
+        httpx2.Response(200, json={"github_client_id": 7}),
+        httpx2.Response(200, json={"github_client_id": "Iv con espacios\nY saltos"}),
+        httpx2.Response(200, json={"github_client_id": "I" * 129}),
+        httpx2.ConnectError("sin red"),
+        httpx2.ReadTimeout("dormido"),
+    ],
+)
+def test_descubrir_client_id_devuelve_none_ante_cualquier_respuesta_que_no_sea_un_id_valido(respuesta):
+    assert renovacion.descubrir_client_id(URL, _cliente(respuesta)) is None
+
+
+def test_descubrir_client_id_no_consulta_por_un_canal_sin_cifrar_salvo_en_local():
+    vistas: list[httpx2.Request] = []
+    cliente = _cliente(httpx2.Response(200, json={"github_client_id": CLIENT_ID}), vistas)
+    assert renovacion.descubrir_client_id("http://railspec.example/mcp", cliente) is None and not vistas
+    assert renovacion.descubrir_client_id("http://localhost:8080/mcp", cliente) == CLIENT_ID

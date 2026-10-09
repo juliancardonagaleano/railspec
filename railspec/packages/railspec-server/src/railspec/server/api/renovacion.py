@@ -1,4 +1,5 @@
-"""Renovación del token de usuario de la GitHub App: ``POST /v1/auth/renovar``.
+"""Renovación del token de usuario de la GitHub App: ``POST /v1/auth/renovar``, y su client id público:
+``GET /v1/auth/config``.
 
 ``railspec login`` (device flow) guarda el token de usuario y, si la App tiene activada «Expire user
 authorization tokens», su refresh token. Renovar exige el client secret de la App, que no puede viajar a las
@@ -18,6 +19,10 @@ App del servidor, 400, que explica mejor que un ``bad_refresh_token`` por qué f
 Errores: ``{"codigo", "detalle"}`` con 400 ``client-id-incorrecto``, 401 ``refresh-token-invalido``, 404
 ``renovacion-no-disponible`` (el servidor no tiene la GitHub App configurada), 422 ``entrada-invalida`` y 503
 ``github-no-disponible``.
+
+``GET /v1/auth/config`` publica ``{"github_client_id": "Iv…"}`` sin autenticación, para que ``railspec login``
+no obligue a cada persona a conseguir el client id (no es secreto: GitHub lo muestra en la página del device
+flow). Sin la GitHub App configurada, 404 ``login-no-disponible``. Nunca incluye el secret.
 """
 
 from __future__ import annotations
@@ -70,6 +75,12 @@ class RenovadorGithub:
         self._espera_s = espera_s
         self._cupo = threading.BoundedSemaphore(max_concurrentes)
         self._bloqueo_cliente = threading.Lock()
+
+    @property
+    def client_id(self) -> str | None:
+        """El client id público de la GitHub App del servidor (``None`` si no hay App)."""
+
+        return self._app.client_id if self._app is not None else None
 
     def _http(self) -> Any:
         with self._bloqueo_cliente:
@@ -146,6 +157,13 @@ def router_renovacion(renovador: RenovadorGithub) -> APIRouter:
 
     def error(estado: int, codigo: str, detalle: str) -> JSONResponse:
         return JSONResponse({"codigo": codigo, "detalle": detalle}, status_code=estado)
+
+    @router.get("/config")
+    async def configuracion() -> JSONResponse:
+        client_id = renovador.client_id
+        if not client_id:
+            return error(404, "login-no-disponible", "el servidor no tiene configurada la GitHub App")
+        return JSONResponse({"github_client_id": client_id}, headers={"Cache-Control": "public, max-age=300"})
 
     @router.post("/renovar")
     async def renovar(request: Request) -> JSONResponse:

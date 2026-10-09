@@ -68,8 +68,7 @@ no hay nada que pegar a mano y el client secret de la App no sale del servidor.
 
 ```
 export RAILSPEC_URL=https://railspec.example/mcp
-export RAILSPEC_GITHUB_CLIENT_ID=Iv23li...   # no es secreto; lo publica quien administra el servidor
-railspec login
+railspec login          # el client id de la GitHub App lo publica el servidor: no hay que pasarlo
 #   Abre https://github.com/login/device e introduce el código:
 #       ABCD-1234
 #   Esperando la autorización (el código vence en 15 min; Ctrl+C cancela)…
@@ -82,8 +81,12 @@ railspec logout             # borra la sesión de este equipo
   compara sin barra final y sin distinguir mayúsculas en el host): un mismo equipo puede tener sesión en
   varios. Los tres comandos funcionan desde cualquier carpeta, no hace falta un
   repositorio.
-- **Client id.** `--client-id`, o `RAILSPEC_GITHUB_CLIENT_ID`, o el de la sesión
-  guardada: tras el primer `login` basta `railspec login`.
+- **Client id.** Por orden: `--client-id`, `RAILSPEC_GITHUB_CLIENT_ID`, el que
+  publica el servidor (`GET {servidor}/v1/auth/config`, público y sin
+  autenticación; solo devuelve el client id, nunca el secret; solo se consulta por
+  https o en local) y el de la sesión guardada. Con un servidor actualizado basta
+  `RAILSPEC_URL`; las otras vías quedan para servidores anteriores o para forzar
+  otra GitHub App.
 - **Dónde se guarda.** `~/.config/railspec/credenciales.json` (`$XDG_CONFIG_HOME`
   si está definida; `RAILSPEC_CREDENCIALES` fija otra ruta, absoluta), fuera de cualquier
   repositorio. Carpeta 0700, archivo 0600 creado así desde el primer byte y

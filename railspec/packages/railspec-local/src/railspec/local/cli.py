@@ -321,12 +321,19 @@ def _cmd_login(args: argparse.Namespace) -> int:
         previa = almacen.leer(url)
     except CredencialesInvalidas:
         previa = None  # un archivo dañado no impide iniciar sesión: `guardar` lo reescribe
-    client_id = args.client_id or os.environ.get(config.ENV_GITHUB_CLIENT_ID) or (previa and previa.client_id)
+    client_id = args.client_id or os.environ.get(config.ENV_GITHUB_CLIENT_ID)
+    if not client_id:
+        # El servidor lo publica (no es secreto): es la fuente por defecto, y gana a la sesión guardada
+        # por si el administrador cambió de GitHub App. Sin respuesta, vale el de la sesión.
+        print(f"Consultando la GitHub App de {renovacion.url_base(url)}…", file=sys.stderr)
+        client_id = renovacion.descubrir_client_id(url) or (previa and previa.client_id)
     if not client_id:
         raise ConfigInvalida(
-            "Falta el client id de la GitHub App de Railspec: pásalo con --client-id o exporta "
-            f"{config.ENV_GITHUB_CLIENT_ID} (no es secreto; lo publica quien administra el servidor). "
-            "Se recuerda en la sesión guardada: las veces siguientes basta `railspec login`."
+            "No se pudo averiguar el client id de la GitHub App de Railspec: el servidor no lo publica "
+            "(¿versión anterior, sin la GitHub App o dormido? reintenta) y no hay otro. Pásalo con "
+            f"--client-id o exporta {config.ENV_GITHUB_CLIENT_ID} (no es secreto; lo publica quien "
+            "administra el servidor). Se recuerda en la sesión guardada: las veces siguientes basta "
+            "`railspec login`."
         )
     if os.environ.get(config.ENV_TOKEN):
         _aviso(
@@ -717,7 +724,10 @@ def parser() -> argparse.ArgumentParser:
     )
     login.add_argument(
         "--client-id",
-        help=f"Client id de la GitHub App de Railspec (por defecto {config.ENV_GITHUB_CLIENT_ID}).",
+        help=(
+            f"Client id de la GitHub App de Railspec (por defecto {config.ENV_GITHUB_CLIENT_ID}); "
+            "si no hay ninguno, el que publica el servidor)."
+        ),
     )
     login.set_defaults(fn=_cmd_login)
 
