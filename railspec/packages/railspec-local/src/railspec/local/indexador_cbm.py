@@ -38,13 +38,14 @@ import io
 import json
 import logging
 import os
+import queue
 import re
-import selectors
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +107,10 @@ class _Nodo:
     fin: int
 
 
+#: ``C:\\…`` o ``C:/…``: una ruta absoluta de Windows (fuera del proyecto, como ``/…``).
+_UNIDAD_WINDOWS = re.compile(r"[A-Za-z]:[\\/]")
+
+
 def _slug(texto: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", texto.lower()).strip("-")[:60] or "x"
 
@@ -126,6 +131,11 @@ class _SesionMcp:
         )
         self._buffer = b""
         self._id = 0
+        # Un hilo lee stdout y deja los trozos en una cola: ``selectors`` no sirve con tuberías en Windows.
+        self._trozos: queue.Queue[bytes] = queue.Queue()
+        self._fin = False
+        self._lector = threading.Thread(target=self._leer_salida, name="railspec-indexador", daemon=True)
+        self._lector.start()
         try:
             self._pedir(
                 "initialize",
@@ -153,20 +163,30 @@ class _SesionMcp:
         except (BrokenPipeError, OSError) as exc:
             raise ErrorIndexador(f"la sesión de {BINARIO} se cerró: {self._stderr()}") from exc
 
-    def _linea(self, limite: float) -> bytes:
+    def _leer_salida(self) -> None:
         stdout: IO[bytes] = self._proc.stdout  # type: ignore[assignment]
-        with selectors.DefaultSelector() as selector:
-            selector.register(stdout, selectors.EVENT_READ)
-            while b"\n" not in self._buffer:
-                restante = limite - time.monotonic()
-                if restante <= 0:
-                    raise ErrorIndexador(f"{BINARIO} no respondió a tiempo")
-                if not selector.select(restante):
-                    continue
-                trozo = os.read(stdout.fileno(), 1 << 16)
-                if not trozo:
-                    raise ErrorIndexador(f"la sesión de {BINARIO} terminó: {self._stderr()}")
+        try:
+            while trozo := os.read(stdout.fileno(), 1 << 16):
+                self._trozos.put(trozo)
+        except (OSError, ValueError):  # el flujo se cerró bajo el hilo
+            pass
+        self._trozos.put(b"")
+
+    def _linea(self, limite: float) -> bytes:
+        while b"\n" not in self._buffer:
+            if self._fin:
+                raise ErrorIndexador(f"la sesión de {BINARIO} terminó: {self._stderr()}")
+            restante = limite - time.monotonic()
+            if restante <= 0:
+                raise ErrorIndexador(f"{BINARIO} no respondió a tiempo")
+            try:
+                trozo = self._trozos.get(timeout=restante)
+            except queue.Empty:
+                continue
+            if trozo:
                 self._buffer += trozo
+            else:
+                self._fin = True
         linea, self._buffer = self._buffer.split(b"\n", 1)
         return linea
 
@@ -228,6 +248,7 @@ class _SesionMcp:
             except (OSError, subprocess.TimeoutExpired):
                 self._proc.kill()
                 self._proc.wait(timeout=10)
+        self._lector.join(timeout=5)
         for flujo in (self._proc.stdout, self._errores):
             if flujo is not None:
                 flujo.close()
@@ -351,7 +372,7 @@ class IndexadorCodebaseMemory:
         prefijo: str, repositorio: str, calificado: str, etiquetas: str, ruta: str, inicio: str, fin: str
     ) -> _Nodo | None:
         tipo = next((_TIPOS[e] for e in json.loads(etiquetas or "[]") if e in _TIPOS), None)
-        if tipo is None or not ruta or ruta.startswith("<") or ruta.startswith("/"):
+        if tipo is None or not ruta or ruta.startswith(("<", "/")) or _UNIDAD_WINDOWS.match(ruta):
             return None
         if not calificado.startswith(prefijo):
             return None  # externo al proyecto (builtins, dependencias)

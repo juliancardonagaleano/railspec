@@ -202,7 +202,7 @@ def _argumentos(resto: list[str]) -> tuple[list[str], list[str]]:
 def _nombre(comando: str) -> str:
     """Nombre del ejecutable sin carpeta ni versión: ``/usr/bin/python3.12`` → ``python``."""
 
-    base = comando.rsplit("/", 1)[-1]
+    base = re.sub(r"\.exe$", "", re.split(r"[\\/]", comando)[-1], flags=re.IGNORECASE)
     sin_version = re.sub(r"[\d.]+$", "", base)
     return sin_version if sin_version in _OPCIONES_INLINE or sin_version == "sed" else base
 

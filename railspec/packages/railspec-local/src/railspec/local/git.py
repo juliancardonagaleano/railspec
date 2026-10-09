@@ -53,7 +53,7 @@ def archivos(repo: Path) -> list[str]:
 def arbol_vacio(repo: Path) -> str:
     """El árbol vacío de este repositorio: la base de un índice completo."""
 
-    return texto(repo, "hash-object", "-t", "tree", "/dev/null")
+    return git(repo, "hash-object", "-t", "tree", "--stdin", entrada=b"").decode("utf-8").strip()
 
 
 def raiz_repositorio(desde: Path) -> Path:
