@@ -1,5 +1,6 @@
 {
   "hooks": {
+    "permissions": { "allow": ["Bash(git rm:*)"] },
     "PreToolUse": [
       {
         "_sdd_kit": true,
