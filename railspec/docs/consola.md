@@ -546,6 +546,25 @@ organización sin el secreto). La API es `/consola/api/orgs/{org}/avisos` (`GET`
 - Un aviso nunca frena un gate: se envía desde un hilo aparte y sus fallos solo se registran. La pantalla muestra los
   últimos 20 intentos (canal, resultado y código de error).
 
+## Operación del servidor y claves de métricas
+
+Quien administra la plataforma (`RAILSPEC_CONSOLA_ADMINS`) tiene en el menú **Plataforma → Operación** una
+pantalla con lo mismo que publica `GET /metrics`, sin necesitar ninguna clave: le basta su sesión.
+
+- **Estado.** Si responde cada base que sondea `/healthz` (Postgres, Mongo, el grafo), la versión del servidor,
+  la versión del esquema del estado (la del código y la guardada; si difieren lo avisa) y desde cuándo está
+  arriba la réplica. Se refresca cada 30 segundos.
+- **Peticiones desde el arranque**, por superficie (API de la consola, MCP, `/v1`, sondas, otras): correctas,
+  4xx, 5xx y el porcentaje de 5xx. Los contadores viven en memoria de la réplica y vuelven a cero cuando el
+  proceso se reinicia; en Render gratis eso pasa cada vez que el servicio duerme.
+- **Claves de `/metrics`.** Una por origen (Prometheus, Grafana, `verificar_metricas.py`), con un nombre que dice
+  quién la usa. La clave (`rsm1.` y 43 caracteres) **solo se muestra al crearla**: el servidor guarda su SHA-256,
+  el prefijo para reconocerla, quién la creó y cuándo se usó por última vez (como mucho una anotación por
+  minuto). Revocarla la invalida al instante en todas las réplicas y deja libre su nombre. Hasta 20 activas; dos
+  activas no pueden llamarse igual. `RAILSPEC_METRICAS_TOKEN` sigue valiendo a la vez como respaldo; sin él ni
+  claves activas, `/metrics` responde 404. Las claves son de la plataforma, no de una organización: no van a la
+  auditoría de ninguna (el registro del servidor anota quién creó o revocó cada una, y la clave misma lo guarda).
+
 ## Auditoría
 
 Toda escritura de administración y configuración queda en `auditoria` con su
@@ -610,6 +629,8 @@ registro mientras tanto, el diálogo se cierra.
 | `GET …/repositorios/{repo}/archivos/{archivo}` | `archivo` = `contexto` (`contexto.yaml`) o `ignore` (`.railspecignore`). Lee el archivo de la rama del vínculo: `existe`, `contenido`, `sha`, `plantilla`, `modo` (`pr` o `manual`) y `motivo_manual`. `workspace-admin`; 404 si el archivo no es uno de los dos o el repositorio no está vinculado; 502 si GitHub falla. |
 | `POST …/repositorios/{repo}/archivos/{archivo}/validar` `{contenido}` | `{ok, errores[], avisos[]}` con la línea de cada hallazgo; no toca GitHub. |
 | `POST …/repositorios/{repo}/archivos/{archivo}/proponer` `{contenido, sha_base, motivo?}` | Valida (422 con `errores`), comprueba que `sha_base` siga siendo el de la rama (409) y abre el PR: `{modo: "pr", pr_url, numero, rama, diff}`. Si la App no puede, `{modo: "manual", motivo_manual, diff, contenido, ruta}`. Ver «Archivos del repositorio». |
+| `GET /operacion` | Estado de operación (sondas, versión, esquema, peticiones por superficie, arranque, si hay `RAILSPEC_METRICAS_TOKEN`). Solo quien administra la plataforma. |
+| `GET/POST /metricas/claves`, `DELETE /metricas/claves/{id}` | Claves de `/metrics`. `POST {nombre}` devuelve `{clave, secreto}` (el secreto solo aquí); 409 si ya hay una activa con ese nombre o 20 activas. `DELETE` la revoca. Solo quien administra la plataforma. |
 | `GET /orgs/{org}/suscripciones` | Suscripciones de la organización, sin claves, y si el cifrado está disponible (`cifrado.disponible`). Cualquier rol de la organización. |
 | `GET/PUT/DELETE /orgs/{org}/suscripciones/{id}` | Una suscripción. `PUT` crea (sin `version`) o edita (con `version`); la clave va en `clave` y nunca se devuelve; 409 por versión o si hay perfiles que la usan al borrar. `org-admin`. |
 | `POST /orgs/{org}/suscripciones/{id}/descubrir` | Lee los modelos del proveedor. 200 con la suscripción actualizada, o 502 con `codigo` y `detalle` si el proveedor falla. `org-admin`. |

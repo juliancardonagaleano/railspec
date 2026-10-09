@@ -68,6 +68,12 @@ const listaOrganizaciones = createRoute({
   component: lazyRouteComponent(() => import("./vistas/admin/Organizaciones"), "Organizaciones"),
 });
 
+const operacionServidor = createRoute({
+  getParentRoute: () => autenticado,
+  path: "operacion",
+  component: lazyRouteComponent(() => import("./vistas/operacion/Operacion"), "Operacion"),
+});
+
 // ---------------------------------------------------------------- organización
 
 const org = createRoute({ getParentRoute: () => autenticado, path: "$org", component: Outlet });
@@ -193,6 +199,7 @@ const arbol = raiz.addChildren([
   autenticado.addChildren([
     inicio,
     listaOrganizaciones,
+    operacionServidor,
     org.addChildren([
       orgInicio,
       orgAdministracion,

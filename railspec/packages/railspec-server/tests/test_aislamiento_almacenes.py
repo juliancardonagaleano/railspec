@@ -67,6 +67,7 @@ from railspec.contracts.repositorio import (
 )
 from railspec.contracts.tools import TelemetryQueryEntrada, UnitListEntrada
 from railspec.server.avisos.modelo import ConfigAvisos
+from railspec.server.claves_metricas import ClavesMetricasMongo
 from railspec.server.consola.almacen import AlmacenConsola
 from railspec.server.consola.revocados import RevocadosMongo
 from railspec.server.estado import CheckpointsMongo, nombre_workflow
@@ -81,7 +82,8 @@ OTRO_WS = "otro-workspace"
 #: Qué exige el espía a cada consulta según la colección que toca:
 #:   ``ws``     org y workspace (o ``workspace`` nulo explícito: el nivel organización de la configuración);
 #:   ``org``    la organización: datos de toda la organización que lo son a propósito;
-#:   ``global`` nada: la sesión revocada es de una persona, no de un workspace.
+#:   ``global`` nada: la sesión revocada es de una persona, no de un workspace; las claves de ``/metrics``
+#:              son de la plataforma, no de una organización.
 #: Lo que no está aquí es ``ws``, así que una colección nueva nace con la regla más estricta.
 REGLA_COLECCION = {
     "cache_nodos": "org",
@@ -92,6 +94,7 @@ REGLA_COLECCION = {
     "avisos_secretos": "org",
     "catalogo": "org",
     "catalogo_estado": "org",
+    "metricas_claves": "global",
     "organizaciones": "org",
     "roles": "org",
     "sesiones_revocadas": "global",
@@ -693,6 +696,12 @@ def _recetas() -> dict[str, tuple[Any, str]]:
         # --- RevocadosMongo --------------------------------------------------------------------------------
         "RevocadosMongo.revocar": (lambda c: c.revocados.revocar("sid-1", AHORA), "global"),
         "RevocadosMongo.revocada": (lambda c: c.revocados.revocada("sid-1"), "global"),
+        # --- ClavesMetricasMongo (de la plataforma) ---------------------------------------------------------
+        "ClavesMetricasMongo.listar": (lambda c: c.claves_metricas.listar(), "global"),
+        "ClavesMetricasMongo.crear": (lambda c: c.claves_metricas.crear("Grafana", "ana", AHORA), "global"),
+        "ClavesMetricasMongo.revocar": (lambda c: c.claves_metricas.revocar("id", "julian", AHORA), "global"),
+        "ClavesMetricasMongo.validar": (lambda c: c.claves_metricas.validar("rsm1.x", AHORA), "global"),
+        "ClavesMetricasMongo.hay_activas": (lambda c: c.claves_metricas.hay_activas(), "global"),
     }
 
 
@@ -701,6 +710,7 @@ CLASES = {
     "AlmacenConsola": AlmacenConsola,
     "CheckpointsMongo": CheckpointsMongo,
     "RevocadosMongo": RevocadosMongo,
+    "ClavesMetricasMongo": ClavesMetricasMongo,
 }
 
 
@@ -728,6 +738,7 @@ def test_metodo_publico_consulta_con_alcance(metodo):
     contexto.consola = AlmacenConsola(espia)
     contexto.checkpoints = CheckpointsMongo(espia)
     contexto.revocados = RevocadosMongo(espia)
+    contexto.claves_metricas = ClavesMetricasMongo(espia)
     registro.clear()
     receta, regla = _recetas()[metodo]
     receta(contexto)

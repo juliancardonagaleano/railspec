@@ -60,6 +60,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         rutas_avisos,
         rutas_config,
         rutas_exploracion,
+        rutas_operacion,
         rutas_suscripciones,
     )
 
@@ -284,6 +285,7 @@ def crear_api(ctx: ContextoConsola) -> FastAPI:
         rutas_avisos,
         rutas_config,
         rutas_exploracion,
+        rutas_operacion,
         rutas_suscripciones,
     ):
         api.include_router(modulo.router)

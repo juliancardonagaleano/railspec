@@ -4,6 +4,8 @@ import type {
   AlcanceWorkspace,
   ArchivoRepo,
   AsignacionRol,
+  ClaveMetricas,
+  ClaveMetricasCreada,
   CommitIntegrable,
   ConfigAuth,
   EscrituraAvisos,
@@ -36,6 +38,7 @@ import type {
   MandateSalida,
   ModeloCatalogo,
   Modo,
+  Operacion,
   Organizacion,
   PaginaAuditoria,
   Perfil,
@@ -264,6 +267,14 @@ export const proveedoresContexto = {
     }),
 };
 
+/** Operación del servidor y claves de `/metrics`: solo quien administra la plataforma. */
+export const operacion = {
+  ver: () => pedir<Operacion>("/operacion"),
+  claves: () => pedir<ClaveMetricas[]>("/metricas/claves"),
+  crearClave: (nombre: string) => pedir<ClaveMetricasCreada>("/metricas/claves", { metodo: "POST", cuerpo: { nombre } }),
+  revocarClave: (id: string) => pedir<ClaveMetricas>(`/metricas/claves/${c(id)}`, { metodo: "DELETE" }),
+};
+
 // ---------------------------------------------------------------- claves de TanStack Query
 
 export const claves = {
@@ -279,6 +290,8 @@ export const claves = {
   telemetria: (org: string, ws: string) => ["telemetria", org, ws] as const,
   auditoria: (org: string, ws: string) => ["auditoria", org, ws] as const,
   organizaciones: ["organizaciones"] as const,
+  operacion: ["operacion"] as const,
+  clavesMetricas: ["operacion", "claves-metricas"] as const,
   workspaces: (org: string) => ["workspaces", org] as const,
   roles: (org: string, ws?: string) => ["roles", org, ws ?? null] as const,
   repositorios: (org: string, ws: string) => ["repositorios", org, ws] as const,

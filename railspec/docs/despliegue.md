@@ -76,7 +76,7 @@ Todo lo desplegable vive en `railspec/deploy/` y en `.github/workflows/`:
    | `RAILSPEC_CLAVE_MAESTRA` | no, pero sin ella la consola no guarda suscripciones de modelos | Clave AES de 32 bytes en base64 (`openssl rand -base64 32`) que cifra las claves de las suscripciones de Foundry y Anthropic. **Guárdala aparte**: si se pierde, hay que volver a escribir las claves. Para rotarla ver [proveedores.md](proveedores.md#suscripciones-de-modelos). |
    | `RAILSPEC_CLAVE_MAESTRA_ANTERIOR` | no | Durante una rotación: la clave anterior (o varias, separadas por coma), solo para descifrar lo guardado. |
    | `RAILSPEC_SMTP_URL` | no | Servidor de correo de los avisos y del informe semanal: `smtp://usuario:clave@host:587?desde=railspec@empresa.com` (usuario y clave codificados como en un URL; `smtps://` para TLS directo; `seguridad=ninguna` solo para un relé interno sin credenciales). Lleva la contraseña: va en el Secret. Sin ella no hay correo (Teams funciona igual). Una URL mal formada impide arrancar. Ver [consola.md](consola.md#avisos-e-informes). |
-   | `RAILSPEC_METRICAS_TOKEN` | no | Activa `GET /metrics` (texto de Prometheus) y es su Bearer: el scraper envía `Authorization: Bearer <token>`. 16 caracteres o más (`openssl rand -base64 24`); con uno más corto el servidor no arranca. Sin esta clave no existe el endpoint. Ver [Esquema del estado y métricas](#esquema-del-estado-y-métricas). |
+   | `RAILSPEC_METRICAS_TOKEN` | no | Bearer de respaldo de `GET /metrics` (texto de Prometheus): el scraper envía `Authorization: Bearer <token>`. 16 caracteres o más (`openssl rand -base64 24`); con uno más corto el servidor no arranca. Lo habitual es no definirla y crear una clave por origen en la consola (Plataforma → Operación); sin ella ni claves, `/metrics` responde 404. Ver [Esquema del estado y métricas](#esquema-del-estado-y-métricas). |
    | `RAILSPEC_GITHUB_APP_CLIENT_ID` y `RAILSPEC_GITHUB_APP_CLIENT_SECRET` | sí, para cualquier acceso con token de GitHub | GitHub App de Railspec (ver `consola.md`). Inicia sesión en la consola y comprueba que cada token de GitHub (MCP, `/v1`, `/consola/api`) lo emitió esa App; sin ellas el servidor rechaza todos los tokens de GitHub. |
    | `RAILSPEC_GITHUB_APP_ID` y `RAILSPEC_GITHUB_APP_CLAVE_PRIVADA` | no, juntas | Identidad de la misma App como instalación (id numérico y clave privada PEM). Con ellas la consola lee `contexto.yaml` y `.railspecignore` de los repositorios vinculados y abre un PR para cambiarlos (la App necesita contenido:escritura y pull requests:escritura); sin ellas esa edición queda en modo manual (la consola da el diff). Ver [consola.md](consola.md#archivos-del-repositorio). |
 
@@ -294,9 +294,11 @@ de despliegue no debe escribir sobre un estado que no entiende. Cambiar la forma
 de lo guardado de modo que el código anterior no lo lea exige subir
 `VERSION_ESQUEMA` y registrar su migración en `MIGRACIONES`.
 
-`GET /metrics` (texto de Prometheus) solo existe si defines
-`RAILSPEC_METRICAS_TOKEN` (16 caracteres o más) y exige
-`Authorization: Bearer <token>`. Publica la versión del servidor, la versión del
+`GET /metrics` (texto de Prometheus) exige `Authorization: Bearer <clave>`.
+Vale una clave creada en la consola (Plataforma → Operación, una por origen,
+revocable; ver [consola.md](consola.md#operación-del-servidor-y-claves-de-métricas))
+o `RAILSPEC_METRICAS_TOKEN` (16 caracteres o más), que sigue valiendo como
+respaldo. Sin ninguna de las dos responde 404. Publica la versión del servidor, la versión del
 esquema del código y la guardada (`railspec_estado_esquema{origen}`), el estado
 de cada sonda (`railspec_sonda_ok{sonda}`), las peticiones por superficie y
 clase de estado y el instante de arranque. Los contadores son de cada réplica:
@@ -317,9 +319,11 @@ scrape_configs:
       - targets: ["railspec.onrender.com"]
 ```
 
-Para rotar el token cambia `RAILSPEC_METRICAS_TOKEN`, reinicia el servicio y
-actualiza el archivo de credenciales del scraper en seguida: entre ambos pasos
-las consultas reciben 401, que `up == 0` refleja sin perder las series.
+Para rotar sin cortes, crea en la consola una clave nueva para ese origen con
+otro nombre, cámbiala en el archivo de credenciales del scraper y después
+revoca la vieja. Con `RAILSPEC_METRICAS_TOKEN` hay que cambiarlo, reiniciar el
+servicio y actualizar el scraper en seguida: entre ambos pasos las consultas
+reciben 401, que `up == 0` refleja sin perder las series.
 Las mismas alertas, en formato de reglas de Prometheus, están en
 `deploy/prometheus/alertas.yaml` (`rule_files` del servidor Prometheus; añaden
 `RailspecSinMetricas`, que dispara si el scrape deja de funcionar). Para
@@ -329,8 +333,9 @@ comprobar a mano que un servidor desplegado las alimentaría, sin Prometheus:
 RAILSPEC_METRICAS_TOKEN=... python3 railspec/deploy/prometheus/verificar_metricas.py https://railspec.onrender.com
 ```
 
+La variable lleva la clave, sea una de la consola o el token del servicio.
 Sale con 0 si `/metrics` responde 200 con las familias esperadas y todas las
-sondas en 1; con 1 y la causa (401 token distinto, 404 sin token definido,
+sondas en 1; con 1 y la causa (401 clave distinta o revocada, 404 sin token ni claves,
 sonda caída, esquema desalineado) si no. Las alertas del archivo solo se
 verificaron contra el formato que publica el servidor, no contra un
 Prometheus real.

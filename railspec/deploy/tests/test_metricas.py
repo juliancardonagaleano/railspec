@@ -115,8 +115,8 @@ def test_verificar_sin_token_o_argumento_sale_con_2(monkeypatch, capsys):
 def test_verificar_traduce_el_estado_http(monkeypatch, capsys):
     monkeypatch.setenv("RAILSPEC_METRICAS_TOKEN", "x" * 16)
     for estado, texto in (
-        (401, "token no coincide"),
-        (404, "no tiene RAILSPEC_METRICAS_TOKEN"),
+        (401, "no es una activa de la consola"),
+        (404, "ni claves activas"),
         (502, "502"),
     ):
         monkeypatch.setattr(verificar, "consultar", lambda b, t, e=estado: (e, ""))

@@ -1,12 +1,15 @@
-"""Operación del servidor: versión del esquema del estado, ``GET /metrics`` y la redirección de ``/``."""
+"""Operación del servidor: versión del esquema del estado, ``GET /metrics`` (con sus claves por origen),
+la pantalla de operación de la consola y la redirección de ``/``."""
 
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from railspec.server.app import ensamblar
+from railspec.server.claves_metricas import PREFIJO, ClavesMetricasMongo, ErrorClaveMetricas
 from railspec.server.config import Configuracion
 from railspec.server.consola.config import ConfigConsola
 from railspec.server.estado import (
@@ -91,11 +94,20 @@ def _app(tmp_path, *, spa=True, token=TOKEN):
     (tmp_path / "index.html").write_text("<!doctype html><title>Railspec</title>")
     config = Configuracion(
         permitir_desarrollo=True,
-        tokens_desarrollo={"dev": ("julian", 1)},
+        # «julian» administra la plataforma; «ana» no.
+        tokens_desarrollo={"dev": ("julian", 1), "ana": ("ana", 2)},
         metricas_token=token,
-        consola=ConfigConsola(carpeta_spa=str(tmp_path) if spa else None),
+        consola=ConfigConsola(carpeta_spa=str(tmp_path) if spa else None, administradores=frozenset({1})),
     )
     return ensamblar(config)[1]
+
+
+ADMIN = {"Authorization": "Bearer dev", "x-railspec-consola": "1"}
+OTRA = {"Authorization": "Bearer ana", "x-railspec-consola": "1"}
+
+
+def _bearer(clave: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {clave}"}
 
 
 def _cliente(app):
@@ -159,6 +171,132 @@ def test_metricas_publican_version_de_esquema_sondas_y_peticiones(tmp_path):
         assert TOKEN not in texto
 
     asyncio.run(caso())
+
+
+# --- claves de métricas por origen ----------------------------------------------------------------------
+
+
+def test_una_clave_creada_en_la_consola_abre_metrics_hasta_que_se_revoca(tmp_path):
+    async def caso():
+        async with _cliente(_app(tmp_path, token=None)) as c:
+            assert (await c.get("/metrics")).status_code == 404  # sin token ni claves: no existe
+            r = await c.post("/consola/api/metricas/claves", json={"nombre": "Grafana"}, headers=ADMIN)
+            assert r.status_code == 201
+            creada = r.json()
+            secreto = creada["secreto"]
+            assert secreto.startswith(PREFIJO) and len(secreto) > 40
+            assert creada["clave"]["prefijo"] == secreto[: len(creada["clave"]["prefijo"])]
+            assert (await c.get("/metrics")).status_code == 401  # ya existe, pero exige clave
+            assert (await c.get("/metrics", headers=_bearer(PREFIJO + "otra"))).status_code == 401
+            ok = await c.get("/metrics", headers=_bearer(secreto))
+            assert ok.status_code == 200 and "railspec_info" in ok.text
+
+            lista = (await c.get("/consola/api/metricas/claves", headers=ADMIN)).json()
+            assert [(k["nombre"], k["activa"], k["creada_por"]) for k in lista] == [
+                ("Grafana", True, "julian")
+            ]
+            assert lista[0]["ultimo_uso"] is not None
+            assert secreto not in str(lista) and "hash" not in lista[0] and "_id" not in lista[0]
+
+            r = await c.delete(f"/consola/api/metricas/claves/{lista[0]['id']}", headers=ADMIN)
+            assert r.status_code == 200
+            assert r.json()["activa"] is False and r.json()["revocada_por"] == "julian"
+            # Sin claves activas ni token vuelve a no existir; con otra activa, la revocada da 401.
+            assert (await c.get("/metrics", headers=_bearer(secreto))).status_code == 404
+            await c.post("/consola/api/metricas/claves", json={"nombre": "otra"}, headers=ADMIN)
+            assert (await c.get("/metrics", headers=_bearer(secreto))).status_code == 401
+            ajena = await c.delete("/consola/api/metricas/claves/no-existe", headers=ADMIN)
+            assert ajena.status_code == 404
+
+    asyncio.run(caso())
+
+
+def test_el_token_del_entorno_y_las_claves_valen_a_la_vez(tmp_path):
+    async def caso():
+        async with _cliente(_app(tmp_path)) as c:
+            r = await c.post("/consola/api/metricas/claves", json={"nombre": "script"}, headers=ADMIN)
+            secreto = r.json()["secreto"]
+            assert (await c.get("/metrics", headers=_bearer(TOKEN))).status_code == 200
+            assert (await c.get("/metrics", headers=_bearer(secreto))).status_code == 200
+
+    asyncio.run(caso())
+
+
+def test_nombres_de_clave_repetidos_vacios_o_largos_se_rechazan(tmp_path):
+    async def caso():
+        async with _cliente(_app(tmp_path)) as c:
+            ruta = "/consola/api/metricas/claves"
+            assert (await c.post(ruta, json={"nombre": "Grafana"}, headers=ADMIN)).status_code == 201
+            repetida = await c.post(ruta, json={"nombre": " grafana "}, headers=ADMIN)
+            assert repetida.status_code == 409 and "ya hay una clave activa" in repetida.text
+            assert (await c.post(ruta, json={"nombre": "   "}, headers=ADMIN)).status_code == 422
+            assert (await c.post(ruta, json={"nombre": "x" * 61}, headers=ADMIN)).status_code == 422
+            assert (await c.post(ruta, json={"nombre": "y", "extra": 1}, headers=ADMIN)).status_code == 422
+
+    asyncio.run(caso())
+
+
+def test_solo_quien_administra_la_plataforma_ve_la_operacion_y_las_claves(tmp_path):
+    async def caso():
+        async with _cliente(_app(tmp_path)) as c:
+            for metodo, ruta, cuerpo in (
+                ("GET", "/consola/api/operacion", None),
+                ("GET", "/consola/api/metricas/claves", None),
+                ("POST", "/consola/api/metricas/claves", {"nombre": "x"}),
+                ("DELETE", "/consola/api/metricas/claves/x", None),
+            ):
+                r = await c.request(metodo, ruta, json=cuerpo, headers=OTRA)
+                assert r.status_code == 403, (metodo, ruta)
+                assert (await c.request(metodo, ruta, json=cuerpo)).status_code == 401, (metodo, ruta)
+
+    asyncio.run(caso())
+
+
+def test_la_consola_muestra_la_operacion_sin_clave_y_sin_el_token(tmp_path):
+    async def caso():
+        async with _cliente(_app(tmp_path)) as c:
+            await c.get("/healthz")
+            await c.get("/otra-cosa")
+            r = await c.get("/consola/api/operacion", headers=ADMIN)
+        assert r.status_code == 200
+        v = r.json()
+        assert v["version"] == "0.1.0" and v["token_entorno"] is True
+        assert v["esquema"] == {"codigo": VERSION_ESQUEMA, "almacenado": VERSION_ESQUEMA}
+        assert v["sondas"] == []  # en memoria no hay bases que sondear
+        assert {"grupo": "sondas", "metodo": "GET", "estado": "2xx", "total": 1} in v["peticiones"]
+        assert {"grupo": "otras", "metodo": "GET", "estado": "4xx", "total": 1} in v["peticiones"]
+        assert datetime.fromisoformat(v["inicio"]) <= datetime.fromisoformat(v["ahora"])
+        assert TOKEN not in r.text
+
+    asyncio.run(caso())
+
+
+def test_el_ultimo_uso_se_anota_como_mucho_una_vez_por_minuto():
+    claves = ClavesMetricasMongo(almacen_en_memoria().db)
+    t0 = datetime(2026, 10, 9, 12, tzinfo=UTC)
+    clave, secreto = claves.crear("Grafana", "julian", t0)
+    assert claves.validar(secreto, t0 + timedelta(seconds=5)).ultimo_uso == t0 + timedelta(seconds=5)
+    assert claves.validar(secreto, t0 + timedelta(seconds=30)).ultimo_uso == t0 + timedelta(seconds=5)
+    assert claves.validar(secreto, t0 + timedelta(minutes=2)).ultimo_uso == t0 + timedelta(minutes=2)
+    assert claves.validar("sin-prefijo", t0) is None
+    assert claves.revocar(clave.id, "julian", t0 + timedelta(minutes=3)).revocada_en is not None
+    # Revocar dos veces no mueve la fecha ni quién lo hizo.
+    otra_vez = claves.revocar(clave.id, "ana", t0 + timedelta(minutes=9))
+    assert (otra_vez.revocada_en, otra_vez.revocada_por) == (t0 + timedelta(minutes=3), "julian")
+    assert claves.validar(secreto, t0 + timedelta(minutes=4)) is None and not claves.hay_activas()
+    # Revocada, el nombre queda libre.
+    assert claves.crear("Grafana", "julian", t0 + timedelta(minutes=5))[0].nombre == "Grafana"
+
+
+def test_hay_un_tope_de_claves_activas():
+    from railspec.server.claves_metricas import MAX_ACTIVAS
+
+    claves = ClavesMetricasMongo(almacen_en_memoria().db)
+    ahora = datetime(2026, 10, 9, tzinfo=UTC)
+    for i in range(MAX_ACTIVAS):
+        claves.crear(f"origen-{i}", "julian", ahora)
+    with pytest.raises(ErrorClaveMetricas, match="revoca las que no uses"):
+        claves.crear("una-mas", "julian", ahora)
 
 
 def test_sonda_caida_se_ve_en_las_metricas():
