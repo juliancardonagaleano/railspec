@@ -102,3 +102,21 @@ def modos_posix() -> bool:
     """``True`` si los bits de modo de un archivo (0600…) controlan quién lo lee."""
 
     return not ES_WINDOWS
+
+
+def forzar_utf8() -> None:
+    """En Windows, consola y tuberías usan la página de códigos ANSI (cp1252…) salvo que se diga otra cosa.
+
+    Los mensajes del proxy llevan acentos y los hooks reciben JSON en UTF-8 por stdin, así que se fija UTF-8
+    en los tres flujos de texto. ``PYTHONUTF8`` no basta: el binario congelado ignora las ``PYTHON*``.
+    """
+
+    if not ES_WINDOWS:
+        return
+    for flujo in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigurar = getattr(flujo, "reconfigure", None)
+        if reconfigurar is not None:
+            try:
+                reconfigurar(encoding="utf-8")
+            except (OSError, ValueError):  # flujo ya cerrado o que no admite cambiar la codificación
+                pass

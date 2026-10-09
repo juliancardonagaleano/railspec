@@ -188,7 +188,9 @@ def test_claude_code_instala_y_quita_el_hook_sin_tocar_los_ajenos(tmp_path):
     )
 
     assert ".claude/settings.json" in adaptadores.instalar(tmp_path, Arnes.claude_code)
-    hooks = json.loads((tmp_path / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]
+    hooks = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"][
+        "PreToolUse"
+    ]
     # La versión anterior del hook de Railspec se reemplaza; la ajena se conserva.
     assert hooks == [ajeno, adaptadores.HOOK_CLAUDE_CODE]
     assert "Edit" in hooks[1]["matcher"] and "mcp__railspec__unit_approve" in hooks[1]["matcher"]
@@ -196,14 +198,14 @@ def test_claude_code_instala_y_quita_el_hook_sin_tocar_los_ajenos(tmp_path):
     assert adaptadores.verificar(tmp_path, Arnes.claude_code) == []
 
     adaptadores.desinstalar(tmp_path, Arnes.claude_code)
-    restante = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    restante = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert restante == {"hooks": {"PreToolUse": [ajeno]}}
 
 
 def test_claude_code_hook_derivado_se_detecta(tmp_path):
     adaptadores.instalar(tmp_path, Arnes.claude_code)
     ruta = tmp_path / ".claude" / "settings.json"
-    datos = json.loads(ruta.read_text())
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
     datos["hooks"]["PreToolUse"][0]["matcher"] = "Edit"
     ruta.write_text(json.dumps(datos))
     assert ".claude/settings.json" in adaptadores.verificar(tmp_path, Arnes.claude_code)
@@ -213,7 +215,7 @@ def test_opencode_instala_y_quita_el_plugin(tmp_path):
     cambios = adaptadores.instalar(tmp_path, Arnes.opencode)
     plugin = tmp_path / ".opencode" / "plugins" / "railspec.js"
     assert ".opencode/plugins/railspec.js" in cambios
-    texto = plugin.read_text()
+    texto = plugin.read_text(encoding="utf-8")
     assert '"railspec", "hook", "opencode"' in texto and "tool.execute.before" in texto
     assert "external_directory" in texto
     adaptadores.desinstalar(tmp_path, Arnes.opencode)
@@ -368,21 +370,21 @@ def test_codex_instala_y_quita_el_hook_sin_tocar_los_ajenos(tmp_path):
     )
 
     assert ".codex/hooks.json" in adaptadores.instalar(tmp_path, Arnes.codex)
-    datos = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
+    datos = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     assert datos["hooks"]["PreToolUse"] == [ajeno, adaptadores.HOOK_CODEX]
     assert datos["hooks"]["Stop"] == [{"hooks": []}]
     assert adaptadores.instalar(tmp_path, Arnes.codex) == []
     assert adaptadores.verificar(tmp_path, Arnes.codex) == []
 
     adaptadores.desinstalar(tmp_path, Arnes.codex)
-    restante = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
+    restante = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     assert restante == {"hooks": {"PreToolUse": [ajeno], "Stop": [{"hooks": []}]}}
 
 
 def test_codex_hook_derivado_se_detecta_y_el_archivo_propio_se_borra(tmp_path):
     adaptadores.instalar(tmp_path, Arnes.codex)
     ruta = tmp_path / ".codex" / "hooks.json"
-    datos = json.loads(ruta.read_text())
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
     datos["hooks"]["PreToolUse"][0]["matcher"] = "apply_patch"
     ruta.write_text(json.dumps(datos))
     assert ".codex/hooks.json" in adaptadores.verificar(tmp_path, Arnes.codex)
@@ -416,7 +418,7 @@ def test_copilot_instala_un_archivo_propio_en_hooks_y_deja_los_ajenos(tmp_path):
     ajeno.write_text('{"version": 1, "hooks": {"postToolUse": []}}', encoding="utf-8")
 
     assert ".github/hooks/railspec.json" in adaptadores.instalar(tmp_path, Arnes.copilot)
-    propio = json.loads((tmp_path / ".github" / "hooks" / "railspec.json").read_text())
+    propio = json.loads((tmp_path / ".github" / "hooks" / "railspec.json").read_text(encoding="utf-8"))
     assert propio == adaptadores.HOOK_COPILOT and propio["version"] == 1
     assert adaptadores.instalar(tmp_path, Arnes.copilot) == []
     assert adaptadores.verificar(tmp_path, Arnes.copilot) == []

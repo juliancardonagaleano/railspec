@@ -34,7 +34,18 @@ from pydantic import TypeAdapter, ValidationError
 from railspec.contracts.comun import Arnes, NivelCodigo, Slug
 from railspec.contracts.mandato import EstadoMandato
 
-from . import __version__, adaptadores, config, credenciales, dispositivo, doctor, git, guardia, renovacion
+from . import (
+    __version__,
+    adaptadores,
+    config,
+    credenciales,
+    dispositivo,
+    doctor,
+    git,
+    guardia,
+    plataforma,
+    renovacion,
+)
 from .adaptadores import usuario
 from .almacen import EXCLUIR_DE_GIT
 from .cliente import ClienteServidor
@@ -830,6 +841,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    plataforma.forzar_utf8()
     args = parser().parse_args(argv)
     try:
         return args.fn(args)

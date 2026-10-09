@@ -22,6 +22,7 @@ def hogar(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() en Windows
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.delenv(config.ENV_WORKTREES, raising=False)
     monkeypatch.setattr(cli.shutil, "which", lambda comando: f"/usr/local/bin/{comando}")

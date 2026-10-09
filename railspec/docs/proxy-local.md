@@ -94,7 +94,8 @@ railspec logout             # borra la sesión de este equipo
   abierto que 0600, `railspec` lo cierra antes de usarlo (y si no puede, se
   niega); si está dañado, lo dice sin repetir su contenido y `railspec login` lo
   reescribe. Al lado hay `credenciales.json.lock`, el candado que serializa la
-  renovación (no contiene nada). Solo POSIX: el proxy no corre en Windows.
+  renovación (no contiene nada). En Windows (`%USERPROFILE%\.config\railspec`) el candado es de `msvcrt` y no se
+  miran los bits de modo: quien protege el archivo es la ACL de tu carpeta de usuario, que solo tú lees.
 - **Quién gana.** `RAILSPEC_TOKEN`, si está exportada, manda sobre la sesión
   guardada (como `GH_TOKEN` en `gh`); `login` avisa cuando lo está y `whoami`
   dice cuál se usa y qué sesión ignora.
@@ -364,7 +365,7 @@ confiar). Hasta verificarlo contra cada CLI, siguen siendo por repositorio.
 **Sin verificar.** En OpenCode, que el plugin global rechace una escritura con
 una unidad en curso (por repositorio sí se probó, es el mismo archivo); ningún
 turno de modelo real con alcance de usuario; los dos alcances a la vez en
-OpenCode; Windows y macOS.
+OpenCode; macOS, y en Windows lo que no cubre la suite de pruebas (ver [Windows](#windows)).
 
 ## Diagnóstico: `railspec doctor`
 
@@ -975,8 +976,9 @@ existe, y qué hacer ante `mandato-parado`, una parada con causa o una decisión
 
 Cada versión de `railspec-local` se publica también como un ejecutable único
 por plataforma que no necesita Python instalado: `railspec-linux-x86_64`,
-`railspec-linux-arm64`, `railspec-macos-arm64` y `railspec-macos-x86_64`
-(Windows no se soporta: el proxy usa `fcntl`). Lleva dentro el intérprete,
+`railspec-linux-arm64`, `railspec-macos-arm64`, `railspec-macos-x86_64` y
+`railspec-windows-x86_64.exe`. Los de macOS y Windows **no están firmados**
+(ver [Binarios sin firmar](#binarios-sin-firmar-macos-y-windows)). Lleva dentro el intérprete,
 railspec-contracts, el SDK de MCP y las plantillas de los adaptadores; es el
 mismo comando que instala `pip install railspec-local`.
 
@@ -1003,7 +1005,14 @@ sha256sum --check --ignore-missing SHA256SUMS      # Linux
 shasum -a 256 --check --ignore-missing SHA256SUMS  # macOS
 ```
 
-Debe decir `railspec-<plataforma>: OK`. Si no, no lo ejecutes.
+En Windows (PowerShell), compara el hash del `.exe` con su línea de `SHA256SUMS`:
+
+```
+(Get-FileHash .\railspec-windows-x86_64.exe -Algorithm SHA256).Hash.ToLower()
+Select-String windows-x86_64 SHA256SUMS
+```
+
+Debe decir `railspec-<plataforma>: OK` (o los dos hashes deben coincidir). Si no, no lo ejecutes.
 
 ### Ponerlo en el PATH
 
@@ -1019,17 +1028,50 @@ railspec --version                  # railspec-local 0.1.0
 añádelo en `~/.zprofile` o usa `/usr/local/bin`). `railspec instalar` avisa si
 no encuentra el comando en el `PATH`.
 
-En macOS, un archivo descargado con el navegador queda en cuarentena y
-Gatekeeper lo bloquea ("no se puede verificar el desarrollador"): el binario
-lleva firma ad hoc, no está notarizado. Tras verificar la suma, quita la
-marca:
+En Windows, descarga `railspec-windows-x86_64.exe` y déjalo como `railspec.exe` en una carpeta de tu `PATH`
+(por ejemplo `%USERPROFILE%\.local\bin`, que se añade en Configuración → Variables de entorno):
 
 ```
-xattr -d com.apple.quarantine ~/.local/bin/railspec
+New-Item -ItemType Directory -Force $HOME\.local\bin
+Move-Item .\railspec-windows-x86_64.exe $HOME\.local\bin\railspec.exe
+railspec --version                  # railspec-local 0.1.0
 ```
 
-(`gh release download` y `curl` no ponen la marca; si `xattr` responde
-`No such xattr`, no hacía falta.)
+Hace falta [Git para Windows](https://git-scm.com/download/win) en el `PATH`: el proxy lo usa para los worktrees,
+y es también el que da el shell (Git Bash) a Claude Code en Windows.
+
+### Binarios sin firmar (macOS y Windows)
+
+Los binarios de macOS y Windows salen sin firmar a propósito (decisión de 2026-10-08): firmarlos exige una cuenta
+de Apple Developer y un certificado de firma de código de Windows, y por ahora no se contrata ninguno. La
+integridad la da `SHA256SUMS`, que la release publica junto a los binarios: **verifica la suma antes de aprobar
+el aviso**. En cada plataforma, el sistema avisa la primera vez que se ejecuta:
+
+- **macOS (Gatekeeper).** Un archivo descargado con el navegador queda en cuarentena y Gatekeeper lo bloquea
+  («no se puede verificar el desarrollador»): el binario lleva firma ad hoc, no está notarizado. Tras verificar
+  la suma, quita la marca:
+
+  ```
+  xattr -d com.apple.quarantine ~/.local/bin/railspec
+  ```
+
+  (`gh release download` y `curl` no ponen la marca; si `xattr` responde `No such xattr`, no hacía falta.) Si
+  prefieres la interfaz: intenta abrirlo, y en Ajustes del Sistema → Privacidad y seguridad pulsa «Abrir de
+  todos modos».
+- **Windows (SmartScreen).** Un `.exe` descargado con el navegador lleva la marca «Mark of the Web» y Microsoft
+  Defender SmartScreen muestra «Windows protegió su PC» al ejecutarlo desde el Explorador. Tras verificar la
+  suma, quita la marca (PowerShell) y no volverá a avisar:
+
+  ```
+  Unblock-File $HOME\.local\bin\railspec.exe
+  ```
+
+  O, en el aviso, «Más información» → «Ejecutar de todas formas». Cuando el arnés lanza `railspec mcp` no hay
+  ventana donde pulsar nada, así que quita la marca antes; descargarlo con `gh release download` o
+  `Invoke-WebRequest` tampoco la pone. Si tu antivirus pone en cuarentena el `.exe` (es un ejecutable de
+  PyInstaller sin reputación), añade una excepción para esa ruta tras comprobar la suma.
+
+No hace falta ninguna cuenta, certificado ni secreto nuevo para publicar: el workflow solo construye y sube.
 
 El primer arranque de cada ejecución descomprime el binario en un directorio
 temporal (unas décimas de segundo; `railspec --version` tarda ~0,7 s frente a
@@ -1061,10 +1103,10 @@ de un tag:
    git push origin railspec-local-v0.2.0
    ```
 
-3. El workflow construye las cuatro plataformas, pasa el humo en cada una,
-   comprueba que el tag coincide con la versión del `pyproject.toml` y que
-   `railspec --version` la imprime, y crea la release
-   `railspec-local-v0.2.0` con los cuatro binarios y `SHA256SUMS`.
+3. El workflow construye las cinco plataformas, pasa el humo en cada una, corre
+   la suite de `railspec-local` en Windows, comprueba que el tag coincide con la
+   versión del `pyproject.toml` y que `railspec --version` la imprime, y crea la
+   release `railspec-local-v0.2.0` con los cinco binarios y `SHA256SUMS`.
 
 Si un job falla, no hay release: corrige, borra el tag
 (`git push origin :railspec-local-v0.2.0`) y vuelve a etiquetar.
@@ -1073,7 +1115,29 @@ Las dependencias de terceros del binario están fijadas con hashes en
 `empaquetado/requirements.lock`; tras cambiar las dependencias de los
 `pyproject` o subir PyInstaller, regenera el lock con
 `railspec/packages/railspec-local/empaquetado/bloquear.sh` y súbelo en el
-mismo PR. Construir en local: `empaquetado/README.md`.
+mismo PR. Lo que solo existe en Windows (`pefile`, `pywin32`…) no lo resuelve
+`bloquear.sh` (corre en Linux): vive a mano en `requirements-windows.lock`. Construir en local: `empaquetado/README.md`.
+
+## Windows
+
+El proxy corre nativo en Windows (sin WSL), con el binario `railspec.exe` o con `pip install railspec-local`.
+Lo que cambia respecto a Linux y macOS:
+
+- **Candados y procesos.** El cerrojo de `.railspec/` y el de las credenciales usan `msvcrt.locking` en lugar de
+  `fcntl.flock`, y «¿sigue vivo ese pid?» usa `OpenProcess` (en Windows `os.kill` mataría al proceso); todo está
+  en `railspec/local/plataforma.py`.
+- **Permisos.** Los bits de modo (0600) no existen: `credenciales.json` no se comprueba ni se cierra con
+  `chmod`; lo protege la ACL de tu carpeta de usuario.
+- **Rutas.** Las configuraciones de usuario siguen en `%USERPROFILE%\.config\…` (como en Linux); el modelo de
+  embeddings va a `%LOCALAPPDATA%\railspec\modelos`.
+- **Shell.** El comando de validación de la orden (`comando_validacion`, el del plan de la unidad) se ejecuta con
+  `cmd.exe`, no con `sh`: escríbelo sin sintaxis exclusiva de Bash o llama a un script. La guardia de Bash lee las
+  órdenes del shell de Claude Code (Git Bash) y falla abierta si no las entiende.
+- **Salida de línea.** Los archivos que escribe `railspec instalar` en Windows llevan los finales de línea del
+  sistema (CRLF); con `core.autocrlf=true` (lo habitual en Git para Windows) git no lo distingue.
+
+La CI corre la suite de `railspec-local` en `windows-2022` (job «pruebas (windows)» de `railspec-binario`) y
+construye el binario con el mismo humo que en las demás plataformas.
 
 ## Pendiente
 
@@ -1096,8 +1160,9 @@ mismo PR. Construir en local: `empaquetado/README.md`.
   instalan por usuario; para Codex y Copilot falta verificar contra cada CLI
   dónde cargan hooks, skills y servidor MCP en la configuración del usuario (ver
   [Instalación por usuario](#instalación-por-usuario)).
-- **Binario firmado.** El binario de macOS no está notarizado (hay que quitar
-  la cuarentena) y no hay binario para Windows (el proxy usa `fcntl`).
+- **Binario firmado.** Los binarios de macOS y Windows no están firmados ni notarizados (decisión de
+  2026-10-08): hay que quitar la cuarentena o desbloquear el `.exe`
+  ([Binarios sin firmar](#binarios-sin-firmar-macos-y-windows)). Windows en ARM no tiene binario.
 
 - **Embeddings.** `codebase-memory-mcp` no expone sus vectores por CLI y el
   servidor nunca calcula embeddings de código: el delta viaja sin ellos y la

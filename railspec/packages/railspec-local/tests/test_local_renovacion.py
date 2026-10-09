@@ -102,7 +102,7 @@ def _fuente(tmp_path, servidor: ServidorFalso, reloj=None, url=URL, entorno=None
 def test_una_credencial_antigua_sin_refresh_token_se_sigue_leyendo(tmp_path):
     almacen = credenciales.AlmacenCredenciales(tmp_path / "c.json")
     almacen.guardar(URL, _credencial(refresh_token=None, refresh_expira_en=None))
-    datos = json.loads(almacen.ruta.read_text())
+    datos = json.loads(almacen.ruta.read_text(encoding="utf-8"))
     for clave in ("refresh_token", "refresh_expira_en"):  # el archivo de la versión anterior no los tenía
         datos["servidores"][URL].pop(clave)
     almacen.ruta.write_text(json.dumps(datos))
