@@ -101,7 +101,8 @@ def leer_config_repositorio(raiz: Path) -> ConfigRepositorio:
     ruta = raiz / ARCHIVO_CONFIG
     if not ruta.is_file():
         raise ConfigInvalida(
-            f"No existe {ARCHIVO_CONFIG} en {raiz}. Ejecuta `railspec instalar` en la raíz del repositorio."
+            f"No existe {ARCHIVO_CONFIG.as_posix()} en {raiz}. "
+            "Ejecuta `railspec instalar` en la raíz del repositorio."
         )
     try:
         return ConfigRepositorio.model_validate(json.loads(ruta.read_text(encoding="utf-8")))

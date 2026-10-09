@@ -58,7 +58,9 @@ def test_regla_1_sed_en_el_sitio(tmp_path):
     # Sin -i el archivo no cambia; el guion y las redirecciones no son archivos.
     assert _reglas("sed 's/a/b/' x.py", tmp_path) == []
     # (`2>/dev/null` es la regla 2, que la guardia deja pasar por caer fuera del repositorio.)
-    assert _reglas("sed -i s/a/b/ x.py 2>/dev/null", tmp_path) == [(2, "/dev/null"), (1, "x.py")]
+    # Sin /dev/null como archivo (Windows) la redirección ni cuenta.
+    esperado = [(2, "/dev/null"), (1, "x.py")] if Path("/dev/null").exists() else [(1, "x.py")]
+    assert _reglas("sed -i s/a/b/ x.py 2>/dev/null", tmp_path) == esperado
 
 
 def test_regla_2_solo_trunca_lo_que_existe(tmp_path):
@@ -152,7 +154,7 @@ def test_sed_en_el_clon_principal_con_unidad_en_curso_se_rechaza(tmp_path):
     assert str(worktree) in motivo and guardia.ENV_GUARDIA in motivo
     # El mismo comando dentro del alcance pasa: la guardia no prohíbe `sed`, prohíbe salirse del alcance.
     assert _bash("sed -i 's/a - b/a + b/' src/calc.py", worktree) is None
-    assert _bash(f"sed -i 's/a - b/a + b/' {worktree}/src/calc.py", raiz) is None
+    assert _bash(f"sed -i 's/a - b/a + b/' {worktree.as_posix()}/src/calc.py", raiz) is None
 
 
 def test_fuera_del_alcance_de_la_orden_se_rechaza(tmp_path):
@@ -176,7 +178,7 @@ def test_redireccion_que_trunca_un_archivo_existente(tmp_path):
     assert _bash("echo ok >> README.md", worktree) is None
     assert _bash("echo ok > notas-nuevas.txt", worktree) is None
     assert _bash("echo ok > /dev/null", worktree) is None
-    assert _bash(f"echo ok > {tmp_path}/fuera.txt", raiz) is None
+    assert _bash(f"echo ok > {tmp_path.as_posix()}/fuera.txt", raiz) is None
 
 
 def test_codigo_inline_que_nombra_un_archivo_fuera_del_alcance(tmp_path):
@@ -191,9 +193,9 @@ def test_codigo_inline_que_nombra_un_archivo_fuera_del_alcance(tmp_path):
 
 def test_cd_a_otra_carpeta_se_sigue(tmp_path):
     raiz, worktree = _unidad(tmp_path)
-    assert _decision(_bash(f"cd {raiz} && sed -i s/a/b/ src/calc.py", worktree)) == "deny"
-    assert _bash(f"cd {worktree}/src && sed -i s/a/b/ calc.py", raiz) is None
-    assert _decision(_bash(f"cd {worktree} && sed -i s/a/b/ README.md", raiz)) == "deny"
+    assert _decision(_bash(f"cd {raiz.as_posix()} && sed -i s/a/b/ src/calc.py", worktree)) == "deny"
+    assert _bash(f"cd {worktree.as_posix()}/src && sed -i s/a/b/ calc.py", raiz) is None
+    assert _decision(_bash(f"cd {worktree.as_posix()} && sed -i s/a/b/ README.md", raiz)) == "deny"
 
 
 def test_sin_unidades_o_con_la_unidad_cerrada_no_opina(tmp_path):

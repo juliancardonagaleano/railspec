@@ -53,19 +53,33 @@ def _comprobar(condicion: bool, mensaje: str) -> None:
 def _entorno(binario: Path, casa: Path, **extra: str) -> dict[str, str]:
     """Entorno mínimo: sin el virtualenv de construcción ni PYTHONPATH."""
 
-    sistema = ["/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin"]
-    env = {
-        "PATH": os.pathsep.join([str(binario.parent), *sistema]),
-        "HOME": str(casa),
-        "LANG": "C.UTF-8",
+    if sys.platform == "win32":
+        # Windows no arranca bien sin SystemRoot, y el PATH del runner trae git: se conserva, con el
+        # directorio del binario delante. La carpeta personal sale de USERPROFILE.
+        env = {
+            "PATH": os.pathsep.join([str(binario.parent), os.environ.get("PATH", "")]),
+            "USERPROFILE": str(casa),
+            "HOME": str(casa),
+            "SYSTEMROOT": os.environ.get("SYSTEMROOT", r"C:\Windows"),
+            "PYTHONUTF8": "1",
+        }
+    else:
+        sistema = ["/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin"]
+        env = {
+            "PATH": os.pathsep.join([str(binario.parent), *sistema]),
+            "HOME": str(casa),
+            "LANG": "C.UTF-8",
+        }
+    env |= {
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_AUTHOR_NAME": "humo",
         "GIT_AUTHOR_EMAIL": "humo@railspec.invalid",
         "GIT_COMMITTER_NAME": "humo",
         "GIT_COMMITTER_EMAIL": "humo@railspec.invalid",
     }
-    if "TMPDIR" in os.environ:
-        env["TMPDIR"] = os.environ["TMPDIR"]
+    for temporal in ("TMPDIR", "TEMP", "TMP"):
+        if temporal in os.environ:
+            env[temporal] = os.environ[temporal]
     env.update(extra)
     return env
 
@@ -74,7 +88,15 @@ def _correr(
     args: list[str], env: dict[str, str], cwd: Path, entrada: str | None = None, codigo: int = 0
 ) -> subprocess.CompletedProcess:
     proc = subprocess.run(
-        args, env=env, cwd=cwd, input=entrada, capture_output=True, text=True, timeout=TIMEOUT_S, check=False
+        args,
+        env=env,
+        cwd=cwd,
+        input=entrada,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=TIMEOUT_S,
+        check=False,
     )
     if proc.returncode != codigo:
         raise FalloHumo(f"{' '.join(args)} salió con {proc.returncode}:\n{proc.stdout}\n{proc.stderr}")
@@ -154,6 +176,7 @@ def servidor_mcp(binario: Path, env: dict[str, str], tmp: Path) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
     )
     fin = time.monotonic() + TIMEOUT_S
     try:
@@ -244,9 +267,13 @@ def archivo(binario: Path) -> None:
         print("--  contenido del archivo: PyInstaller no está instalado; se omite")
         return
     listado = subprocess.run(
-        [visor, "--recursive", "--brief", str(binario)], capture_output=True, text=True, check=True
+        [visor, "--recursive", "--brief", str(binario)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
     ).stdout
-    nombres = {linea.strip() for linea in listado.splitlines()}
+    nombres = {linea.strip().replace("\\", "/") for linea in listado.splitlines()}
     for patron in (
         r"railspec/local/adaptadores/plantillas/comando\.md",
         r"railspec_local-[^/]+\.dist-info/entry_points\.txt",

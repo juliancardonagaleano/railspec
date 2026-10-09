@@ -260,3 +260,31 @@ sin `org` ni `workspace`); no cambia el contrato.
 
 **Resuelta cuando.** Con una App real instalada, una edición desde la consola abre un PR que se
 fusiona, y la lectura siguiente trae el contenido nuevo; y algún componente consume `contexto.yaml`.
+
+## Windows nativo: suite y binario en CI; falta probarlo con un arnés y una unidad reales
+
+**Qué hay hoy (2026-10-09).** `railspec-local` corre nativo en Windows (decisión de Julian en la entrevista
+del 2026-10-08, contra WSL). El candado de archivo, el pid vivo y la lectura de permisos viven en
+`railspec/local/plataforma.py`; el indexador lee su salida con un hilo; la consola fuerza UTF-8. La CI
+(`railspec-binario`) corre la suite de `railspec-local` en `windows-2022`, construye `railspec-windows-x86_64.exe`
+con PyInstaller y le pasa el mismo humo que a los demás binarios, incluida la versión fijada de
+`codebase-memory-mcp`. Los binarios de macOS y Windows salen **sin firmar** (misma decisión): el aviso de
+Gatekeeper y de SmartScreen y cómo aprobarlo están en
+[proxy-local.md](proxy-local.md#binarios-sin-firmar-macos-y-windows). Sin cuentas ni secretos nuevos.
+
+**Qué falta.**
+
+- **Un arnés real en Windows.** La CI prueba el proxy, el binario y los hooks con eventos simulados; no hay un
+  Claude Code ni un OpenCode de Windows corriendo una unidad entera (worktree, `railspec mcp`, hook de la guardia).
+  En particular, la guardia de Bash entiende las órdenes con sintaxis POSIX (`cd /c/Users/…`, `sed -i`); si no
+  entiende una, falla abierta.
+- **Pruebas que se saltan en Windows.** Las que comprueban bits de modo (0600 de las credenciales, `chmod` de
+  `doctor`) no tienen equivalente; la protección real es la ACL de la carpeta de usuario, que no se comprueba.
+- **El comando de validación corre con `cmd.exe`.** Un `comando_validacion` escrito para `sh` falla en Windows;
+  el servidor no sabe en qué sistema lo ejecutará el proxy.
+- **Finales de línea.** Los archivos que escribe el proxy en Windows llevan CRLF; con `core.autocrlf=false` el
+  `git status` de un `AGENTS.md` retocado por `railspec instalar` mostrará todo el archivo cambiado.
+- **Windows en ARM** no tiene binario.
+
+**Resuelta cuando.** Una unidad completa (iniciar, implementar, validar, reportar) corre en un Windows real con
+el binario de una release, y la guardia rechaza ahí una escritura fuera de alcance.

@@ -6,6 +6,7 @@ Usa binarios falsos (scripts que imprimen una versión), así corre sin el binar
 from __future__ import annotations
 
 import logging
+import shutil
 import stat
 import subprocess
 import sys
@@ -25,6 +26,15 @@ from railspec.local.indexador_cbm import (
 
 def binario_falso(carpeta: Path, cuerpo: str) -> Path:
     carpeta.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        # Windows no ejecuta scripts con shebang: un .cmd (el PATH lo halla por PATHEXT) llama al sh de Git.
+        sh = shutil.which("sh") or shutil.which("bash")
+        if sh is None:
+            pytest.skip("hace falta sh (Git para Windows) para el binario falso")
+        (carpeta / f"{BINARIO}.sh").write_text(f"{cuerpo}\n", encoding="utf-8", newline="\n")
+        ruta = carpeta / f"{BINARIO}.cmd"
+        ruta.write_text(f'@"{sh}" "%~dp0{BINARIO}.sh" %*\r\n', encoding="utf-8")
+        return ruta
     ruta = carpeta / BINARIO
     ruta.write_text(f"#!/bin/sh\n{cuerpo}\n", encoding="utf-8")
     ruta.chmod(ruta.stat().st_mode | stat.S_IXUSR)
@@ -98,7 +108,7 @@ def test_crear_con_otra_version_apaga_el_indexador_y_avisa(tmp_path, monkeypatch
 
 def test_crear_con_la_version_fijada_entrega_el_indexador_sin_volver_a_preguntar(tmp_path, monkeypatch):
     llamadas = tmp_path / "llamadas"
-    binario_falso(tmp_path / "bin", f'echo x >> "{llamadas}"\necho "{BINARIO} {VERSION_FIJA}"')
+    binario_falso(tmp_path / "bin", f'echo x >> "{llamadas.as_posix()}"\necho "{BINARIO} {VERSION_FIJA}"')
     en_path(monkeypatch, tmp_path / "bin")
 
     indexador = crear()
