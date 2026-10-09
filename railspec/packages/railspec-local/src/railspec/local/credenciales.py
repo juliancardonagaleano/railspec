@@ -20,7 +20,6 @@ import os
 import stat
 import tempfile
 import threading
-import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
@@ -33,6 +32,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationErro
 
 from . import config
 from .errores import CredencialesInvalidas, ErrorRailspec, RenovacionFallida
+from .plataforma import modos_posix, tomar_candado
 
 VERSION_ARCHIVO = 1
 
@@ -177,19 +177,13 @@ class AlmacenCredenciales:
         Quien renueva lo toma antes de releer la credencial: así, de varios arneses abiertos a la vez solo uno
         canjea el refresh token y los demás ven la sesión ya renovada. El candado es un archivo aparte
         (``credenciales.json.lock``) porque el principal se reemplaza con ``os.replace`` y el candado de un
-        archivo reemplazado ya no protege nada. Solo POSIX (``fcntl``), como el resto del proxy.
+        archivo reemplazado ya no protege nada. ``fcntl`` en POSIX, ``msvcrt`` en Windows (``plataforma.py``).
         """
 
         with self._cerrojo:
             if self._candado is not None:  # reentrada del mismo hilo
                 yield
                 return
-            try:
-                import fcntl
-            except ImportError:  # sin fcntl (Windows) queda el cerrojo entre hilos; el proxy no corre ahí
-                yield
-                return
-
             carpeta = self.ruta.parent
             carpeta.mkdir(mode=0o700, parents=True, exist_ok=True)
             ruta = self.ruta.with_name(self.ruta.name + ".lock")
@@ -198,19 +192,12 @@ class AlmacenCredenciales:
             except OSError as exc:
                 raise CredencialesInvalidas(f"No se puede abrir {ruta}: {exc.strerror or exc}") from exc
             espera_s = ESPERA_CANDADO_S if espera_s is None else espera_s
-            limite = time.monotonic() + espera_s
             try:
-                while True:
-                    try:
-                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break
-                    except BlockingIOError:
-                        if time.monotonic() >= limite:
-                            raise CredencialesInvalidas(
-                                f"Otro proceso de railspec tiene bloqueado {self.ruta} desde hace más de "
-                                f"{espera_s:.0f} s: reintenta."
-                            ) from None
-                        time.sleep(0.05)
+                if not tomar_candado(fd, espera_s):
+                    raise CredencialesInvalidas(
+                        f"Otro proceso de railspec tiene bloqueado {self.ruta} desde hace más de "
+                        f"{espera_s:.0f} s: reintenta."
+                    )
                 self._candado = fd
                 try:
                     yield
@@ -228,7 +215,8 @@ class AlmacenCredenciales:
             raise CredencialesInvalidas(f"No se puede leer {self.ruta}: {exc.strerror or exc}") from exc
         if not stat.S_ISREG(info.st_mode):
             raise CredencialesInvalidas(f"{self.ruta} no es un archivo normal.")
-        modo = stat.S_IMODE(info.st_mode)
+        # En Windows el modo no dice quién lee el archivo (lo decide la ACL de la carpeta del usuario).
+        modo = stat.S_IMODE(info.st_mode) if modos_posix() else 0o600
         if modo & 0o077 and not self._cerrar_permisos:
             raise CredencialesInvalidas(
                 f"{self.ruta} lo pueden leer otros usuarios (modo {modo:04o}). Ciérralo con "

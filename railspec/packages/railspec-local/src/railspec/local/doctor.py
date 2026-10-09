@@ -433,7 +433,12 @@ def _codex(raiz: Path, entorno: Mapping[str, str], home: Path | None) -> Comprob
         return _aviso("codex", f"no se pudo leer la configuración de Codex: {exc}")
     if not isinstance(estado, dict):
         estado = {}
-    claves = {f"{r}/.codex/hooks.json:pre_tool_use:{indice}:0" for r in {str(raiz), os.path.realpath(raiz)}}
+    # La ruta como la da el SO y con «/» (en un TOML la barra invertida escapa); en Windows, también con ella.
+    claves = set()
+    for r in {str(raiz), os.path.realpath(raiz), raiz.as_posix()}:
+        claves.add(f"{r}/.codex/hooks.json:pre_tool_use:{indice}:0")
+        if "\\" in r:
+            claves.add(f"{r}\\.codex\\hooks.json:pre_tool_use:{indice}:0")
     confiado = any(isinstance(estado.get(c), dict) and estado[c].get("trusted_hash") for c in claves)
     if not confiado:
         return _fallo(

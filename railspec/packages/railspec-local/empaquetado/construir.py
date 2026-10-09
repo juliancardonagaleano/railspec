@@ -13,7 +13,7 @@ Pasos:
    vienen fijadas con hashes en ``requirements.lock``.
 2. Corre PyInstaller con ``railspec.spec``.
 
-Deja ``<salida>/railspec`` (por defecto ``empaquetado/dist/railspec``).
+Deja ``<salida>/railspec`` (``railspec.exe`` en Windows; por defecto ``empaquetado/dist/``).
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from pathlib import Path
 AQUI = Path(__file__).resolve().parent
 PAQUETES = AQUI.parent.parent  # railspec/packages
 PROPIOS = ("railspec-contracts", "railspec-local")
+NOMBRE_BINARIO = "railspec.exe" if sys.platform == "win32" else "railspec"
 IGNORAR = shutil.ignore_patterns("build", "dist", "*.egg-info", "__pycache__", "tests", "empaquetado")
 
 
@@ -58,7 +59,7 @@ def congelar(salida: Path, trabajo: Path) -> Path:
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
         "--distpath", salida, "--workpath", trabajo, AQUI / "railspec.spec",
     )  # fmt: skip
-    binario = salida / "railspec"
+    binario = salida / NOMBRE_BINARIO
     if not binario.is_file():
         raise SystemExit(f"PyInstaller no dejó {binario}")
     return binario

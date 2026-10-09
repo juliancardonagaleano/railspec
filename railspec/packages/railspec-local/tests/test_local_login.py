@@ -42,6 +42,10 @@ TOKEN = "ghu_" + "a" * 36
 REFRESCO = "ghr_" + "b" * 36
 AHORA = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 
+#: Windows no tiene bits de modo (0600…): las credenciales las protege la ACL de la carpeta de usuario.
+MODOS_POSIX = sys.platform != "win32"
+SOLO_POSIX = pytest.mark.skipif(not MODOS_POSIX, reason="los bits de modo no existen en Windows")
+
 
 # --- GitHub simulado ------------------------------------------------------------------------
 
@@ -249,11 +253,12 @@ def test_la_credencial_se_guarda_con_permisos_cerrados_y_sin_restos(tmp_path):
     almacen.guardar(URL, _credencial())
 
     carpeta = almacen.ruta.parent
-    assert stat.S_IMODE(carpeta.stat().st_mode) == 0o700
-    assert stat.S_IMODE(almacen.ruta.stat().st_mode) == 0o600
+    if MODOS_POSIX:
+        assert stat.S_IMODE(carpeta.stat().st_mode) == 0o700
+        assert stat.S_IMODE(almacen.ruta.stat().st_mode) == 0o600
     # Solo el archivo y su candado (``bloqueo``): ningún temporal ni copia del token.
     assert sorted(p.name for p in carpeta.iterdir()) == ["credenciales.json", "credenciales.json.lock"]
-    guardado = json.loads(almacen.ruta.read_text())
+    guardado = json.loads(almacen.ruta.read_text(encoding="utf-8"))
     assert guardado["version"] == 1 and guardado["servidores"][URL]["access_token"] == TOKEN
     leida = almacen.leer(URL)
     assert leida == _credencial()
@@ -283,6 +288,7 @@ def test_borrar_quita_solo_ese_servidor_y_el_archivo_cuando_queda_vacio(tmp_path
     assert almacen.borrar(URL) is False  # sin archivo tampoco falla
 
 
+@SOLO_POSIX
 def test_un_archivo_legible_por_otros_se_cierra_al_leerlo(tmp_path):
     almacen = credenciales.AlmacenCredenciales(tmp_path / "c.json")
     almacen.guardar(URL, _credencial())
@@ -292,6 +298,7 @@ def test_un_archivo_legible_por_otros_se_cierra_al_leerlo(tmp_path):
     assert stat.S_IMODE(almacen.ruta.stat().st_mode) == 0o600
 
 
+@SOLO_POSIX
 def test_si_no_se_pueden_cerrar_los_permisos_no_se_usa_la_credencial(tmp_path, monkeypatch):
     almacen = credenciales.AlmacenCredenciales(tmp_path / "c.json")
     almacen.guardar(URL, _credencial())
@@ -337,6 +344,7 @@ def test_el_vencimiento_deja_un_margen_para_no_mandar_un_token_a_punto_de_caduca
 
 def test_la_ruta_por_defecto_sigue_xdg_y_se_puede_fijar(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "casa"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "casa"))  # Path.home() en Windows
     assert (
         credenciales.ruta_por_defecto({}) == tmp_path / "casa" / ".config" / "railspec" / "credenciales.json"
     )
@@ -500,7 +508,8 @@ def test_login_guarda_la_sesion_y_no_deja_ver_ningun_token(entorno, monkeypatch,
     assert guardada.refresh_token == REFRESCO
     assert guardada.refresh_expira_en - guardada.obtenido_en == timedelta(seconds=15811200)
     assert REFRESCO not in repr(guardada)
-    assert stat.S_IMODE(entorno.ruta.stat().st_mode) == 0o600
+    if MODOS_POSIX:
+        assert stat.S_IMODE(entorno.ruta.stat().st_mode) == 0o600
 
 
 def test_login_con_tokens_que_vencen_pero_sin_refresh_token_avisa_que_no_se_renovara(

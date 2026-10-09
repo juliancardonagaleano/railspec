@@ -35,7 +35,7 @@ def test_instalar_codex_preserva_lo_ajeno_y_es_idempotente(tmp_path):
             "AGENTS.md",
         ]
     )
-    texto = (tmp_path / ".codex" / "config.toml").read_text()
+    texto = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
     assert texto.startswith(CONFIG_AJENA)
     config = tomllib.loads(texto)
     assert config["model"] == "gpt-5" and config["mcp_servers"]["otro"] == {"command": "otro"}
@@ -45,14 +45,14 @@ def test_instalar_codex_preserva_lo_ajeno_y_es_idempotente(tmp_path):
     modos = {t: v["approval_mode"] for t, v in railspec["tools"].items()}
     assert {t for t, m in modos.items() if m == "approve"} == set(adaptadores.TOOLS_AUTOMATICAS)
     assert {t for t, m in modos.items() if m == "prompt"} == set(adaptadores.TOOLS_HUMANAS)
-    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text()
+    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
 
     assert adaptadores.instalar(tmp_path, Arnes.codex) == []
     assert adaptadores.verificar(tmp_path, Arnes.codex) == []
     assert adaptadores.instalados(tmp_path) == [Arnes.codex]
 
     adaptadores.desinstalar(tmp_path, Arnes.codex)
-    assert (tmp_path / ".codex" / "config.toml").read_text() == CONFIG_AJENA
+    assert (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8") == CONFIG_AJENA
     assert not (tmp_path / ".agents").exists() and not (tmp_path / "AGENTS.md").exists()
 
 
@@ -75,16 +75,16 @@ def test_codex_no_pisa_un_servidor_railspec_definido_a_mano(tmp_path):
 def test_codex_detecta_deriva_y_la_corrige(tmp_path):
     adaptadores.instalar(tmp_path, Arnes.codex)
     ruta = tmp_path / ".codex" / "config.toml"
-    ruta.write_text(ruta.read_text().replace('"approve"', '"prompt"', 1))
+    ruta.write_text(ruta.read_text(encoding="utf-8").replace('"approve"', '"prompt"', 1))
     assert adaptadores.verificar(tmp_path, Arnes.codex) == [".codex/config.toml"]
     assert adaptadores.instalar(tmp_path, Arnes.codex) == [".codex/config.toml"]
-    assert ruta.read_text().count(codex.INICIO_TOML) == 1
+    assert ruta.read_text(encoding="utf-8").count(codex.INICIO_TOML) == 1
     assert adaptadores.verificar(tmp_path, Arnes.codex) == []
 
 
 def test_skill_de_arranque_de_codex_sale_del_comando_canonico(tmp_path):
     adaptadores.instalar(tmp_path, Arnes.codex)
-    skill = (tmp_path / ".agents" / "skills" / "railspec" / "SKILL.md").read_text()
+    skill = (tmp_path / ".agents" / "skills" / "railspec" / "SKILL.md").read_text(encoding="utf-8")
     cabecera = frontmatter(skill)
     assert cabecera[0] == "name: railspec" and cabecera[1].startswith("description: ")
     assert not any(linea.startswith("argument-hint") for linea in cabecera)
@@ -104,15 +104,19 @@ def test_instalar_copilot_comparte_mcp_json_y_aprueba_solo_el_bucle(tmp_path):
             "AGENTS.md",
         ]
     )
-    mcp = json.loads((tmp_path / ".mcp.json").read_text())
+    mcp = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
     assert mcp == {"mcpServers": {"railspec": {"type": "stdio", "command": "railspec", "args": ["mcp"]}}}
     for nombre in ("railspec", "railspec-bucle"):
-        cabecera = frontmatter((tmp_path / ".github" / "skills" / nombre / "SKILL.md").read_text())
+        cabecera = frontmatter(
+            (tmp_path / ".github" / "skills" / nombre / "SKILL.md").read_text(encoding="utf-8")
+        )
         assert cabecera[0] == f"name: {nombre}"
         permitidas = [linea.strip()[2:] for linea in cabecera if linea.startswith("  - ")]
         assert permitidas == [f"railspec({t})" for t in adaptadores.TOOLS_AUTOMATICAS]
         assert not any(t in linea for t in adaptadores.TOOLS_HUMANAS for linea in cabecera)
-    arranque = frontmatter((tmp_path / ".github" / "skills" / "railspec" / "SKILL.md").read_text())
+    arranque = frontmatter(
+        (tmp_path / ".github" / "skills" / "railspec" / "SKILL.md").read_text(encoding="utf-8")
+    )
     assert any(linea.startswith("argument-hint:") for linea in arranque)
     assert adaptadores.instalar(tmp_path, Arnes.copilot) == []
     assert adaptadores.verificar(tmp_path, Arnes.copilot) == []
@@ -125,14 +129,14 @@ def test_piezas_compartidas_sobreviven_a_desinstalar_un_solo_arnes(tmp_path):
 
     # .mcp.json lo comparten Claude Code y Copilot; AGENTS.md, OpenCode, Codex y Copilot.
     adaptadores.desinstalar(tmp_path, Arnes.copilot, tmp_path.parent / "wt")
-    assert "railspec" in json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]
-    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text()
+    assert "railspec" in json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert not (tmp_path / ".github").exists()
     assert Arnes.copilot not in adaptadores.instalados(tmp_path)
     assert adaptadores.verificar(tmp_path, Arnes.claude_code, tmp_path.parent / "wt") == []
 
     adaptadores.desinstalar(tmp_path, Arnes.opencode, tmp_path.parent / "wt")
-    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text()
+    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     adaptadores.desinstalar(tmp_path, Arnes.codex, tmp_path.parent / "wt")
     assert not (tmp_path / "AGENTS.md").exists()
     adaptadores.desinstalar(tmp_path, Arnes.claude_code, tmp_path.parent / "wt")
@@ -176,7 +180,7 @@ def test_cli_desinstalar_todo_no_deja_piezas_compartidas(tmp_path, capsys):
 )
 def test_el_arranque_acepta_perfil_en_todos_los_arneses(tmp_path, arnes, ruta):
     adaptadores.instalar(tmp_path, arnes)
-    texto = (tmp_path / ruta).read_text()
+    texto = (tmp_path / ruta).read_text(encoding="utf-8")
     assert "`--perfil` con `ligero`, `estandar` o `profundo`" in texto
     assert "Pasa `perfil` solo si" in texto
 

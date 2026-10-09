@@ -9,13 +9,13 @@ el id de la orden; ``<orden>.enviado`` marca que ya salió al menos una vez.
 avisado como ``commit.empujado``.
 
 Cada escritura es atómica (archivo temporal + ``rename``) y las secciones de
-lectura-modificación-escritura se serializan con un ``flock`` para que dos
-procesos del proxy sobre la misma unidad no se pisen.
+lectura-modificación-escritura se serializan con un candado de archivo para que dos
+procesos del proxy sobre la misma unidad no se pisen (``fcntl`` en POSIX, ``msvcrt`` en Windows: ver
+``plataforma.py``).
 """
 
 from __future__ import annotations
 
-import fcntl
 import os
 import socket
 from collections.abc import Iterator
@@ -28,6 +28,7 @@ from railspec.contracts.estado import BloqueoInstancia, EstadoLocal
 from railspec.contracts.reporte import ReporteOrden
 
 from .errores import UnidadEnUso
+from .plataforma import pid_vivo, soltar_candado, tomar_candado
 
 DIR = Path(".railspec")
 ARCHIVO_ESTADO = DIR / "estado-local.json"
@@ -54,16 +55,6 @@ def _escribir_atomico(ruta: Path, contenido: str) -> None:
     os.replace(tmp, ruta)
 
 
-def _pid_vivo(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 class Almacen:
     def __init__(self, worktree: Path) -> None:
         self.worktree = worktree
@@ -85,12 +76,15 @@ class Almacen:
     def cerrojo(self) -> Iterator[None]:
         ruta = self.worktree / ARCHIVO_CERROJO
         ruta.parent.mkdir(parents=True, exist_ok=True)
-        with ruta.open("a") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
+        fd = os.open(ruta, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            tomar_candado(fd)
             try:
                 yield
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
+                soltar_candado(fd)
+        finally:
+            os.close(fd)
 
     # --- una sesión por unidad y máquina ---------------------------------------
 
@@ -98,7 +92,7 @@ class Almacen:
         pid = pid or os.getpid()
         host = socket.gethostname()
         actual = estado.bloqueo
-        if actual is not None and actual.pid != pid and actual.host == host and _pid_vivo(actual.pid):
+        if actual is not None and actual.pid != pid and actual.host == host and pid_vivo(actual.pid):
             raise UnidadEnUso(
                 f"La unidad {estado.unidad.unidad} ya la atiende otra sesión del proxy (pid {actual.pid}). "
                 "Ciérrala o usa esa sesión."

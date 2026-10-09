@@ -28,10 +28,10 @@ def test_instalar_claude_code_preserva_lo_ajeno_y_es_idempotente(tmp_path):
             "CLAUDE.md",
         ]
     )
-    mcp = json.loads((tmp_path / ".mcp.json").read_text())
+    mcp = json.loads((tmp_path / ".mcp.json").read_text(encoding="utf-8"))
     assert mcp["mcpServers"]["otro"] == {"type": "stdio", "command": "x"}
     assert mcp["mcpServers"]["railspec"] == {"type": "stdio", "command": "railspec", "args": ["mcp"]}
-    claude = (tmp_path / "CLAUDE.md").read_text()
+    claude = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
     assert claude.startswith("# Proyecto\n\nNotas propias.\n")
     assert claude.count(adaptadores.INICIO_BLOQUE) == 1
 
@@ -45,7 +45,7 @@ def test_bloque_de_reglas_se_reemplaza_en_su_sitio(tmp_path):
         f"antes\n{adaptadores.INICIO_BLOQUE}\nviejo\n{adaptadores.FIN_BLOQUE}\ndespués\n", encoding="utf-8"
     )
     adaptadores.instalar(tmp_path, Arnes.claude_code)
-    texto = ruta.read_text()
+    texto = ruta.read_text(encoding="utf-8")
     assert texto.startswith("antes\n") and texto.endswith("después\n") and "viejo" not in texto
     assert "Railspec: reglas de conducta" in texto
 
@@ -58,13 +58,15 @@ def test_instalar_opencode_lee_jsonc_con_comentarios(tmp_path):
         encoding="utf-8",
     )
     adaptadores.instalar(tmp_path, Arnes.opencode)
-    datos = adaptadores.leer_jsonc((tmp_path / "opencode.jsonc").read_text())
+    datos = adaptadores.leer_jsonc((tmp_path / "opencode.jsonc").read_text(encoding="utf-8"))
     assert datos["mcp"]["pce"]["command"] == ["sh", "x // no es comentario"]
     assert datos["mcp"]["railspec"] == {"type": "local", "command": ["railspec", "mcp"], "enabled": True}
     assert (tmp_path / ".opencode" / "skills" / "railspec-bucle" / "SKILL.md").is_file()
-    assert "argument-hint" not in (tmp_path / ".opencode" / "commands" / "railspec.md").read_text()
+    assert "argument-hint" not in (tmp_path / ".opencode" / "commands" / "railspec.md").read_text(
+        encoding="utf-8"
+    )
     assert datos["permission"] == {f"railspec_{t}": "ask" for t in adaptadores.TOOLS_HUMANAS}
-    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text()
+    assert adaptadores.INICIO_BLOQUE in (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert adaptadores.verificar(tmp_path, Arnes.opencode) == []
 
 
@@ -78,7 +80,7 @@ def test_json_invalido_no_se_pisa(tmp_path):
     (tmp_path / ".mcp.json").write_text("{ roto", encoding="utf-8")
     with pytest.raises(Exception, match="no es JSON válido"):
         adaptadores.instalar(tmp_path, Arnes.claude_code)
-    assert (tmp_path / ".mcp.json").read_text() == "{ roto"
+    assert (tmp_path / ".mcp.json").read_text(encoding="utf-8") == "{ roto"
 
 
 def test_cli_instalar_escribe_config_y_adaptadores(tmp_path, capsys):
@@ -224,7 +226,7 @@ def test_claude_code_permite_el_bucle_y_pregunta_lo_humano(tmp_path):
     worktrees = tmp_path.parent / "repo.railspec"
     adaptadores.instalar(tmp_path, Arnes.claude_code, worktrees)
 
-    ajustes = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    ajustes = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert ajustes["hooks"] == {"Stop": [], "PreToolUse": [adaptadores.HOOK_CLAUDE_CODE]}
     assert ajustes["permissions"]["allow"][0] == "Bash(npm test)"
     assert "mcp__railspec__unit_advance" in ajustes["permissions"]["allow"]
@@ -235,7 +237,7 @@ def test_claude_code_permite_el_bucle_y_pregunta_lo_humano(tmp_path):
         "mcp__railspec__mandate_revoke",
     ]
     assert not set(ajustes["permissions"]["allow"]) & set(ajustes["permissions"]["ask"])
-    local = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
+    local = json.loads((tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
     assert local == {
         "enabledMcpjsonServers": ["railspec"],
         "permissions": {"additionalDirectories": [str(worktrees)]},
@@ -279,7 +281,7 @@ def test_desinstalar_claude_code_devuelve_los_archivos_a_como_estaban(tmp_path):
 
     assert ".claude/settings.local.json" in cambios
     for ruta, texto in originales.items():
-        assert (tmp_path / ruta).read_text() == texto, ruta
+        assert (tmp_path / ruta).read_text(encoding="utf-8") == texto, ruta
     assert not (tmp_path / ".claude" / "skills").exists()
     assert not (tmp_path / ".claude" / "settings.local.json").exists()
     assert adaptadores.instalados(tmp_path) == []
@@ -299,10 +301,10 @@ def test_bloque_de_reglas_sale_de_en_medio_y_del_principio(tmp_path):
     bloque = adaptadores.BloqueReglas("AGENTS.md", "reglas")
     reglas.write_text(f"antes\n{bloque.bloque}después\n", encoding="utf-8")
     assert bloque.desinstalar(tmp_path)
-    assert reglas.read_text() == "antes\ndespués\n"
+    assert reglas.read_text(encoding="utf-8") == "antes\ndespués\n"
     reglas.write_text(f"{bloque.bloque}\n# Resto\n", encoding="utf-8")
     assert bloque.desinstalar(tmp_path)
-    assert reglas.read_text() == "# Resto\n"
+    assert reglas.read_text(encoding="utf-8") == "# Resto\n"
 
 
 def test_opencode_fusiona_en_opencode_json_existente(tmp_path):
@@ -311,7 +313,7 @@ def test_opencode_fusiona_en_opencode_json_existente(tmp_path):
     )
     cambios = adaptadores.instalar(tmp_path, Arnes.opencode)
     assert "opencode.json" in cambios and not (tmp_path / "opencode.jsonc").exists()
-    datos = json.loads((tmp_path / "opencode.json").read_text())
+    datos = json.loads((tmp_path / "opencode.json").read_text(encoding="utf-8"))
     # `"permission": "allow"` es la abreviatura de `{"*": "allow"}`; la última regla que coincide gana.
     assert datos["permission"] == {
         "*": "allow",
@@ -320,7 +322,7 @@ def test_opencode_fusiona_en_opencode_json_existente(tmp_path):
     assert datos["model"] == "azure/gpt-5"
 
     adaptadores.desinstalar(tmp_path, Arnes.opencode)
-    datos = json.loads((tmp_path / "opencode.json").read_text())
+    datos = json.loads((tmp_path / "opencode.json").read_text(encoding="utf-8"))
     assert datos == {
         "$schema": "https://opencode.ai/config.json",
         "model": "azure/gpt-5",
@@ -337,13 +339,13 @@ def test_opencode_respeta_permiso_editado_y_quita_rutas_antiguas(tmp_path):
     assert not (tmp_path / ".opencode" / "skill").exists()
 
     ruta = tmp_path / "opencode.jsonc"
-    datos = adaptadores.leer_jsonc(ruta.read_text())
+    datos = adaptadores.leer_jsonc(ruta.read_text(encoding="utf-8"))
     datos["permission"]["railspec_unit_integrate"] = "deny"
     ruta.write_text(json.dumps(datos), encoding="utf-8")
     assert adaptadores.verificar(tmp_path, Arnes.opencode) == ["opencode.jsonc"]
 
     adaptadores.desinstalar(tmp_path, Arnes.opencode)
-    assert adaptadores.leer_jsonc(ruta.read_text()) == {
+    assert adaptadores.leer_jsonc(ruta.read_text(encoding="utf-8")) == {
         "$schema": "https://opencode.ai/config.json",
         "permission": {"railspec_unit_integrate": "deny"},
     }
@@ -361,7 +363,7 @@ def test_cli_instalar_y_desinstalar_deja_el_arbol_limpio(tmp_path, capsys, monke
     assert cli.main(base) == 0
     salida = json.loads(capsys.readouterr().out)
     assert "avisos" not in salida or not any("OpenCode" in a for a in salida["avisos"])
-    local = json.loads((raiz / ".claude" / "settings.local.json").read_text())
+    local = json.loads((raiz / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
     assert local["permissions"]["additionalDirectories"] == [str(tmp_path / "repo.railspec")]
     # La configuración por máquina no aparece como cambio a versionar.
     pendientes = sh(raiz, "status", "--porcelain", "--untracked-files=all")

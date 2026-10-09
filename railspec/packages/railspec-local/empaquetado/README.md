@@ -11,6 +11,7 @@ cómo se descarga, verifica y publica: sección "Binario autocontenido" de `rail
 | `construir.py` | Instala railspec-contracts y railspec-local desde una copia temporal y corre PyInstaller. |
 | `humo.py` | Humo del binario ya construido; solo biblioteca estándar. |
 | `requirements.in` / `requirements.lock` | Dependencias de terceros, fijadas con hashes. |
+| `requirements-windows.lock` | Lo que solo existe en Windows (`pefile`, `pywin32`…), con hashes; se mantiene a mano. |
 | `bloquear.sh` | Regenera el lock (Docker, misma imagen base que railspec-server). |
 
 ## Construir en local
@@ -24,6 +25,16 @@ python3.11 -m venv /tmp/railspec-binario
 /tmp/railspec-binario/bin/python railspec/packages/railspec-local/empaquetado/construir.py
 python3 railspec/packages/railspec-local/empaquetado/humo.py \
   railspec/packages/railspec-local/empaquetado/dist/railspec
+```
+
+En Windows (PowerShell, Python 3.11) se instala además `requirements-windows.lock` y el binario sale como
+`railspec.exe`:
+
+```
+py -3.11 -m venv $env:TEMP\railspec-binario
+& $env:TEMP\railspec-binario\Scripts\pip install --require-hashes --no-deps `
+  -r railspec\packages\railspec-local\empaquetado\requirements.lock `
+  -r railspec\packages\railspec-local\empaquetado\requirements-windows.lock
 ```
 
 El binario queda en `empaquetado/dist/railspec` (~22 MB) y el directorio de

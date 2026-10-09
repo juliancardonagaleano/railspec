@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import stat
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -80,6 +81,7 @@ def mundo(tmp_path, monkeypatch):
     for variable in ("XDG_CONFIG_HOME", "CODEX_HOME", config.ENV_WORKTREES, config.ENV_CREDENCIALES):
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() en Windows
     monkeypatch.setattr(doctor, "shutil", SimpleNamespace(which=lambda c: f"/usr/local/bin/{c}"))
     monkeypatch.setattr(
         indexador_cbm,
@@ -127,6 +129,7 @@ def test_todo_en_orden(mundo):
     assert not doctor.hay_fallos(list(resultado.values()))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="los bits de modo no existen en Windows")
 def test_solo_lee_no_escribe_nada(mundo):
     mundo.instalar(Arnes.claude_code)
     mundo.instalar(Arnes.codex)
@@ -320,7 +323,11 @@ def test_las_tools_esperadas_son_las_que_el_proxy_llama():
     fuentes = Path(doctor.__file__).parent
     usadas = set()
     for archivo in ("proxy.py", "portabilidad.py"):
-        usadas |= set(re.findall(r'"((?:unit|sync|graph|insumo)\.[a-z_]+)"', (fuentes / archivo).read_text()))
+        usadas |= set(
+            re.findall(
+                r'"((?:unit|sync|graph|insumo)\.[a-z_]+)"', (fuentes / archivo).read_text(encoding="utf-8")
+            )
+        )
     assert {t.replace(".", "_") for t in usadas} <= doctor.TOOLS_ESPERADAS
 
 
@@ -358,7 +365,7 @@ def test_adaptador_del_usuario_tambien_se_verifica(mundo):
 
 
 def _confiar(mundo, indice: int) -> None:
-    clave = f"{mundo.raiz}/.codex/hooks.json:pre_tool_use:{indice}:0"
+    clave = f"{mundo.raiz.as_posix()}/.codex/hooks.json:pre_tool_use:{indice}:0"
     codex = mundo.home / ".codex"
     codex.mkdir(exist_ok=True)
     (codex / "config.toml").write_text(
@@ -392,7 +399,7 @@ def test_hook_de_codex_confiado(mundo):
 def test_la_confianza_es_del_indice_del_hook_en_hooks_json(mundo):
     mundo.instalar(Arnes.codex)
     ruta = mundo.raiz / ".codex" / "hooks.json"
-    datos = json.loads(ruta.read_text())
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
     ajeno = {"matcher": "shell", "hooks": [{"type": "command", "command": "otro-hook"}]}
     datos["hooks"]["PreToolUse"].insert(0, ajeno)
     ruta.write_text(json.dumps(datos), encoding="utf-8")
@@ -408,7 +415,7 @@ def test_codex_respeta_codex_home(mundo, tmp_path):
     mundo.instalar(Arnes.codex)
     otra = tmp_path / "codex-casa"
     otra.mkdir()
-    clave = f"{mundo.raiz}/.codex/hooks.json:pre_tool_use:0:0"
+    clave = f"{mundo.raiz.as_posix()}/.codex/hooks.json:pre_tool_use:0:0"
     (otra / "config.toml").write_text(
         f'[hooks.state."{clave}"]\ntrusted_hash = "sha256:abc"\n', encoding="utf-8"
     )
@@ -487,7 +494,7 @@ def test_carpeta_suelta_con_estado_de_este_repositorio(mundo):
     shutil.copytree(worktree, suelta, symlinks=True)
     ajena = worktree.parent / "0009-otro-repo"
     shutil.copytree(worktree, ajena, symlinks=True)
-    estado = json.loads((ajena / ARCHIVO_ESTADO).read_text())
+    estado = json.loads((ajena / ARCHIVO_ESTADO).read_text(encoding="utf-8"))
     estado["repositorio"] = "otro-repo"
     (ajena / ARCHIVO_ESTADO).write_text(json.dumps(estado), encoding="utf-8")
 

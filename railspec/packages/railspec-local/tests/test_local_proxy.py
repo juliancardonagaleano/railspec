@@ -77,7 +77,7 @@ def test_bucle_completo_restringido(tmp_path):
     # En restringido la salida de la validación no sale del clon, pero queda en local.
     assert reporte.validacion is not None and reporte.validacion.salida == ""
     assert reporte.validacion.codigo_salida == 0
-    assert "2 passed" in Path(resultado["validacion"]["log"]).read_text()
+    assert "2 passed" in Path(resultado["validacion"]["log"]).read_text(encoding="utf-8")
 
     estado = Almacen(worktree).leer()
     assert estado.cola_pendiente == [] and estado.orden_en_curso is None

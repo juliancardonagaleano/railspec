@@ -335,7 +335,7 @@ def test_una_ruta_fuera_de_las_del_mandato_falla_antes_de_reportar(tmp_path):
 def test_rutas_dentro_del_mandato_o_sin_rutas_pasan(tmp_path):
     for rutas in (["src/**"], []):
         servidor = ServidorDoble([_orden_con_mandato(rutas)])
-        proxy, worktree = _arrancar(tmp_path / ("con" if rutas else "sin"), servidor)
+        proxy, worktree = _arrancar(tmp_path / ("dentro" if rutas else "sin"), servidor)
         correr(proxy.avanzar())
         (worktree / "src" / "calc.py").write_text(CORREGIDO, encoding="utf-8")
         assert correr(proxy.reportar(tareas_completadas=["T-01"]))["aceptado"] is True

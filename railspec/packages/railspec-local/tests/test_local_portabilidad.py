@@ -134,14 +134,14 @@ def test_paquete_en_disco_ida_y_vuelta_y_detecta_ediciones(tmp_path):
     )
     destino = portabilidad.escribir_paquete(conversion, tmp_path / "paquete")
 
-    manifiesto = json.loads((destino / "unidad.json").read_text())
+    manifiesto = json.loads((destino / "unidad.json").read_text(encoding="utf-8"))
     assert manifiesto["formato"] == "railspec.unidad/v1"
     assert manifiesto["artefactos"]["spec"] == {
         "archivo": "spec.md",
         "sha256": conversion.paquete.artefactos.spec.sha256,
     }
     assert "contenido" not in json.dumps(manifiesto)
-    assert (destino / "borradores" / "tasks.md").read_text() == TAREAS
+    assert (destino / "borradores" / "tasks.md").read_text(encoding="utf-8") == TAREAS
     leida = portabilidad.leer_paquete(destino)
     assert leida.paquete == conversion.paquete and leida.borradores == conversion.borradores
     assert portabilidad.leer_origen(destino).paquete == conversion.paquete
@@ -173,9 +173,9 @@ def test_importar_registra_con_unit_import_y_siembra_los_artefactos(tmp_path):
     assert resultado["fase"] == "tasks" and resultado["ya_existia"] is False
     assert resultado["aprobados"] == ["spec", "plan"] and resultado["borradores"] == ["tasks"]
     carpeta = Path(resultado["worktree"]) / ".railspec" / "unidades" / "0001-sumar"
-    assert (carpeta / "spec.md").read_text() == SPEC
-    assert (carpeta / "plan.md").read_text() == PLAN
-    assert (carpeta / "tasks.md").read_text() == TAREAS
+    assert (carpeta / "spec.md").read_text(encoding="utf-8") == SPEC
+    assert (carpeta / "plan.md").read_text(encoding="utf-8") == PLAN
+    assert (carpeta / "tasks.md").read_text(encoding="utf-8") == TAREAS
     assert proxy.unidades_locales() == {"0001-sumar": Path(resultado["worktree"])}
 
     # El servidor es idempotente por origen: la segunda vez no abre otro worktree.

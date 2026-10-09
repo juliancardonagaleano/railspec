@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from . import plataforma
 from .errores import ErrorRailspec
 
 ENV_MODELO = "RAILSPEC_MODELO_EMBEDDINGS"
@@ -94,7 +95,9 @@ MODELOS: dict[str, Modelo] = {
 def directorio_modelos() -> Path:
     base = Path(os.environ.get("XDG_DATA_HOME") or "")
     if not base.is_absolute():  # la especificación XDG manda ignorar una ruta relativa
-        base = Path.home() / ".local" / "share"
+        local = Path(os.environ.get("LOCALAPPDATA") or "")
+        # En Windows los datos de aplicación viven en %LOCALAPPDATA%.
+        base = local if plataforma.ES_WINDOWS and local.is_absolute() else Path.home() / ".local" / "share"
     return base / "railspec" / "modelos"
 
 

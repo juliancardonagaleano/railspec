@@ -5,7 +5,9 @@
 # Receta, lock y humo: railspec/packages/railspec-local/empaquetado/.
 # También comprueba, en cada plataforma, que la versión fijada de codebase-memory-mcp
 # (VERSION_FIJA en railspec/local/indexador_cbm.py) se instala y arranca.
-# Windows no: el proxy usa fcntl.
+# Los binarios de macOS y Windows salen SIN FIRMAR (ni notarización de Apple ni Authenticode): el
+# sistema avisa la primera vez; cómo aprobarlo está en railspec/docs/proxy-local.md.
+# El job «pruebas (windows)» corre la suite de railspec-local en Windows, que es nativo (sin WSL).
 name: railspec-binario
 
 on:
@@ -34,6 +36,11 @@ concurrency:
 env:
   EMPAQUETADO: railspec/packages/railspec-local/empaquetado
 
+defaults:
+  run:
+    # Los pasos están escritos para bash; en los runners de Windows el shell por defecto es PowerShell.
+    shell: bash
+
 jobs:
   binario:
     name: binario (${{ matrix.plataforma }})
@@ -54,6 +61,10 @@ jobs:
           # macos-13 se retiró; macos-15-intel es la imagen x86_64 vigente.
           - plataforma: macos-x86_64
             runner: macos-15-intel
+          # Sin firmar (ver arriba). Windows en ARM queda fuera por ahora.
+          - plataforma: windows-x86_64
+            runner: windows-2022
+            extension: .exe
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,10 +82,14 @@ jobs:
           echo "OPENSSL_STATIC=1" >> "$GITHUB_ENV"
       - name: Instalar dependencias fijadas (con hashes)
         run: python -m pip install --require-hashes --no-deps -r "$EMPAQUETADO/requirements.lock"
+      # pip-compile resuelve en Linux y descarta lo que solo existe en Windows (pefile, pywin32…).
+      - name: Instalar dependencias fijadas solo de Windows (con hashes)
+        if: runner.os == 'Windows'
+        run: python -m pip install --require-hashes --no-deps -r "$EMPAQUETADO/requirements-windows.lock"
       - name: Construir
         run: python "$EMPAQUETADO/construir.py" --salida dist --trabajo "$RUNNER_TEMP/pyinstaller"
       - name: Humo
-        run: python "$EMPAQUETADO/humo.py" dist/railspec
+        run: python "$EMPAQUETADO/humo.py" "dist/railspec${{ matrix.extension }}"
       - name: Indexador fijado (codebase-memory-mcp)
         # Con las fuentes en PYTHONPATH: es el mismo código con el que el proxy decide, al arrancar,
         # si el binario del indexador sirve. Para subir la versión se cambia VERSION_FIJA.
@@ -88,18 +103,44 @@ jobs:
         run: otool -l dist/railspec | grep -A3 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX' | head -8
       - name: Nombrar por plataforma
         run: |
-          mv dist/railspec "dist/railspec-${{ matrix.plataforma }}"
+          mv "dist/railspec${{ matrix.extension }}" "dist/railspec-${{ matrix.plataforma }}${{ matrix.extension }}"
           ls -l dist
       - uses: actions/upload-artifact@v4
         with:
           name: railspec-${{ matrix.plataforma }}
-          path: dist/railspec-${{ matrix.plataforma }}
+          path: dist/railspec-${{ matrix.plataforma }}${{ matrix.extension }}
           if-no-files-found: error
           retention-days: 14
 
+  pruebas-windows:
+    name: pruebas (windows)
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar
+        run: >-
+          python -m pip install
+          -e railspec/packages/railspec-contracts -e "railspec/packages/railspec-local[embeddings]"
+          pytest
+      - name: Indexador fijado (codebase-memory-mcp)
+        run: |
+          python -m pip install "codebase-memory-mcp==$(python -m railspec.local.indexador_cbm)"
+          python -m railspec.local.indexador_cbm --verificar
+      - name: Configurar git para las pruebas que crean repositorios
+        run: |
+          git config --global user.email "ci@railspec.invalid"
+          git config --global user.name "railspec-ci"
+          git config --global init.defaultBranch master
+      - name: Probar
+        run: python -m pytest -c railspec/pyproject.toml --rootdir railspec railspec/packages/railspec-local
+
   release:
     if: startsWith(github.ref, 'refs/tags/railspec-local-v')
-    needs: binario
+    needs: [binario, pruebas-windows]
     runs-on: ubuntu-22.04
     permissions:
       contents: write   # gh release create
@@ -132,4 +173,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/railspec-* dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --title "railspec-local $VERSION" \
-            --notes "Binario autocontenido de \`railspec\` (proxy local). Instalación y verificación: railspec/docs/proxy-local.md."
+            --notes "Binario autocontenido de \`railspec\` (proxy local). Instalación y verificación: railspec/docs/proxy-local.md. Los binarios de macOS y Windows no están firmados: la primera vez, Gatekeeper o SmartScreen avisan; cómo aprobarlo está en la misma guía."
