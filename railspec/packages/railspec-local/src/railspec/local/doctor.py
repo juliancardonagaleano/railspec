@@ -554,10 +554,14 @@ async def diagnosticar(
     resultado.append(comprobacion)
     resultado.append(_comando())
 
-    url = env.get(config.ENV_URL) or None
+    url_entorno = env.get(config.ENV_URL) or None
+    url = url_entorno or (repo.servidor if repo is not None else None)
     fuente = (
         FuenteToken(
-            url, env.get(config.ENV_TOKEN), AlmacenCredenciales(entorno=env, cerrar_permisos=False), ahora
+            url,
+            env.get(config.ENV_TOKEN) if url_entorno else None,  # ver ``config.cargar``
+            AlmacenCredenciales(entorno=env, cerrar_permisos=False),
+            ahora,
         )
         if url
         else None

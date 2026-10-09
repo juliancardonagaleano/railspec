@@ -588,6 +588,7 @@ def _recetas() -> dict[str, tuple[Any, str]]:
         ),
         "AlmacenConsola.vinculos": (lambda c: k(c).vinculos(ORG, WS), "ws"),
         "AlmacenConsola.vinculo": (lambda c: k(c).vinculo(c.repo), "ws"),
+        "AlmacenConsola.vinculos_de_orgs": (lambda c: k(c).vinculos_de_orgs([ORG]), "org"),
         "AlmacenConsola.guardar_vinculo": (lambda c: k(c).guardar_vinculo(c.config["vinculo"], 1), "ws"),
         "AlmacenConsola.borrar_vinculo": (lambda c: k(c).borrar_vinculo(c.repo), "ws"),
         "AlmacenConsola.perfiles": (lambda c: k(c).perfiles(ORG, WS), "ws"),

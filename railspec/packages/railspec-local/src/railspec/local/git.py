@@ -56,6 +56,33 @@ def arbol_vacio(repo: Path) -> str:
     return git(repo, "hash-object", "-t", "tree", "--stdin", entrada=b"").decode("utf-8").strip()
 
 
+_REMOTO_GITHUB = re.compile(
+    r"(?:https://(?:[^/@\s]+@)?github\.com/|ssh://git@github\.com(?::22)?/|git@github\.com:)"
+    r"(?P<owner>[A-Za-z0-9][A-Za-z0-9-]{0,38})/(?P<repo>[A-Za-z0-9._-]{1,100}?)(?:\.git)?/?"
+)
+
+
+def url_https_de_remoto(url: str) -> str | None:
+    """``git@github.com:acme/api.git`` (o la forma https/ssh) → ``https://github.com/acme/api``.
+
+    Sin userinfo (un remoto puede llevar un token) y ``None`` si no es un remoto de GitHub.
+    """
+
+    m = _REMOTO_GITHUB.fullmatch(url.strip())
+    if m is None or set(m["repo"]) == {"."}:
+        return None
+    return f"https://github.com/{m['owner']}/{m['repo']}"
+
+
+def url_del_remoto(repo: Path, remoto: str = "origin") -> str | None:
+    """La URL https de GitHub de ``remoto``, o ``None`` si no existe o no es de GitHub."""
+
+    try:
+        return url_https_de_remoto(texto(repo, "remote", "get-url", remoto))
+    except ErrorGit:
+        return None
+
+
 def raiz_repositorio(desde: Path) -> Path:
     return Path(texto(desde, "rev-parse", "--show-toplevel"))
 

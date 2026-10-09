@@ -9,7 +9,10 @@ nombres), ``workspaces`` (los de una organización), ``roles``, ``rol``,
 de una asignación
 lo mira quien la leyó para decidir si puede tocarla) y ``asignaciones_de_sujeto``,
 que busca por persona en todas las organizaciones para armar ``GET /yo``; solo
-devuelve las asignaciones de esa persona. ``test_aislamiento_almacenes`` lista cada
+devuelve las asignaciones de esa persona. ``vinculos_de_orgs`` lee los vínculos de varias organizaciones
+a la vez (``GET /v1/repositorios/resolver``): quien lo llama solo pasa organizaciones donde la persona tiene
+alguna asignación y filtra cada vínculo por el rol que tiene en su workspace.
+``test_aislamiento_almacenes`` lista cada
 método con su regla.
 
 Las colecciones y la forma de sus claves son las de ``COLECCIONES`` en los
@@ -29,6 +32,7 @@ from __future__ import annotations
 import base64
 import json
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -197,6 +201,23 @@ class AlmacenConsola:
 
     def vinculo(self, a: AlcanceRepositorio) -> VinculoRepositorio | None:
         return self._uno("vinculos", _filtro_vinculo(a), VinculoRepositorio)
+
+    def vinculos_de_orgs(self, orgs: Iterable[str]) -> list[VinculoRepositorio]:
+        """Los vínculos de esas organizaciones (``[]`` sin organizaciones)."""
+
+        ids = sorted(set(orgs))
+        if not ids:
+            return []
+        return self._varios(
+            "vinculos",
+            {"alcance.org": {"$in": ids}},
+            VinculoRepositorio,
+            [
+                ("alcance.org", ASCENDING),
+                ("alcance.workspace", ASCENDING),
+                ("alcance.repositorio", ASCENDING),
+            ],
+        )
 
     def guardar_vinculo(self, v: VinculoRepositorio, version_esperada: int | None) -> VinculoRepositorio:
         a = v.alcance

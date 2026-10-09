@@ -45,6 +45,7 @@ from . import (
     guardia,
     plataforma,
     renovacion,
+    resolucion,
 )
 from .adaptadores import usuario
 from .almacen import EXCLUIR_DE_GIT
@@ -118,6 +119,18 @@ def _cmd_instalar(args: argparse.Namespace) -> int:
     ruta_config = raiz / config.ARCHIVO_CONFIG
     if ruta_config.is_file() and not (args.org or args.workspace or args.repositorio or args.nivel):
         repo = config.leer_config_repositorio(raiz)
+    elif not ruta_config.is_file() and not (args.org or args.workspace or args.repositorio):
+        # Sin configuración ni parámetros: el servidor dice a qué vínculo pertenece el clon.
+        vinculo, servidor = _resolver_vinculo(raiz)
+        repo = config.ConfigRepositorio(
+            org=vinculo["org"],
+            workspace=vinculo["workspace"],
+            repositorio=vinculo["repositorio"],
+            nivel_codigo=NivelCodigo(args.nivel or vinculo["nivel_codigo"]),
+            arnes=arneses[0] if arneses else None,
+            servidor=servidor,
+        )
+        config.escribir_config_repositorio(raiz, repo)
     else:
         previo = config.leer_config_repositorio(raiz) if ruta_config.is_file() else None
         org = args.org or (previo.org if previo else None)
@@ -133,6 +146,7 @@ def _cmd_instalar(args: argparse.Namespace) -> int:
             if args.nivel
             else (previo.nivel_codigo if previo else NivelCodigo.restringido),
             arnes=arneses[0] if arneses else (previo.arnes if previo else None),
+            servidor=previo.servidor if previo else None,
         )
         config.escribir_config_repositorio(raiz, repo)
     git.excluir_localmente(
@@ -144,15 +158,47 @@ def _cmd_instalar(args: argparse.Namespace) -> int:
         "nivel_codigo": repo.nivel_codigo.value,
         "cambios": cambios,
         "siguiente": (
-            f"exporta {config.ENV_URL}, inicia sesión con `railspec login` (o exporta {config.ENV_TOKEN}) "
-            "y reinicia el arnés"
+            ("" if repo.servidor else f"exporta {config.ENV_URL}, ")
+            + f"inicia sesión con `railspec login` (o exporta {config.ENV_TOKEN}) y reinicia el arnés"
         ),
     }
+    if repo.servidor:
+        salida["servidor"] = repo.servidor
     avisos = _avisos(arneses, worktrees)
     if avisos:
         salida["avisos"] = avisos
     _imprimir(salida)
     return 0
+
+
+def _resolver_vinculo(raiz: Path) -> tuple[dict[str, Any], str]:
+    """El vínculo del clon según el servidor de ``RAILSPEC_URL`` y su sesión, y la URL del servidor."""
+
+    url = _url_servidor()
+    remoto = git.url_del_remoto(raiz)
+    if remoto is None:
+        raise ConfigInvalida(
+            "El remoto `origin` del clon no es un repositorio de GitHub: pasa --org, --workspace y "
+            "--repositorio (los ves en Repositorios vinculados de la consola)."
+        )
+    fuente = renovacion.fuente_con_renovacion(
+        url, os.environ.get(config.ENV_TOKEN) or None, credenciales.AlmacenCredenciales()
+    )
+    print(f"Buscando {remoto} en {renovacion.url_base(url)}…", file=sys.stderr)
+    coincidencias = resolucion.resolver_repositorio(url, fuente.token(), remoto)
+    if not coincidencias:
+        raise ConfigInvalida(
+            f"El servidor no tiene {remoto} vinculado en ningún workspace donde tengas rol. Pide a quien "
+            "administra que lo vincule en la consola (Repositorios vinculados) o que te dé un rol, o pasa "
+            "--org, --workspace y --repositorio."
+        )
+    if len(coincidencias) > 1:
+        opciones = "; ".join(
+            f"--org {c['org']} --workspace {c['workspace']} --repositorio {c['repositorio']}"
+            for c in coincidencias
+        )
+        raise ConfigInvalida(f"{remoto} está vinculado en varios workspaces; elige uno: {opciones}.")
+    return coincidencias[0], url
 
 
 #: Dónde vale lo que instala `railspec instalar`: este repositorio o la configuración del usuario.
@@ -300,8 +346,22 @@ def _aviso(texto: str) -> None:
     print(f"railspec: {texto}", file=sys.stderr)
 
 
+def _servidor_del_repo() -> str | None:
+    """``servidor`` de ``.railspec/config.json`` del clon donde se ejecuta, si hay y es legible."""
+
+    try:
+        return config.leer_config_repositorio(git.raiz_repositorio(Path.cwd())).servidor
+    except ErrorRailspec:
+        return None
+
+
 def _url_servidor() -> str:
     url = os.environ.get(config.ENV_URL)
+    if not url:
+        url = _servidor_del_repo()
+        if url:
+            # Lo dice un archivo del repositorio, no la persona: que lo vea antes de autorizar nada.
+            _aviso(f"servidor tomado de {config.ARCHIVO_CONFIG.as_posix()}: {url}")
     if not url:
         raise ConfigInvalida(
             f"Falta {config.ENV_URL}: el endpoint MCP de railspec-server. La sesión se guarda por servidor."

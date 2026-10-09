@@ -49,6 +49,7 @@ def ensamblar(
     )
     from .api.registro import AutorizadorRoles, Registro
     from .api.renovacion import RenovadorGithub, router_renovacion
+    from .api.resolucion import router_resolucion
     from .api.superficies import aplicacion
     from .consola import montar_consola
     from .consola.almacen import AlmacenConsola
@@ -178,6 +179,7 @@ def ensamblar(
     app = aplicacion(registro, identidad, host=config.host, sondas=sondas, fondo=fondo)
     app.include_router(router_chat(servicio_chat, identidad))
     app.include_router(router_renovacion(RenovadorGithub(config.consola.github_app, cliente_github)))
+    app.include_router(router_resolucion(identidad, datos_consola))
     catalogo = getattr(proveedores, "catalogo", None)
     if catalogo is not None and catalogo.registrar is None:
         catalogo.registrar = datos_consola.guardar_estado_catalogo
